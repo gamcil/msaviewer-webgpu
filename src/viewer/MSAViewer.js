@@ -80,13 +80,23 @@ export class MSAViewer {
         }
     }
     
-    createViews() {
-        const headerRoot = this.root.querySelector("[data-part='headers']");
-        const alignmentRoot = this.root.querySelector("[data-part='viewport']");
+    createLayout() {
+        this.root.replaceChildren();
 
-        if (!headerRoot || !alignmentRoot) {
-            throw new Error("MSAViewer root is missing required header or viewport containers.");
-        }
+        const headerRoot = document.createElement("div");
+        headerRoot.className = "msa-headers";
+
+        const alignmentRoot = document.createElement("div");
+        alignmentRoot.className = "viewer-body";
+
+        this.root.appendChild(headerRoot);
+        this.root.appendChild(alignmentRoot);
+
+        return { headerRoot, alignmentRoot };
+    }
+
+    createViews() {
+        const { headerRoot, alignmentRoot } = this.createLayout();
         
         this.renderer = new MSARenderer(this.device, this.format, this.renderShaderCode);
 

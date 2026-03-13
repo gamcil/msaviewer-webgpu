@@ -1,7 +1,7 @@
 import { MSAViewer } from "../viewer/MSAViewer.js";
 
 async function main() {
-    const root = document.querySelector(".viewer-shell");
+    const root = document.getElementById("viewer");
     const fileInput = document.getElementById("file-input");
     const uploadButton = document.getElementById("upload-button");
     const schemeSelect = document.getElementById("scheme-select");
