@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="color-scheme" content="light dark">
+    <title>MSA Viewer WebGPU</title>
+    <style>
+        :root[data-theme="light"] {
+            color-scheme: light;
+        }
+        :root[data-theme="dark"] {
+            color-scheme: dark;
+        }
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            background-color: #eee;
+            color: #202020;
+            font-family: "IBM Plex Sans", sans-serif;
+        }
+        :root[data-theme="dark"] body,
+        :root[data-theme="dark"] html {
+            background-color: #202020;
+            color: #fff;
+        }
+        .toolbar {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 16px;
+        }
+        .scheme-switcher {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 10px;
+            border: 1px solid rgba(30, 30, 30, 0.12);
+            border-radius: 10px;
+            background: rgba(255, 255, 255, 0.7);
+            box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+        }
+        :root[data-theme="dark"] .scheme-switcher {
+            border-color: rgba(255, 255, 255, 0.08);
+            background: rgba(20, 20, 20, 0.9);
+            box-shadow: none;
+        }
+        .scheme-switcher label {
+            font-size: 13px;
+            font-weight: 600;
+            letter-spacing: 0.01em;
+        }
+        .scheme-switcher select {
+            appearance: none;
+            -webkit-appearance: none;
+            -moz-appearance: none;
+            min-width: 124px;
+            padding: 8px 34px 8px 12px;
+            border: 1px solid rgba(30, 30, 30, 0.12);
+            border-radius: 8px;
+            background-color: #ffffff;
+            background-image:
+                linear-gradient(45deg, transparent 50%, currentColor 50%),
+                linear-gradient(135deg, currentColor 50%, transparent 50%);
+            background-position:
+                calc(100% - 16px) calc(50% - 2px),
+                calc(100% - 11px) calc(50% - 2px);
+            background-size: 5px 5px, 5px 5px;
+            background-repeat: no-repeat;
+            color: inherit;
+            font: inherit;
+            line-height: 1.2;
+            cursor: pointer;
+            transition: border-color 120ms ease, background-color 120ms ease, box-shadow 120ms ease;
+        }
+        .scheme-switcher select:hover {
+            border-color: rgba(79, 124, 255, 0.45);
+        }
+        .scheme-switcher select:focus {
+            outline: none;
+            border-color: #4f7cff;
+            box-shadow: 0 0 0 3px rgba(79, 124, 255, 0.18);
+        }
+        :root[data-theme="dark"] .scheme-switcher select {
+            border-color: rgba(255, 255, 255, 0.1);
+            background-color: #1d2128;
+            color: #f3f6fb;
+        }
+        :root[data-theme="dark"] .scheme-switcher select:hover {
+            border-color: rgba(130, 160, 255, 0.6);
+        }
+        :root[data-theme="dark"] .scheme-switcher select:focus {
+            border-color: #82a0ff;
+            box-shadow: 0 0 0 3px rgba(130, 160, 255, 0.2);
+        }
+        .msa-headers {
+            --row-height: 16px;
+            --header-font-size: 14px;
+            position: relative;
+            flex: 0 0 auto;
+            width: fit-content;
+            max-width: 200px;
+            height: 100%;
+            overflow: hidden;
+            background-color: #f0f0f0;
+            border-right: 1px solid rgba(30, 30, 30, 0.1);
+        }
+        :root[data-theme="dark"] .msa-headers {
+            background-color: #161616;
+            border-right: 1px solid rgba(255, 255, 255, 0.08);
+        }
+        .msa-headers-track {
+            position: relative;
+            width: max-content;
+            min-width: 100%;
+            will-change: transform;
+        }
+        .msa-headers > span,
+        .msa-header-row {
+            display: flex;
+            align-items: center;
+            height: var(--row-height);
+            padding: 0 8px;
+            font-size: var(--header-font-size);
+            line-height: 1;
+            box-sizing: border-box;
+            width: max-content;
+            max-width: 200px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            font-family: "IBM Plex Mono", "IBM Plex Sans", monospace;
+        }
+        .viewer-shell {
+            position: relative;
+            width: 95vw;
+            height: 90vh;
+            border: 1px solid #555;
+            background: #fff;
+            overflow: hidden;
+            display: flex;
+        }
+        .viewer-body {
+            position: relative;
+            flex: 1 1 auto;
+            min-width: 0;
+            height: 100%;
+            overflow: hidden;
+        }
+        .msa-alignment-scroller {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            overflow: auto;
+            background:
+                linear-gradient(90deg, rgba(0, 0, 0, 0.05) 1px, transparent 1px),
+                linear-gradient(rgba(0, 0, 0, 0.05) 1px, transparent 1px),
+                #fff;
+            background-size: 16px 16px;
+        }
+        :root[data-theme="dark"] .msa-alignment-scroller {
+            background:
+                linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+                linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+                #111;
+            background-size: 16px 16px;
+        }
+        .msa-alignment-spacer {
+            width: 1px;
+            height: 1px;
+        }
+        .msa-alignment-stage {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            overflow: hidden;
+            will-change: transform;
+        }
+        .msa-alignment-canvas {
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+        button {
+            border: 0;
+            padding: 10px 14px;
+            background: #4f7cff;
+            color: #fff;
+            border-radius: 8px;
+            cursor: pointer;
+        }
+        button:hover {
+            background: #658cff;
+        }
+        canvas {
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <div class="toolbar">
+        <div class="scheme-switcher">
+            <label for="scheme-select">Color Scheme:</label>
+            <select id="scheme-select">
+                <optgroup label="Column Statistics">
+                    <option value="clustalx">ClustalX</option>
+                    <option value="pid">PID</option>
+                    <option value="blosum62">BLOSUM62</option>
+                </optgroup>
+                <optgroup label="Residue Properties">
+                    <option value="hydrophobicity">Hydrophobicity</option>
+                    <option value="zappo">Zappo</option>
+                    <option value="taylor">Taylor</option>
+                    <option value="gecosBlossom">GECOS Blossom</option>
+                    <option value="gecosSunset">GECOS Sunset</option>
+                    <option value="gecosOcean">GECOS Ocean</option>
+                    <option value="helixPropensity">Helix Propensity</option>
+                    <option value="strandPropensity">Strand Propensity</option>
+                    <option value="turnPropensity">Turn Propensity</option>
+                    <option value="buriedIndex">Buried Index</option>
+                </optgroup>
+            </select>
+        </div>
+        <div class="file-loader">
+            <button id="upload-button" type="button">Open FASTA Alignment</button>
+            <input type="file" id="file-input" accept=".fa,.fasta,.fas,.aln,.txt" hidden>
+            <span id="status">Load an alignment to begin.</span>
+        </div>
+    </div>
+    <div class="viewer-shell">
+        <div id="msaHeaders" class="msa-headers" data-part="headers"></div>
+        <div id="msaViewerBody" class="viewer-body" data-part="viewport"></div>
+    </div>
+    <script type="module" src="./app.js"></script>
+</body>
+</html>
