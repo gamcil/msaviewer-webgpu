@@ -1,7 +1,23 @@
 # msa-webgpu
 WebGPU MSA Viewer for big alignments.
 
-Very much WIP. Minimal usage:
+Very much WIP.
+
+## Local demo
+
+```bash
+npm install
+npm run dev
+```
+
+or
+
+```bash
+npm run build:demo
+npx vite preview --config vite.demo.config.js
+```
+
+## Minimal usage
 
 ```html
 <div id="viewer" class="viewer-shell"></div>

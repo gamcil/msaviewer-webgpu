@@ -6,7 +6,11 @@ import { MSARenderer } from "../graphics/pipelines/MSARenderer.js";
 import { ColumnProfileCompute } from "../graphics/pipelines/ColumnProfileCompute.js";
 import { BLOSUM62 } from "../graphics/data/blosum62.js";
 import { SCHEMES } from "../schemes/registry.js";
-import { loadText, parseFastaAlignment, loadImageBitmap, expandAlignmentForGpu } from "../util.js";
+import { parseFastaAlignment, loadImageBitmap, expandAlignmentForGpu } from "../util.js";
+import renderShaderCode from "../graphics/shaders/msa.render.wgsl?raw";
+import clustalxComputeShaderCode from "../graphics/shaders/clustalx.compute.wgsl?raw";
+import pidComputeShaderCode from "../graphics/shaders/pident.compute.wgsl?raw";
+import blosumComputeShaderCode from "../graphics/shaders/blosum.compute.wgsl?raw";
 
 function writeThemeUniformBuffer(device, buffer, darkMode, colorScheme) {
     const data = new Uint32Array([darkMode, colorScheme]);
@@ -53,7 +57,7 @@ export class MSAViewer {
     async init() {
         await this.ensureGpuContext();
         [this.renderShaderCode, this.atlasBitmap] = await Promise.all([
-            loadText(new URL("../graphics/shaders/msa.render.wgsl", import.meta.url)),
+            Promise.resolve(renderShaderCode),
             loadImageBitmap(new URL("../graphics/atlas.png", import.meta.url))
         ]);
         this.createGpuResources();
@@ -156,12 +160,11 @@ export class MSAViewer {
     }
 
     async loadStaticAssets() {
-        this.computeShaderCodes = Object.fromEntries(
-            await Promise.all(Object.entries(SCHEMES).filter(([_, scheme]) => scheme.type === "columnStatistic").map(async ([key, scheme]) => {
-                const code = await loadText(new URL(scheme.computeShader, import.meta.url));
-                return [key, code];
-            }))
-        );
+        this.computeShaderCodes = {
+            clustalx: clustalxComputeShaderCode,
+            pid: pidComputeShaderCode,
+            blosum62: blosumComputeShaderCode,
+        };
         this.computePipelines = new Map();
     }
 

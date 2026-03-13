@@ -1,0 +1,37 @@
+{
+  "name": "msa-webgpu",
+  "version": "0.1.0",
+  "description": "WebGPU MSA Viewer for large alignments.",
+  "private": true,
+  "type": "module",
+  "author": "Cameron L.M. Gilchrist",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/gamcil/msaviewer-webgpu.git"
+  },
+  "bugs": {
+    "url": "https://github.com/gamcil/msaviewer-webgpu/issues"
+  },
+  "homepage": "https://github.com/gamcil/msaviewer-webgpu#readme",
+  "keywords": [
+    "msa",
+    "multiple-sequence-alignment",
+    "webgpu",
+    "bioinformatics",
+    "viewer"
+  ],
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "files": [
+    "src"
+  ],
+  "scripts": {
+    "dev": "vite src/demo",
+    "build:demo": "vite build --config vite.demo.config.js"
+  },
+  "dependencies": {
+    "vite": "^8.0.0"
+  }
+}

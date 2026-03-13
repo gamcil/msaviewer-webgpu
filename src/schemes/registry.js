@@ -2,19 +2,16 @@ export const SCHEMES = {
     clustalx: {
         id: 0,
         type: "columnStatistic",
-        computeShader: "../graphics/shaders/clustalx.compute.wgsl",
         profileStride: 4,
     },
     pid: {
         id: 1,
         type: "columnStatistic",
-        computeShader: "../graphics/shaders/pident.compute.wgsl",
         profileStride: 4,
     },
     blosum62: {
         id: 2,
         type: "columnStatistic",
-        computeShader: "../graphics/shaders/blosum.compute.wgsl",
         profileStride: 4,
     },
     hydrophobicity: {
