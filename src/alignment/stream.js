@@ -22,7 +22,7 @@ export async function* iterateLines(input, formatName = "alignment") {
     while (true) {
         const { value, done } = await reader.read();
         if (done) break;
-        buffer += value.replace(/\r/g, "");
+        buffer += value.replace(/\r/g, "").replace(/\0/g, "");
         let newlineIndex = buffer.indexOf("\n");
         while (newlineIndex !== -1) {
             yield buffer.slice(0, newlineIndex);
