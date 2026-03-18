@@ -1,12 +1,14 @@
-// WGSL Shader for MSA viewer
+// WGSL Shader for the minimap
 
-struct Uniforms {
-    scrollPx: vec2<u32>,
-    totalSize: vec2<u32>,
-    gridSize: vec2<u32>,
-    canvasSize: vec2<u32>,
-    windowOrigin: vec2<u32>,
-    windowSize: vec2<u32>,
+struct MinimapParams {
+    totalRows: u32,
+    totalCols: u32,
+    chunkRowStart: u32,
+    chunkColStart: u32,
+    chunkRows: u32,
+    chunkCols: u32,
+    minimapWidth: u32,
+    minimapHeight: u32,
 }
 
 struct ThemeUniforms {
@@ -14,18 +16,12 @@ struct ThemeUniforms {
     colorScheme: u32,
 }
 
-@group(0) @binding(0) var<uniform> ui: Uniforms;
+@group(0) @binding(0) var<uniform> params: MinimapParams;
 @group(0) @binding(1) var msaData: texture_2d<u32>;
 @group(0) @binding(2) var<storage, read> colProfile: array<u32>;
 @group(0) @binding(3) var<uniform> theme: ThemeUniforms;
-@group(0) @binding(4) var fontAtlas: texture_2d<f32>;
-@group(0) @binding(5) var fontSampler: sampler;
-@group(0) @binding(6) var<storage, read> auxData: array<i32>;
-
-struct VertexOutput {
-    @builtin(position) pos: vec4<f32>,
-    @location(0) uv: vec2<f32>,
-}
+@group(0) @binding(4) var<storage, read> auxData: array<i32>;
+@group(0) @binding(5) var<storage, read_write> outPixels: array<u32>;
 
 const BIT_HYDROPHOBIC_60: u32 = 1u << 0u;
 const BIT_KR_60: u32 = 1u << 1u;
@@ -62,25 +58,6 @@ fn has_mask(mask: u32, bit: u32) -> bool {
     return (mask & bit) != 0u;
 }
 
-fn glyph_cell(res: u32) -> vec2<u32> {
-    if (res >= 65u && res <= 78u) {
-        return vec2<u32>(res - 65u, 0u);
-    }
-    if (res >= 79u && res <= 90u) {
-        return vec2<u32>(res - 79u, 1u);
-    }
-    if (res >= 97u && res <= 110u) {
-        return vec2<u32>(res - 97u, 2u);
-    }
-    if (res >= 111u && res <= 122u) {
-        return vec2<u32>(res - 111u, 3u);
-    }
-    if (res == 45u) {
-        return vec2<u32>(12u, 1u);
-    }
-    return vec2<u32>(13u, 1u);
-}
-
 fn blosum_index(raw_res: u32) -> u32 {
     let res = normalize_residue(raw_res);
     switch res {
@@ -112,18 +89,8 @@ fn blosum_index(raw_res: u32) -> u32 {
     }
 }
 
-fn sample_glyph_mask(res: u32, local_uv: vec2<f32>) -> f32 {
-    let cell = glyph_cell(res);
-    let atlas_size = vec2<f32>(896.0, 256.0);
-    let glyph_size = vec2<f32>(64.0, 64.0);
-    let atlas_uv = (vec2<f32>(cell) * glyph_size + local_uv * glyph_size) / atlas_size;
-    let sample = textureSampleLevel(fontAtlas, fontSampler, atlas_uv, 0.0);
-    // return sample.a;
-    return max(sample.a, max(sample.r, max(sample.g, sample.b)));
-}
-
-fn read_residue(window_row: u32, window_col: u32) -> u32 {
-    return textureLoad(msaData, vec2<i32>(i32(window_col), i32(window_row)), 0).x;
+fn read_residue(local_row: u32, local_col: u32) -> u32 {
+    return textureLoad(msaData, vec2<i32>(i32(local_col), i32(local_row)), 0).x;
 }
 
 fn default_scheme_color() -> vec4<f32> {
@@ -131,14 +98,6 @@ fn default_scheme_color() -> vec4<f32> {
         return vec4<f32>(0.08, 0.08, 0.09, 1.0);
     }
     return vec4<f32>(1.0, 1.0, 1.0, 1.0);
-}
-
-fn contrast_text_color(background: vec3<f32>) -> vec3<f32> {
-    let luma = dot(background, vec3<f32>(0.299, 0.587, 0.114));
-    if (luma > 0.55) {
-        return vec3<f32>(0.05, 0.05, 0.05);
-    }
-    return vec3<f32>(0.95, 0.95, 0.95);
 }
 
 fn apply_clustalx_rules(raw_res: u32, mask: u32) -> vec4<f32> {
@@ -516,70 +475,81 @@ fn apply_buried_index_rules(raw_res: u32) -> vec4<f32> {
     return default_scheme_color();
 }
 
-@vertex
-fn vs_main(@builtin(vertex_index) idx: u32) -> VertexOutput {
-    var pos = array<vec2<f32>, 6> (
-        vec2<f32>(-1.0, -1.0), vec2<f32>(1.0, -1.0), vec2<f32>(-1.0, 1.0),
-        vec2<f32>(-1.0, 1.0), vec2<f32>(1.0, -1.0), vec2<f32>(1.0, 1.0)
-    );
-    var out: VertexOutput;
-    out.pos = vec4<f32>(pos[idx], 0.0, 1.0);
-    out.uv = pos[idx] * 0.5 + 0.5; // Map from [-1,1] to [0,1]
-    return out;
+fn scheme_color(raw_res: u32, global_col: u32) -> vec4<f32> {
+    let base_background = default_scheme_color();
+    if (is_lowercase_residue(raw_res)) {
+        return base_background;
+    }
+
+    let mask = colProfile[global_col];
+    switch (theme.colorScheme) {
+        case 0u: { return apply_clustalx_rules(raw_res, mask); }
+        case 1u: { return apply_pid_rules(raw_res, mask); }
+        case 2u: { return apply_blosum_rules(raw_res, mask); }
+        case 3u: { return apply_hydrophobicity_rules(raw_res); }
+        case 4u: { return apply_zappo_rules(raw_res); }
+        case 5u: { return apply_taylor_rules(raw_res); }
+        case 6u: { return apply_gecos_blossom_rules(raw_res); }
+        case 7u: { return apply_gecos_sunset_rules(raw_res); }
+        case 8u: { return apply_gecos_ocean_rules(raw_res); }
+        case 9u: { return apply_helix_propensity_rules(raw_res); }
+        case 10u: { return apply_strand_propensity_rules(raw_res); }
+        case 11u: { return apply_turn_propensity_rules(raw_res); }
+        case 12u: { return apply_buried_index_rules(raw_res); }
+        default: { return base_background; }
+    }
 }
 
-@fragment
-fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    let pixel = vec2<u32>(u32(in.pos.x), u32(in.pos.y));
-    let content_pixel = pixel + ui.scrollPx;
-    let cell = content_pixel / ui.gridSize;
-    let col = cell.x;
-    let row = cell.y;
-    let base_background = default_scheme_color();
+fn write_output(pixel_index: u32, r_sum: u32, g_sum: u32, b_sum: u32, count: u32) {
+    let base = pixel_index * 4u;
+    outPixels[base] = r_sum;
+    outPixels[base + 1u] = g_sum;
+    outPixels[base + 2u] = b_sum;
+    outPixels[base + 3u] = count;
+}
 
-    if (pixel.x >= ui.canvasSize.x || pixel.y >= ui.canvasSize.y) {
-        return base_background;
-    }
-    if (col >= ui.totalSize.x || row >= ui.totalSize.y) {
-        return base_background;
-    }
-
-    if (
-        col < ui.windowOrigin.x ||
-        row < ui.windowOrigin.y ||
-        col >= ui.windowOrigin.x + ui.windowSize.x ||
-        row >= ui.windowOrigin.y + ui.windowSize.y
-    ) {
-        return base_background;
+@compute @workgroup_size(8, 8)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let x = gid.x;
+    let y = gid.y;
+    if (x >= params.minimapWidth || y >= params.minimapHeight) {
+        return;
     }
 
-    let residue = read_residue(row - ui.windowOrigin.y, col - ui.windowOrigin.x);
-    let mask = colProfile[col];
+    let pixel_index = y * params.minimapWidth + x;
 
-    var color = base_background;
-    if (!is_lowercase_residue(residue)) {
-        switch (theme.colorScheme) {
-            case 0u: { color = apply_clustalx_rules(residue, mask); }
-            case 1u: { color = apply_pid_rules(residue, mask); }
-            case 2u: { color = apply_blosum_rules(residue, mask); }
-            case 3u: { color = apply_hydrophobicity_rules(residue); }
-            case 4u: { color = apply_zappo_rules(residue); }
-            case 5u: { color = apply_taylor_rules(residue); }
-            case 6u: { color = apply_gecos_blossom_rules(residue); }
-            case 7u: { color = apply_gecos_sunset_rules(residue); }
-            case 8u: { color = apply_gecos_ocean_rules(residue); }
-            case 9u: { color = apply_helix_propensity_rules(residue); }
-            case 10u: { color = apply_strand_propensity_rules(residue); }
-            case 11u: { color = apply_turn_propensity_rules(residue); }
-            case 12u: { color = apply_buried_index_rules(residue); }
-            default: { color = base_background; }
-        }
+    let global_col_start = (x * params.totalCols) / params.minimapWidth;
+    let global_col_end = max(global_col_start + 1u, ((x + 1u) * params.totalCols) / params.minimapWidth);
+    let global_row_start = (y * params.totalRows) / params.minimapHeight;
+    let global_row_end = max(global_row_start + 1u, ((y + 1u) * params.totalRows) / params.minimapHeight);
+
+    let chunk_col_end = params.chunkColStart + params.chunkCols;
+    let chunk_row_end = params.chunkRowStart + params.chunkRows;
+
+    let sample_col_start = max(global_col_start, params.chunkColStart);
+    let sample_col_end = min(global_col_end, chunk_col_end);
+    let sample_row_start = max(global_row_start, params.chunkRowStart);
+    let sample_row_end = min(global_row_end, chunk_row_end);
+
+    if (sample_col_start >= sample_col_end || sample_row_start >= sample_row_end) {
+        write_output(pixel_index, 0u, 0u, 0u, 0u);
+        return;
     }
-    let local = content_pixel % ui.gridSize;
-    let local_uv = (vec2<f32>(local) + vec2<f32>(0.5, 0.5)) / vec2<f32>(ui.gridSize);
-    let glyph_mask = smoothstep(0.2, 0.8, sample_glyph_mask(residue, local_uv));
-    let background = color.rgb;
-    let text_color = contrast_text_color(background);
-    let rgb = mix(background, text_color, glyph_mask);
-    return vec4<f32>(rgb, 1.0);
+
+    let sample_col = sample_col_start + ((sample_col_end - sample_col_start) / 2u);
+    let sample_row = sample_row_start + ((sample_row_end - sample_row_start) / 2u);
+    let local_col = sample_col - params.chunkColStart;
+    let local_row = sample_row - params.chunkRowStart;
+
+    let residue = read_residue(local_row, local_col);
+    if (is_gap_residue(residue)) {
+        write_output(pixel_index, 0u, 0u, 0u, 0u);
+        return;
+    }
+
+    let color = scheme_color(residue, sample_col);
+    let r = u32(round(color.r * 255.0));
+    let g = u32(round(color.g * 255.0));
+    let b = u32(round(color.b * 255.0));
+    write_output(pixel_index, r, g, b, 1u);
 }

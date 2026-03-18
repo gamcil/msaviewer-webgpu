@@ -2,7 +2,22 @@
 View for the alignment itself
 */
 
-function writeRenderUniformBuffer(device, buffer, scrollPxX, scrollPxY, totalCols, totalRows, gridPxX, gridPxY, canvasWidth, canvasHeight) {
+function writeRenderUniformBuffer(
+    device,
+    buffer,
+    scrollPxX,
+    scrollPxY,
+    totalCols,
+    totalRows,
+    gridPxX,
+    gridPxY,
+    canvasWidth,
+    canvasHeight,
+    windowColStart,
+    windowRowStart,
+    windowCols,
+    windowRows
+) {
     const data = new Uint32Array([
         scrollPxX,
         scrollPxY,
@@ -12,6 +27,10 @@ function writeRenderUniformBuffer(device, buffer, scrollPxX, scrollPxY, totalCol
         gridPxY,
         canvasWidth,
         canvasHeight,
+        windowColStart,
+        windowRowStart,
+        windowCols,
+        windowRows,
     ]);
     device.queue.writeBuffer(buffer, 0, data);
 }
@@ -40,27 +59,20 @@ export class AlignmentView {
         
         this.spacer = document.createElement("div");
         this.spacer.className = "msa-alignment-spacer";
-        
-        this.stage = document.createElement("div");
-        this.stage.className = "msa-alignment-stage";
-        
+
         this.canvas = document.createElement("canvas");
         this.canvas.className = "msa-alignment-canvas";
         this.context = this.canvas.getContext("webgpu");
         this.context.configure({ device: this.device, format: this.format });
 
-        this.stage.appendChild(this.canvas);
         this.scroller.appendChild(this.spacer);
-        this.scroller.appendChild(this.stage);
         this.root.appendChild(this.scroller);
+        this.root.appendChild(this.canvas);
     }
     setBindGroup(bindGroup) {
         this.renderBindGroup = bindGroup;
     }
-    syncStage() {
-        this.stage.style.transform = `translate(${this.scroller.scrollLeft}px, ${this.scroller.scrollTop}px)`;
-    }
-    syncUniforms({ totalCols, totalRows }) {
+    syncUniforms({ totalCols, totalRows, windowColStart = 0, windowRowStart = 0, windowCols = 0, windowRows = 0 }) {
         const dpr = window.devicePixelRatio || 1;
         const gridPxX = Math.max(1, Math.round(this.getCellWidth() * dpr));
         const gridPxY = Math.max(1, Math.round(this.getCellHeight() * dpr));
@@ -75,6 +87,10 @@ export class AlignmentView {
             gridPxY,
             this.canvas.width,
             this.canvas.height,
+            windowColStart,
+            windowRowStart,
+            windowCols,
+            windowRows,
         );
     }
     render() {
@@ -82,8 +98,13 @@ export class AlignmentView {
         this.renderer.render(this.context, this.renderBindGroup);
     }
     ensureCanvasSize() {
-        const width = Math.max(1, Math.floor(this.canvas.clientWidth * window.devicePixelRatio));
-        const height = Math.max(1, Math.floor(this.canvas.clientHeight * window.devicePixelRatio));
+        const viewportWidth = Math.max(1, this.scroller.clientWidth);
+        const viewportHeight = Math.max(1, this.scroller.clientHeight);
+        this.canvas.style.width = `${viewportWidth}px`;
+        this.canvas.style.height = `${viewportHeight}px`;
+
+        const width = Math.max(1, Math.floor(viewportWidth * window.devicePixelRatio));
+        const height = Math.max(1, Math.floor(viewportHeight * window.devicePixelRatio));
         if (this.canvas.width !== width || this.canvas.height !== height) {
             this.canvas.width = width;
             this.canvas.height = height;

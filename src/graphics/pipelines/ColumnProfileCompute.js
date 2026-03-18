@@ -12,8 +12,8 @@ export class ColumnProfileCompute {
         });
     }
 
-    run(msaBuffer, colProfileBuffer, totalCols, totalRows) {
-        const paramsData = new Uint32Array([totalCols, totalRows]);
+    encode(commandEncoder, msaTextureView, colProfileBuffer, totalCols, totalRows, rowsPerLayer) {
+        const paramsData = new Uint32Array([totalCols, totalRows, rowsPerLayer]);
         const paramsBuffer = this.device.createBuffer({
             size: paramsData.byteLength,
             usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
@@ -24,18 +24,21 @@ export class ColumnProfileCompute {
             layout: this.pipeline.getBindGroupLayout(0),
             entries: [
                 { binding: 0, resource: { buffer: paramsBuffer } },
-                { binding: 1, resource: { buffer: msaBuffer } },
+                { binding: 1, resource: msaTextureView },
                 { binding: 2, resource: { buffer: colProfileBuffer } }
             ]
         });
-        
-        const commandEncoder = this.device.createCommandEncoder();
+
         const passEncoder = commandEncoder.beginComputePass();
         passEncoder.setPipeline(this.pipeline);
         passEncoder.setBindGroup(0, bindGroup);
         passEncoder.dispatchWorkgroups(Math.ceil(totalCols / 64));
         passEncoder.end();
-        
+    }
+
+    run(msaTextureView, colProfileBuffer, totalCols, totalRows, rowsPerLayer) {
+        const commandEncoder = this.device.createCommandEncoder();
+        this.encode(commandEncoder, msaTextureView, colProfileBuffer, totalCols, totalRows, rowsPerLayer);
         this.device.queue.submit([commandEncoder.finish()]);
     }
 }

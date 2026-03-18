@@ -21,10 +21,11 @@
 struct Params {
     columns: u32,
     rows: u32,
+    rowsPerLayer: u32,
 }
 
 @group(0) @binding(0) var<uniform> params: Params;
-@group(0) @binding(1) var<storage, read> msaData: array<u32>;
+@group(0) @binding(1) var msaData: texture_2d_array<u32>;
 @group(0) @binding(2) var<storage, read_write> columnMasks: array<u32>;
 
 const BIT_HYDROPHOBIC_60: u32 = 1u << 0u;
@@ -50,12 +51,22 @@ fn normalizeResidue(raw: u32) -> u32 {
     return raw;
 }
 
+fn isLowercase(raw: u32) -> bool {
+    return raw >= 97u && raw <= 122u;
+}
+
 fn isGap(raw: u32) -> bool {
     return raw == 0u || raw == 45u || raw == 46u || raw == 32u;
 }
 
 fn moreThanPercent(count: u32, total: u32, percent: u32) -> bool {
     return total > 0u && count * 100u > percent * total;
+}
+
+fn readResidue(row: u32, col: u32) -> u32 {
+    let layer = row / params.rowsPerLayer;
+    let localRow = row % params.rowsPerLayer;
+    return textureLoad(msaData, vec2<i32>(i32(col), i32(localRow)), i32(layer), 0).x;
 }
 
 @compute @workgroup_size(64)
@@ -89,7 +100,11 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     var countY = 0u;
 
     for (var row = 0u; row < params.rows; row = row + 1u) {
-        let residue = normalizeResidue(msaData[row * params.columns + col]);
+        let rawResidue = readResidue(row, col);
+        if (isLowercase(rawResidue)) {
+            continue;
+        }
+        let residue = normalizeResidue(rawResidue);
         if (isGap(residue)) {
             continue;
         }

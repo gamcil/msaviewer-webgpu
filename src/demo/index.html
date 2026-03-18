@@ -6,11 +6,33 @@
     <meta name="color-scheme" content="light dark">
     <title>MSA Viewer WebGPU</title>
     <style>
-        :root[data-theme="light"] {
-            color-scheme: light;
+        :root {
+            color-scheme: light dark;
+            --page-bg: light-dark(#eee, #202020);
+            --page-fg: light-dark(#202020, #fff);
+            --panel-bg: light-dark(rgba(255, 255, 255, 0.7), rgba(20, 20, 20, 0.9));
+            --panel-border: light-dark(rgba(30, 30, 30, 0.12), rgba(255, 255, 255, 0.08));
+            --panel-shadow: light-dark(0 1px 2px rgba(15, 23, 42, 0.06), none);
+            --control-bg: light-dark(#ffffff, #1d2128);
+            --control-border: light-dark(rgba(30, 30, 30, 0.12), rgba(255, 255, 255, 0.1));
+            --control-hover-border: light-dark(rgba(79, 124, 255, 0.45), rgba(130, 160, 255, 0.6));
+            --control-focus-border: light-dark(#4f7cff, #82a0ff);
+            --control-focus-ring: light-dark(0 0 0 3px rgba(79, 124, 255, 0.18), 0 0 0 3px rgba(130, 160, 255, 0.2));
+            --header-bg: light-dark(#f0f0f0, #161616);
+            --header-border: light-dark(rgba(30, 30, 30, 0.1), rgba(255, 255, 255, 0.08));
+            --viewer-bg: light-dark(#f0f0f0, #161616);
+            --viewer-border: light-dark(#555, rgba(255, 255, 255, 0.18));
+            --grid-line: light-dark(rgba(0, 0, 0, 0.05), rgba(255, 255, 255, 0.03));
+            --scroller-bg: light-dark(#fff, #111);
+            --button-bg: light-dark(#4f7cff, #5f86ff);
+            --button-hover-bg: light-dark(#658cff, #7394ff);
+            --button-fg: #fff;
         }
         :root[data-theme="dark"] {
             color-scheme: dark;
+        }
+        :root[data-theme="light"] {
+            color-scheme: light;
         }
         body, html {
             margin: 0;
@@ -21,14 +43,9 @@
             flex-direction: column;
             justify-content: center;
             align-items: center;
-            background-color: #eee;
-            color: #202020;
+            background-color: var(--page-bg);
+            color: var(--page-fg);
             font-family: "IBM Plex Sans", sans-serif;
-        }
-        :root[data-theme="dark"] body,
-        :root[data-theme="dark"] html {
-            background-color: #202020;
-            color: #fff;
         }
         .toolbar {
             display: flex;
@@ -41,15 +58,10 @@
             align-items: center;
             gap: 8px;
             padding: 6px 10px;
-            border: 1px solid rgba(30, 30, 30, 0.12);
+            border: 1px solid var(--panel-border);
             border-radius: 10px;
-            background: rgba(255, 255, 255, 0.7);
-            box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
-        }
-        :root[data-theme="dark"] .scheme-switcher {
-            border-color: rgba(255, 255, 255, 0.08);
-            background: rgba(20, 20, 20, 0.9);
-            box-shadow: none;
+            background: var(--panel-bg);
+            box-shadow: var(--panel-shadow);
         }
         .scheme-switcher label {
             font-size: 13px;
@@ -62,9 +74,9 @@
             -moz-appearance: none;
             min-width: 124px;
             padding: 8px 34px 8px 12px;
-            border: 1px solid rgba(30, 30, 30, 0.12);
+            border: 1px solid var(--control-border);
             border-radius: 8px;
-            background-color: #ffffff;
+            background-color: var(--control-bg);
             background-image:
                 linear-gradient(45deg, transparent 50%, currentColor 50%),
                 linear-gradient(135deg, currentColor 50%, transparent 50%);
@@ -80,73 +92,58 @@
             transition: border-color 120ms ease, background-color 120ms ease, box-shadow 120ms ease;
         }
         .scheme-switcher select:hover {
-            border-color: rgba(79, 124, 255, 0.45);
+            border-color: var(--control-hover-border);
         }
         .scheme-switcher select:focus {
             outline: none;
-            border-color: #4f7cff;
-            box-shadow: 0 0 0 3px rgba(79, 124, 255, 0.18);
+            border-color: var(--control-focus-border);
+            box-shadow: var(--control-focus-ring);
         }
-        :root[data-theme="dark"] .scheme-switcher select {
-            border-color: rgba(255, 255, 255, 0.1);
-            background-color: #1d2128;
-            color: #f3f6fb;
-        }
-        :root[data-theme="dark"] .scheme-switcher select:hover {
-            border-color: rgba(130, 160, 255, 0.6);
-        }
-        :root[data-theme="dark"] .scheme-switcher select:focus {
-            border-color: #82a0ff;
-            box-shadow: 0 0 0 3px rgba(130, 160, 255, 0.2);
-        }
-        .msa-headers {
-            --row-height: 16px;
-            --header-font-size: 14px;
-            position: relative;
-            flex: 0 0 auto;
-            width: fit-content;
-            max-width: 200px;
-            height: 100%;
-            overflow: hidden;
-            background-color: #f0f0f0;
-            border-right: 1px solid rgba(30, 30, 30, 0.1);
-        }
-        :root[data-theme="dark"] .msa-headers {
-            background-color: #161616;
-            border-right: 1px solid rgba(255, 255, 255, 0.08);
-        }
-        .msa-headers-track {
-            position: relative;
-            width: max-content;
-            min-width: 100%;
-            will-change: transform;
-        }
-        .msa-headers > span,
-        .msa-header-row {
-            display: flex;
-            align-items: center;
-            height: var(--row-height);
-            padding: 0 8px;
-            font-size: var(--header-font-size);
-            line-height: 1;
-            box-sizing: border-box;
-            width: max-content;
-            max-width: 200px;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-            font-family: "IBM Plex Mono", "IBM Plex Sans", monospace;
+        .msa-headers::-webkit-scrollbar {
+            display: none;
         }
         .viewer-shell {
             position: relative;
             width: 95vw;
             height: 90vh;
-            border: 1px solid #555;
-            background: #fff;
+            border: 1px solid var(--viewer-border);
+            background: var(--viewer-bg);
             overflow: hidden;
-            display: flex;
+            display: grid;
+            grid-template-columns: auto minmax(0, 1fr);
+            grid-template-rows: 120px minmax(0, 1fr);
+        }
+        .viewer-shell:not([data-loaded="true"]) {
+            grid-template-rows: minmax(0, 1fr);
+        }
+        .viewer-shell:not([data-loaded="true"]) .viewer-body {
+            grid-column: 1 / -1;
+            grid-row: 1;
+        }
+        .viewer-shell[data-loaded="true"] .viewer-body {
+            grid-column: 2;
+            grid-row: 2;
+        }
+        .msa-minimap {
+            border: 1px solid grey;
+        }
+        .msa-minimap-spacer {
+            grid-column: 1;
+            grid-row: 1;
+        }
+        .msa-minimap-body {
+            grid-column: 2;
+            grid-row: 1;
+            min-width: 0;
+            padding: 8px;
+        }
+        .msa-headers {
+            grid-column: 1;
+            grid-row: 2;
         }
         .viewer-body {
+            grid-column: 2;
+            grid-row: 2;
             position: relative;
             flex: 1 1 auto;
             min-width: 0;
@@ -159,51 +156,33 @@
             height: 100%;
             overflow: auto;
             background:
-                linear-gradient(90deg, rgba(0, 0, 0, 0.05) 1px, transparent 1px),
-                linear-gradient(rgba(0, 0, 0, 0.05) 1px, transparent 1px),
-                #fff;
-            background-size: 16px 16px;
-        }
-        :root[data-theme="dark"] .msa-alignment-scroller {
-            background:
-                linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
-                linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
-                #111;
+                linear-gradient(90deg, var(--grid-line) 1px, transparent 1px),
+                linear-gradient(var(--grid-line) 1px, transparent 1px),
+                var(--scroller-bg);
             background-size: 16px 16px;
         }
         .msa-alignment-spacer {
             width: 1px;
             height: 1px;
         }
-        .msa-alignment-stage {
+        .msa-alignment-canvas {
             position: absolute;
             inset: 0;
             width: 100%;
             height: 100%;
-            pointer-events: none;
-            overflow: hidden;
-            will-change: transform;
-        }
-        .msa-alignment-canvas {
-            width: 100%;
-            height: 100%;
             display: block;
+            pointer-events: none;
         }
         button {
             border: 0;
             padding: 10px 14px;
-            background: #4f7cff;
-            color: #fff;
+            background: var(--button-bg);
+            color: var(--button-fg);
             border-radius: 8px;
             cursor: pointer;
         }
         button:hover {
-            background: #658cff;
-        }
-        canvas {
-            width: 100%;
-            height: 100%;
-            display: block;
+            background: var(--button-hover-bg);
         }
     </style>
 </head>
@@ -233,7 +212,7 @@
         </div>
         <div class="file-loader">
             <button id="upload-button" type="button">Open FASTA Alignment</button>
-            <input type="file" id="file-input" accept=".fa,.fasta,.fas,.aln,.txt" hidden>
+            <input type="file" id="file-input" accept=".fa,.fasta,.fas,.aln,.txt,.a3m" hidden>
             <span id="status">Load an alignment to begin.</span>
         </div>
     </div>

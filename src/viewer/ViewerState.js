@@ -52,6 +52,7 @@ export class ViewerState {
     }
     subscribe(listener) {
         this.listeners.add(listener);
+        listener(this.getSnapshot());
         return () => this.listeners.delete(listener);
     }
     emit() {

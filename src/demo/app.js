@@ -22,8 +22,8 @@ async function main() {
         if (!file) return;
         try {
             status.textContent = `Loading ${file.name}...`;
-            const text = await file.text();
-            const { totalRows, totalCols } = await viewer.loadFastaAlignment(text);
+            const format = file.name.toLowerCase().endsWith(".a3m") ? "a3m" : "fasta";
+            const { totalRows, totalCols } = await viewer.loadFastaAlignment(file, format);
             status.textContent = `Loaded ${file.name}: ${totalRows} sequences x ${totalCols} columns`;
         } catch (error) {
             status.textContent = error.message;
