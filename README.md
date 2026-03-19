@@ -3,6 +3,9 @@ WebGPU MSA Viewer for big alignments.
 
 Very much WIP.
 
+## Online demo
+https://gamcil.github.io/msaviewer-webgpu/
+
 ## Local demo
 
 ```bash
