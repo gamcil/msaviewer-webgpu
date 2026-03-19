@@ -96,6 +96,8 @@ export class MSAViewer {
         this.viewportOverscanCols = 32;
         this.profileChunkBuffer = null;
         this.profileChunkCapacity = 0;
+
+        // minimap chunking separate to column statistics
         this.minimapChunkBuffer = null;
         this.minimapChunkCapacity = 0;
         this.minimapReadbackBuffer = null;
@@ -103,6 +105,12 @@ export class MSAViewer {
         this.minimapChunkTexture = null;
         this.minimapChunkTextureWidth = 0;
         this.minimapChunkTextureHeight = 0;
+        
+        // alignment view hover state
+        this.hoveredCell = null;
+        this.hoveredColumn = null;
+        
+        this.isScrolling = false;
         
         this.frameHandle = null;
     }
@@ -149,7 +157,6 @@ export class MSAViewer {
         const minimapRoot = document.createElement("div");
         minimapRoot.className = "msa-minimap-body";
         
-
         this.root.appendChild(headerRoot);
         this.root.appendChild(alignmentRoot);
         this.root.appendChild(minimapRoot);
@@ -183,6 +190,24 @@ export class MSAViewer {
             getCellWidth: () => this.state.getSnapshot().viewport.cellWidth,
             getCellHeight: () => this.state.getSnapshot().viewport.cellHeight,
         });
+        
+        this.alignmentView.scroller.onmousemove = (event) => {
+            if (this.isScrolling) return;
+            const bounds = this.alignmentView.scroller.getBoundingClientRect();
+            const contentX = event.clientX - bounds.left + this.alignmentView.scroller.scrollLeft;
+            const contentY = event.clientY - bounds.top  + this.alignmentView.scroller.scrollTop;
+            const snapshot = this.state.getSnapshot();
+            const col = Math.floor(contentX / snapshot.viewport.cellWidth);
+            const row = Math.min(snapshot.alignment.totalRows - 1, Math.floor(contentY / snapshot.viewport.cellHeight));
+            if (this.hoveredColumn != col) {
+                this.hoveredColumn = col;
+            }
+            this.alignmentView.setOverlayState({ hoveredColumn: this.hoveredColumn });
+        }
+        this.alignmentView.scroller.onpointerleave = (event) => {
+            this.hoveredColumn = null;
+            this.alignmentView.setOverlayState({ hoveredColumn: this.hoveredColumn });
+        }
 
         this.setLoadedLayoutVisible(false);
     }
@@ -392,6 +417,8 @@ export class MSAViewer {
 
         // scrolling
         this.onScroll = () => {
+            this.isScrolling = true;
+            this.alignmentView.setOverlayState({ hoveredColumn: null });
             this.state.setViewportScroll(
                 this.alignmentView.scroller.scrollLeft,
                 this.alignmentView.scroller.scrollTop
@@ -402,6 +429,9 @@ export class MSAViewer {
             this.syncMinimapViewportRect()
         };
         this.alignmentView.scroller.addEventListener("scroll", this.onScroll);
+        this.alignmentView.scroller.addEventListener("scrollend", () => {
+            this.isScrolling = false;
+        })
 
         // window resizing
         this.onResize = () => {
