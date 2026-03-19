@@ -193,23 +193,34 @@ export class MSAViewer {
         
         this.alignmentView.scroller.onmousemove = (event) => {
             if (this.isScrolling) return;
-            const bounds = this.alignmentView.scroller.getBoundingClientRect();
-            const contentX = event.clientX - bounds.left + this.alignmentView.scroller.scrollLeft;
-            const contentY = event.clientY - bounds.top  + this.alignmentView.scroller.scrollTop;
-            const snapshot = this.state.getSnapshot();
-            const col = Math.floor(contentX / snapshot.viewport.cellWidth);
-            const row = Math.min(snapshot.alignment.totalRows - 1, Math.floor(contentY / snapshot.viewport.cellHeight));
-            if (this.hoveredColumn != col) {
+            const [col, row] = this.getCoordsFromScrollerPosition(event);
+            if (this.hoveredColumn !== col) {
                 this.hoveredColumn = col;
+                this.syncAlignmentOverlay();
             }
-            this.alignmentView.setOverlayState({ hoveredColumn: this.hoveredColumn });
         }
         this.alignmentView.scroller.onpointerleave = (event) => {
-            this.hoveredColumn = null;
-            this.alignmentView.setOverlayState({ hoveredColumn: this.hoveredColumn });
+            if (this.hoveredColumn !== null) {
+                this.hoveredColumn = null; 
+                this.syncAlignmentOverlay();
+            }
+        }
+        this.alignmentView.scroller.onclick = (event) => {
+            const [col, row] = this.getCoordsFromScrollerPosition(event);
+            this.state.toggleSelectedColumn(col);
         }
 
         this.setLoadedLayoutVisible(false);
+    }
+    
+    getCoordsFromScrollerPosition({ clientX, clientY }) {
+        const bounds = this.alignmentView.scroller.getBoundingClientRect();
+        const contentX = clientX - bounds.left + this.alignmentView.scroller.scrollLeft;
+        const contentY = clientY - bounds.top  + this.alignmentView.scroller.scrollTop;
+        const snapshot = this.state.getSnapshot();
+        const col = Math.floor(contentX / snapshot.viewport.cellWidth);
+        const row = Math.min(snapshot.alignment.totalRows - 1, Math.floor(contentY / snapshot.viewport.cellHeight));
+        return [col, row];
     }
 
     setLoadedLayoutVisible(loaded) {
@@ -328,6 +339,34 @@ export class MSAViewer {
         this.minimapView.setViewportRect({ x, y, width, height });
     }
     
+    syncAlignmentOverlay(selectedColumns = this.state.getSnapshot().selection.columns) {
+        if (!this.alignmentView) return;
+        this.alignmentView.setOverlayState({
+            hoveredColumn: this.hoveredColumn,
+            selectedColumns,
+        });
+    }
+
+    // Expose selected columns to outer app
+    getSelectedColumns() {
+        return new Set(this.state.getSnapshot().selection.columns);
+    }
+    setSelectedColumns(columns) {
+        this.state.setSelectedColumns(new Set(columns));
+    }
+    clearSelectedColumns() {
+        this.state.setSelectedColumns(new Set());
+    }
+    onSelectionChange(callback) {
+        let prev = null;
+        return this.state.subscribe((snapshot) => {
+            const next = snapshot.selection.columns;
+            if (next === prev) return;
+            prev = next;
+            callback(new Set(next));
+        });
+    }
+
     createGpuResources() {
         this.uniformBuffer = this.device.createBuffer({
             size: new Uint32Array(12).byteLength,
@@ -414,11 +453,21 @@ export class MSAViewer {
 
             this.headerView.syncScroll(snapshot.viewport.scrollTop);
         });
+        
+        let prevSelectedColumns = null;
+        this.unsubscribeSelectionState = this.state.subscribe((snapshot) => {
+            if (!this.alignmentView) return;
+            const selectedColumns = snapshot.selection.columns;
+            if (selectedColumns === prevSelectedColumns) return;
+            prevSelectedColumns = selectedColumns;
+            this.syncAlignmentOverlay(selectedColumns);    
+        })
 
         // scrolling
         this.onScroll = () => {
             this.isScrolling = true;
-            this.alignmentView.setOverlayState({ hoveredColumn: null });
+            this.hoveredColumn = null;
+            this.syncAlignmentOverlay();
             this.state.setViewportScroll(
                 this.alignmentView.scroller.scrollLeft,
                 this.alignmentView.scroller.scrollTop
@@ -501,6 +550,7 @@ export class MSAViewer {
                 )                
             }
         }
+        
     }
     
     getVisibleWindowBounds() {
@@ -541,6 +591,8 @@ export class MSAViewer {
         this.alignmentStore = store;
         this.decodedTileCache.clear();
         this.visibleWindowState = null;
+        this.hoveredColumn = null;
+        this.isScrolling = false;
         this.alignmentState = { colProfileBuffer, totalCols, totalRows };
         this.state.setAlignment({ records, totalCols, totalRows });
         this.setLoadedLayoutVisible(true);
@@ -553,10 +605,15 @@ export class MSAViewer {
         this.headerView.setViewportHeight(this.alignmentView.scroller.clientHeight);
         this.headerView.renderRecords(records);
         this.headerView.syncScroll(this.alignmentView.scroller.scrollTop);
+        this.alignmentView.setOverlayState({
+            hoveredColumn: null,
+            selectedColumns: this.state.getSnapshot().selection.columns,
+        });
 
         await this.uploadVisibleWindow();
         await this.rebuildMinimap();
         this.syncMinimapViewportRect()
+        this.syncAlignmentOverlay();
     }
     
     async loadFastaAlignment(source, format = "fasta") {

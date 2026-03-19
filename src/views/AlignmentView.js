@@ -77,6 +77,7 @@ export class AlignmentView {
         
         // Hover state
         this.hoveredColumn = null;
+        this.selectedColumns = new Set();
     }
     setBindGroup(bindGroup) {
         this.renderBindGroup = bindGroup;
@@ -110,24 +111,46 @@ export class AlignmentView {
         const colEnd = Math.min(this.totalCols, Math.ceil((scrollLeft + viewportWidth) / cellWidth));
         return [colStart, colEnd];
     }
-    setOverlayState({ hoveredColumn }) {
+    setOverlayState({ hoveredColumn = null, selectedColumns = this.selectedColumns }) {
         this.hoveredColumn = hoveredColumn;
+        this.selectedColumns = selectedColumns;
+        this.drawOverlay(); 
+    }
+    drawOverlay() {
+        if (!this.overlayContext) return;
+
         const dpr = window.devicePixelRatio || 1;
-        this.overlayContext.clearRect(0, 0, this.scroller.clientWidth * dpr, this.scroller.clientHeight * dpr);
-        if (this.hoveredColumn === null) return;
+        const cellWidthPx = this.getCellWidth() * dpr;
+        const scrollLeftPx = this.scroller.scrollLeft * dpr;
+        
+        this.clearOverlay();
+
         const [colStart, colEnd] = this.getVisibleColumnRange(); 
-        const cellWidth = this.getCellWidth();
-        const cellHeight = this.getCellHeight();
-        if (this.hoveredColumn >= colStart && this.hoveredColumn <= colEnd) {
-            const x = this.hoveredColumn * cellWidth * dpr - this.scroller.scrollLeft * dpr;
-            const numRows = Math.min(this.totalRows, Math.ceil(this.scroller.clientHeight / cellHeight));
-            const height = numRows * cellHeight;
+        const numRows = Math.min(this.totalRows, Math.ceil(this.scroller.clientHeight / this.getCellHeight()));
+        const heightPx = numRows * this.getCellHeight() * dpr;
+
+        for (const col of this.selectedColumns) {
+            if (col < colStart || col >= colEnd) continue;
+            const x = col * cellWidthPx - scrollLeftPx;
+            this.overlayContext.strokeStyle = "rgb(0, 122, 178)";
+            this.overlayContext.fillStyle = "rgba(89, 211, 255, 0.25)"; 
+            this.overlayContext.lineWidth = Math.max(1, Math.round(dpr));
             this.overlayContext.beginPath();
-            this.overlayContext.lineWidth = "4";
-            this.overlayContext.strokeStyle = "black";
-            this.overlayContext.rect(x, 0, cellWidth * dpr, height * dpr);
+            this.overlayContext.rect(x, 0, cellWidthPx, heightPx);
+            this.overlayContext.fill();
             this.overlayContext.stroke();
         }
+        
+        if (this.hoveredColumn !== null && this.hoveredColumn >= colStart && this.hoveredColumn < colEnd) {
+            const x = this.hoveredColumn * cellWidthPx - scrollLeftPx;
+            this.overlayContext.strokeStyle = "rgb(0, 122, 178)";
+            this.overlayContext.lineWidth = Math.max(1, Math.round(dpr));
+            this.overlayContext.strokeRect(x + 0.5, 0.5, Math.max(0, cellWidthPx - 1), Math.max(0, heightPx - 1));
+        }
+    }
+    clearOverlay() {
+        if (!this.overlayContext) return;
+        this.overlayContext.clearRect(0, 0, this.overlay.width, this.overlay.height);
     }
     render() {
         if (!this.renderBindGroup) return;
@@ -149,6 +172,7 @@ export class AlignmentView {
             this.overlay.width = width;
             this.overlay.height = height;
         }
+        this.drawOverlay();
     }
     setAlignmentSize(totalCols, totalRows) {
         this.totalCols = totalCols;

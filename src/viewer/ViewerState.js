@@ -26,6 +26,9 @@ export class ViewerState {
                 totalCols: 0,
                 loaded: false,
             },
+            selection: {
+                columns: new Set(),
+            },
             viewport: {
                 scrollLeft: 0,
                 scrollTop: 0,
@@ -48,6 +51,7 @@ export class ViewerState {
             alignment: { ...this.state.alignment },
             viewport: { ...this.state.viewport },
             gpu: { ...this.state.gpu },
+            selection: { ...this.state.selection, columns: new Set(this.state.selection.columns) },
         }
     }
     subscribe(listener) {
@@ -60,6 +64,17 @@ export class ViewerState {
         for (const listener of this.listeners) {
             listener(snapshot);
         }
+    }
+    setSelectedColumns(set) {
+        this.state.selection.columns = set;
+        this.emit();
+    }
+    toggleSelectedColumn(col) {
+        const next = new Set(this.state.selection.columns);
+        if (next.has(col)) next.delete(col);
+        else next.add(col);
+        this.state.selection.columns = next;
+        this.emit();
     }
     setThemeMode(mode) {
         if (!["light", "dark", "auto"].includes(mode)) return;
@@ -86,6 +101,7 @@ export class ViewerState {
             totalCols,
             loaded: true,
         };
+        this.state.selection.columns = new Set();
         this.state.viewport.scrollLeft = 0;
         this.state.viewport.scrollTop = 0;
         this.emit();
@@ -97,6 +113,7 @@ export class ViewerState {
             totalCols: 0,
             loaded: false,
         };
+        this.state.selection.columns = new Set();
         this.state.viewport.scrollLeft = 0;
         this.state.viewport.scrollTop = 0;
         this.emit();

@@ -3,6 +3,7 @@ import { MSAViewer } from "../viewer/MSAViewer.js";
 async function main() {
     const root = document.getElementById("viewer");
     const fileInput = document.getElementById("file-input");
+    const clearButton = document.getElementById("clear-selection-button");
     const uploadButton = document.getElementById("upload-button");
     const schemeSelect = document.getElementById("scheme-select");
     const status = document.getElementById("status");
@@ -10,7 +11,7 @@ async function main() {
     // Set up the MSAViewer
     // init() loads all necessary WebGPU components
     const viewer = new MSAViewer({ root });
-    await viewer.init();
+    await viewer.init(); 
     
     // page UI
     uploadButton.addEventListener("click", () => fileInput.click());
@@ -32,6 +33,20 @@ async function main() {
             fileInput.value = "";
         }
     });
+    
+    const unsubscribe = viewer.onSelectionChange((selectedColumns) => {
+        if (selectedColumns.size > 0) {
+            clearButton.textContent = `Clear ${selectedColumns.size} selected columns`;
+            clearButton.disabled = false;
+        } else {
+            clearButton.textContent = `Clear selected columns`;
+            clearButton.disabled = true;
+        }
+    });
+
+    clearButton.onclick = () => {
+        viewer.clearSelectedColumns();
+    }
 }
 
 main().catch((error) => {

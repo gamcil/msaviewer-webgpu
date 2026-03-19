@@ -27,6 +27,8 @@
             --button-bg: light-dark(#4f7cff, #5f86ff);
             --button-hover-bg: light-dark(#658cff, #7394ff);
             --button-fg: #fff;
+            --button-disabled-bg: light-dark(#c8c8c8, #d9d9d9);
+            --button-disabled-fg: #000;
         }
         :root[data-theme="dark"] {
             color-scheme: dark;
@@ -192,10 +194,17 @@
         button:hover {
             background: var(--button-hover-bg);
         }
+        button:disabled {
+            background: var(--button-disabled-bg);
+            color: var(--button-disabled-fg);
+        }
     </style>
 </head>
 <body>
     <div class="toolbar">
+        <div class="column-selection-info">
+            <button disabled id="clear-selection-button">Clear selected columns</button>
+        </div>
         <div class="scheme-switcher">
             <label for="scheme-select">Color Scheme:</label>
             <select id="scheme-select">
