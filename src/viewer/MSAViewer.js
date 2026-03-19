@@ -37,6 +37,7 @@ function accumulateMinimapChunk(minimapSums, minimapWeights, chunkResult, width,
 
 function finalizeMinimapPixels(outPixels, minimapSums, minimapWeights, darkMode) {
     const pixelCount = minimapWeights.length;
+    console.log("dark mode", darkMode)
     const bg = darkMode ? [20, 20, 23] : [255, 255, 255];
     for (let i = 0; i < pixelCount; i += 1) {
         const weight = minimapWeights[i];
@@ -189,8 +190,12 @@ export class MSAViewer {
 
     setLoadedLayoutVisible(loaded) {
         this.root.dataset.loaded = loaded ? "true" : "false";
-        this.headerRoot.hidden = !loaded;
-        this.minimapRoot.hidden = !loaded;
+        if (this.headerRoot) {
+            this.headerRoot.hidden = !loaded;
+        }
+        if (this.minimapRoot) {
+            this.minimapRoot.hidden = !loaded;
+        }
     }
     
     async rebuildMinimap() {
@@ -441,6 +446,32 @@ export class MSAViewer {
             event.preventDefault();
         };
         window.addEventListener("keydown", this.onKeyDown);
+        
+        // minimap drag
+        this.minimapView.onViewportRequest = (request) => {
+            if (!request.type) return;
+            const viewportWidth = this.alignmentView.scroller.clientWidth;
+            const viewportHeight = this.alignmentView.scroller.clientHeight;
+            const snapshot = this.state.getSnapshot();
+            const contentWidth = this.alignmentStore.totalCols * snapshot.viewport.cellWidth;
+            const contentHeight = this.alignmentStore.totalRows * snapshot.viewport.cellHeight;
+            const maxScrollLeft = Math.max(0, contentWidth - viewportWidth);
+            const maxScrollTop = Math.max(0, contentHeight - viewportHeight);
+            if (request.type === "drag") {
+                const { leftRatio, topRatio } = request;
+                const scrollLeft = leftRatio * maxScrollLeft;
+                const scrollTop = topRatio * maxScrollTop;
+                this.alignmentView.scrollTo(scrollLeft, scrollTop)
+            } else if (request.type === "jump") {
+                const { centerXRatio, centerYRatio } = request;
+                const scrollLeft = centerXRatio * contentWidth - viewportWidth / 2;
+                const scrollTop = centerYRatio * contentHeight - viewportHeight / 2;
+                this.alignmentView.scrollTo(
+                    Math.max(0, Math.min(scrollLeft, maxScrollLeft)),
+                    Math.max(0, Math.min(scrollTop, maxScrollTop)),
+                )                
+            }
+        }
     }
     
     getVisibleWindowBounds() {
