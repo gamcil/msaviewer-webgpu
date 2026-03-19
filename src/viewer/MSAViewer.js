@@ -37,7 +37,6 @@ function accumulateMinimapChunk(minimapSums, minimapWeights, chunkResult, width,
 
 function finalizeMinimapPixels(outPixels, minimapSums, minimapWeights, darkMode) {
     const pixelCount = minimapWeights.length;
-    console.log("dark mode", darkMode)
     const bg = darkMode ? [20, 20, 23] : [255, 255, 255];
     for (let i = 0; i < pixelCount; i += 1) {
         const weight = minimapWeights[i];
