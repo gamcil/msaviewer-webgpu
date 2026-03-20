@@ -247,7 +247,16 @@ export class MSAViewer {
             label: "Quality",
             height: 60
         });
+        const occupancyTrackRoot = document.createElement("div");
+        occupancyTrackRoot.className = "msa-track";
+        this.occupancyTrackView = new BarTrackView({
+            root: occupancyTrackRoot,
+            id: "occupancy",
+            label: "Occupancy",
+            height: 60
+        });
         this.trackStackView.addTrack(this.qualityTrackView);
+        this.trackStackView.addTrack(this.occupancyTrackView);
     }
     
     getCoordsFromScrollerPosition({ clientX, clientY }) {
@@ -660,6 +669,7 @@ export class MSAViewer {
         this.syncAlignmentOverlay();
         this.ensureTracks();
         this.qualityTrackView.setData(this.columnMetrics.quality);
+        this.occupancyTrackView.setData(this.columnMetrics.occupancy);
         this.syncTracksViewport();
         this.headerView.setViewportHeight(this.alignmentView.scroller.clientHeight);
     }
@@ -750,9 +760,10 @@ export class MSAViewer {
             tileCols * totalVerticalTiles * 21 * Uint32Array.BYTES_PER_ELEMENT
         );
         const bandMetricBuffer = this.getOrCreateMetricBandBuffer(
-            tileCols * Float32Array.BYTES_PER_ELEMENT
+            tileCols * 2 * Float32Array.BYTES_PER_ELEMENT
         );
-        const finalMetrics = new Float32Array(totalCols);
+        const finalQuality = new Float32Array(totalCols);
+        const finalOccupancy = new Float32Array(totalCols);
         
         for (let colTile = 0; colTile < this.alignmentStore.colTileCount; colTile += 1) {
             const colStart = colTile * tileCols;
@@ -805,14 +816,18 @@ export class MSAViewer {
                 this.device.queue.submit([encoder.finish()]);
             }
 
-            const bandMetrics = await this.readMetricBandBuffer(bandMetricBuffer, colsInBand);
-            finalMetrics.set(bandMetrics, colStart);
+            const bandMetrics = await this.readMetricBandBuffer(bandMetricBuffer, colsInBand * 2);
+            for (let i = 0; i < colsInBand; i += 1) {
+                const offset = i * 2;
+                finalQuality[colStart + i] = bandMetrics[offset];
+                finalOccupancy[colStart + i] = bandMetrics[offset + 1];
+            }
         }
         
         this.columnMetrics = {
-            quality: finalMetrics,
+            quality: finalQuality,
+            occupancy: finalOccupancy,
         };
-        console.log("computed metrics", this.columnMetrics)
     }
     
     async recomputeColumnProfile() {
@@ -980,8 +995,8 @@ export class MSAViewer {
         return this.metricReadbackBuffer;
     }
 
-    async readMetricBandBuffer(metricBuffer, colsInBand) {
-        const byteLength = colsInBand * Float32Array.BYTES_PER_ELEMENT;
+    async readMetricBandBuffer(metricBuffer, floatCount) {
+        const byteLength = floatCount * Float32Array.BYTES_PER_ELEMENT;
         const readbackBuffer = this.getOrCreateMetricReadbackBuffer(byteLength);
         const encoder = this.device.createCommandEncoder();
         encoder.copyBufferToBuffer(metricBuffer, 0, readbackBuffer, 0, byteLength);

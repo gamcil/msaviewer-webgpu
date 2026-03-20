@@ -17,10 +17,15 @@ struct PartialCounts {
     counts: array<u32, 21>,
 }
 
+struct ColumnMetrics {
+    quality: f32,
+    occupancy: f32,
+}
+
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
 @group(0) @binding(1) var<storage, read> msa_tile: array<u32>;
 @group(0) @binding(2) var<storage, read_write> intermediate_buffer: array<PartialCounts>;
-@group(0) @binding(3) var<storage, read_write> quality_track: array<f32>;
+@group(0) @binding(3) var<storage, read_write> metrics_out: array<ColumnMetrics>;
 @group(0) @binding(4) var<storage, read> blosum62: array<i32>;
 
 
@@ -139,6 +144,14 @@ fn aggregate_metrics(@builtin(global_invocation_id) gid: vec3u) {
         }
     }
     
+    var non_gap_count = 0u;
+    for (var i = 0u; i < 20u; i = i + 1u) {
+        non_gap_count += final_counts[i];
+    }
+    
     let quality = calculate_quality(final_counts);
-    quality_track[col] = quality; 
+    let occupancy = f32(non_gap_count) / f32(uniforms.msa_height);
+
+    metrics_out[col].quality = quality; 
+    metrics_out[col].occupancy = occupancy; 
 }
