@@ -531,10 +531,10 @@ fn vs_main(@builtin(vertex_index) idx: u32) -> VertexOutput {
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let pixel = vec2<u32>(u32(in.pos.x), u32(in.pos.y));
-    let content_pixel = pixel + ui.scrollPx;
-    let cell = content_pixel / ui.gridSize;
-    let col = cell.x;
-    let row = cell.y;
+    let window_pixel = pixel + ui.scrollPx;
+    let local_cell = window_pixel / ui.gridSize;
+    let col = ui.windowOrigin.x + local_cell.x;
+    let row = ui.windowOrigin.y + local_cell.y;
     let base_background = default_scheme_color();
 
     if (pixel.x >= ui.canvasSize.x || pixel.y >= ui.canvasSize.y) {
@@ -544,16 +544,11 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         return base_background;
     }
 
-    if (
-        col < ui.windowOrigin.x ||
-        row < ui.windowOrigin.y ||
-        col >= ui.windowOrigin.x + ui.windowSize.x ||
-        row >= ui.windowOrigin.y + ui.windowSize.y
-    ) {
+    if (local_cell.x >= ui.windowSize.x || local_cell.y >= ui.windowSize.y) {
         return base_background;
     }
 
-    let residue = read_residue(row - ui.windowOrigin.y, col - ui.windowOrigin.x);
+    let residue = read_residue(local_cell.y, local_cell.x);
     let mask = colProfile[col];
 
     var color = base_background;
@@ -575,7 +570,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             default: { color = base_background; }
         }
     }
-    let local = content_pixel % ui.gridSize;
+    let local = window_pixel % ui.gridSize;
     let local_uv = (vec2<f32>(local) + vec2<f32>(0.5, 0.5)) / vec2<f32>(ui.gridSize);
     let glyph_mask = smoothstep(0.2, 0.8, sample_glyph_mask(residue, local_uv));
     let background = color.rgb;

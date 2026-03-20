@@ -79,18 +79,30 @@ export class AlignmentView {
         this.hoveredColumn = null;
         this.selectedColumns = new Set();
     }
+    getRenderedCellWidthCss() {
+        const dpr = window.devicePixelRatio || 1;
+        return Math.max(1, Math.round(this.getCellWidth() * dpr)) / dpr;
+    }
+    getRenderedCellHeightCss() {
+        const dpr = window.devicePixelRatio || 1;
+        return Math.max(1, Math.round(this.getCellHeight() * dpr)) / dpr;
+    }
     setBindGroup(bindGroup) {
         this.renderBindGroup = bindGroup;
     }
     syncUniforms({ totalCols, totalRows, windowColStart = 0, windowRowStart = 0, windowCols = 0, windowRows = 0 }) {
         const dpr = window.devicePixelRatio || 1;
-        const gridPxX = Math.max(1, Math.round(this.getCellWidth() * dpr));
-        const gridPxY = Math.max(1, Math.round(this.getCellHeight() * dpr));
+        const cellWidthCss = this.getRenderedCellWidthCss();
+        const cellHeightCss = this.getRenderedCellHeightCss();
+        const gridPxX = Math.max(1, Math.round(cellWidthCss * dpr));
+        const gridPxY = Math.max(1, Math.round(cellHeightCss * dpr));
+        const localScrollLeft = this.scroller.scrollLeft - windowColStart * cellWidthCss;
+        const localScrollTop = this.scroller.scrollTop - windowRowStart * cellHeightCss;
         writeRenderUniformBuffer(
             this.device,
             this.uniformBuffer,
-            Math.round(this.scroller.scrollLeft * dpr),
-            Math.round(this.scroller.scrollTop * dpr),
+            Math.round(localScrollLeft * dpr),
+            Math.round(localScrollTop * dpr),
             totalCols,
             totalRows,
             gridPxX,
@@ -106,7 +118,7 @@ export class AlignmentView {
     getVisibleColumnRange() {
         const scrollLeft = this.scroller.scrollLeft;
         const viewportWidth = this.scroller.clientWidth;
-        const cellWidth = this.getCellWidth();
+        const cellWidth = this.getRenderedCellWidthCss();
         const colStart = Math.floor(scrollLeft / cellWidth);
         const colEnd = Math.min(this.totalCols, Math.ceil((scrollLeft + viewportWidth) / cellWidth));
         return [colStart, colEnd];
@@ -120,18 +132,21 @@ export class AlignmentView {
         if (!this.overlayContext) return;
 
         const dpr = window.devicePixelRatio || 1;
-        const cellWidthPx = this.getCellWidth() * dpr;
-        const scrollLeftPx = this.scroller.scrollLeft * dpr;
+        const cellWidthCss = this.getRenderedCellWidthCss();
+        const cellHeightCss = this.getRenderedCellHeightCss();
+        const cellWidthPx = Math.max(1, Math.round(cellWidthCss * dpr));
         
         this.clearOverlay();
 
         const [colStart, colEnd] = this.getVisibleColumnRange(); 
-        const numRows = Math.min(this.totalRows, Math.ceil(this.scroller.clientHeight / this.getCellHeight()));
-        const heightPx = numRows * this.getCellHeight() * dpr;
+        const localScrollLeft = this.scroller.scrollLeft - colStart * cellWidthCss;
+        const localScrollLeftPx = Math.round(localScrollLeft * dpr);
+        const numRows = Math.min(this.totalRows, Math.ceil(this.scroller.clientHeight / cellHeightCss));
+        const heightPx = numRows * Math.max(1, Math.round(cellHeightCss * dpr));
 
         for (const col of this.selectedColumns) {
             if (col < colStart || col >= colEnd) continue;
-            const x = col * cellWidthPx - scrollLeftPx;
+            const x = (col - colStart) * cellWidthPx - localScrollLeftPx;
             this.overlayContext.strokeStyle = "rgb(0, 122, 178)";
             this.overlayContext.fillStyle = "rgba(89, 211, 255, 0.25)"; 
             this.overlayContext.lineWidth = Math.max(1, Math.round(dpr));
@@ -142,7 +157,7 @@ export class AlignmentView {
         }
         
         if (this.hoveredColumn !== null && this.hoveredColumn >= colStart && this.hoveredColumn < colEnd) {
-            const x = this.hoveredColumn * cellWidthPx - scrollLeftPx;
+            const x = (this.hoveredColumn - colStart) * cellWidthPx - localScrollLeftPx;
             this.overlayContext.strokeStyle = "rgb(0, 122, 178)";
             this.overlayContext.lineWidth = Math.max(1, Math.round(dpr));
             this.overlayContext.strokeRect(x + 0.5, 0.5, Math.max(0, cellWidthPx - 1), Math.max(0, heightPx - 1));
@@ -177,8 +192,8 @@ export class AlignmentView {
     setAlignmentSize(totalCols, totalRows) {
         this.totalCols = totalCols;
         this.totalRows = totalRows;
-        const width = totalCols * this.getCellWidth();
-        const height = totalRows * this.getCellHeight();
+        const width = totalCols * this.getRenderedCellWidthCss();
+        const height = totalRows * this.getRenderedCellHeightCss();
         this.spacer.style.width = `${width}px`;
         this.spacer.style.height = `${height}px`;
     }

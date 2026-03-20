@@ -9,14 +9,18 @@ import { SCHEMES } from "../schemes/registry.js";
 import { loadImageBitmap } from "../util.js";
 import { parseFastaAlignment } from "../alignment/fasta.js";
 import { parseA3MAlignment } from "../alignment/a3m.js";
-import { TileCache, getTileIndicesForWindow, materializeWindowFromTiles } from "../alignment/tiledStorage.js";
+import { TileCache, getTileIndicesForWindow, loadDecodedTile, materializeWindowFromTiles } from "../alignment/tiledStorage.js";
 import renderShaderCode from "../graphics/shaders/msa.render.wgsl?raw";
 import clustalxComputeShaderCode from "../graphics/shaders/clustalx.compute.wgsl?raw";
 import pidComputeShaderCode from "../graphics/shaders/pident.compute.wgsl?raw";
 import blosumComputeShaderCode from "../graphics/shaders/blosum.compute.wgsl?raw";
 import minimapComputeShaderCode from "../graphics/shaders/minimap.compute.wgsl?raw";
+import metricsComputeShaderCode from "../graphics/shaders/metrics.compute.wgsl?raw";
 import { MinimapView } from "../views/MinimapView.js";
 import { MinimapCompute } from "../graphics/pipelines/MinimapCompute.js";
+import { ColumnMetricCompute } from "../graphics/pipelines/ColumnMetricCompute.js";
+import { TrackStackView } from "../views/TrackStackView.js";
+import { BarTrackView } from "../views/BarTrackView.js";
 
 function writeThemeUniformBuffer(device, buffer, darkMode, colorScheme) {
     const data = new Uint32Array([darkMode, colorScheme]);
@@ -96,6 +100,17 @@ export class MSAViewer {
         this.viewportOverscanCols = 32;
         this.profileChunkBuffer = null;
         this.profileChunkCapacity = 0;
+        this.metricTileBuffer = null;
+        this.metricTileCapacity = 0;
+        this.metricUniformBuffer = null;
+        this.metricIntermediateBuffer = null;
+        this.metricIntermediateCapacity = 0;
+        this.metricBandBuffer = null;
+        this.metricBandCapacity = 0;
+        this.metricReadbackBuffer = null;
+        this.metricReadbackCapacity = 0;
+        this.metricPipeline = null;
+        this.columnMetrics = null;
 
         // minimap chunking separate to column statistics
         this.minimapChunkBuffer = null;
@@ -157,18 +172,23 @@ export class MSAViewer {
         const minimapRoot = document.createElement("div");
         minimapRoot.className = "msa-minimap-body";
         
+        const trackstackRoot = document.createElement("div");
+        trackstackRoot.className = "msa-trackstack-body";
+        
         this.root.appendChild(headerRoot);
         this.root.appendChild(alignmentRoot);
         this.root.appendChild(minimapRoot);
+        this.root.appendChild(trackstackRoot);
 
-        return { headerRoot, alignmentRoot, minimapRoot };
+        return { headerRoot, alignmentRoot, minimapRoot, trackstackRoot };
     }
 
     createViews() {
-        const { headerRoot, alignmentRoot, minimapRoot } = this.createLayout();
+        const { headerRoot, alignmentRoot, minimapRoot, trackstackRoot } = this.createLayout();
         this.headerRoot = headerRoot;
         this.alignmentRoot = alignmentRoot;
         this.minimapRoot = minimapRoot;
+        this.trackstackRoot = trackstackRoot;
         
         this.renderer = new MSARenderer(this.device, this.format, this.renderShaderCode);
 
@@ -181,6 +201,10 @@ export class MSAViewer {
             root: minimapRoot
         });
         
+        this.trackStackView = new TrackStackView({
+            root: trackstackRoot
+        })
+
         this.alignmentView = new AlignmentView({
             root: alignmentRoot,
             renderer: this.renderer,
@@ -213,13 +237,28 @@ export class MSAViewer {
         this.setLoadedLayoutVisible(false);
     }
     
+    ensureTracks() {
+        if (this.qualityTrackView) return;
+        const qualityTrackRoot = document.createElement("div");
+        qualityTrackRoot.className = "msa-track";
+        this.qualityTrackView = new BarTrackView({
+            root: qualityTrackRoot,
+            id: "quality",
+            label: "Quality",
+            height: 60
+        });
+        this.trackStackView.addTrack(this.qualityTrackView);
+    }
+    
     getCoordsFromScrollerPosition({ clientX, clientY }) {
         const bounds = this.alignmentView.scroller.getBoundingClientRect();
         const contentX = clientX - bounds.left + this.alignmentView.scroller.scrollLeft;
         const contentY = clientY - bounds.top  + this.alignmentView.scroller.scrollTop;
+        const cellWidth = this.alignmentView.getRenderedCellWidthCss();
+        const cellHeight = this.alignmentView.getRenderedCellHeightCss();
         const snapshot = this.state.getSnapshot();
-        const col = Math.floor(contentX / snapshot.viewport.cellWidth);
-        const row = Math.min(snapshot.alignment.totalRows - 1, Math.floor(contentY / snapshot.viewport.cellHeight));
+        const col = Math.floor(contentX / cellWidth);
+        const row = Math.min(snapshot.alignment.totalRows - 1, Math.floor(contentY / cellHeight));
         return [col, row];
     }
 
@@ -412,6 +451,7 @@ export class MSAViewer {
             pid: pidComputeShaderCode,
             blosum62: blosumComputeShaderCode,
             minimap: minimapComputeShaderCode,
+            metrics: metricsComputeShaderCode,
         };
         this.computePipelines = new Map();
     }
@@ -476,6 +516,7 @@ export class MSAViewer {
                 void this.uploadVisibleWindow();
             }
             this.syncMinimapViewportRect()
+            this.syncTracksViewport();
         };
         this.alignmentView.scroller.addEventListener("scroll", this.onScroll);
         this.alignmentView.scroller.addEventListener("scrollend", () => {
@@ -491,6 +532,7 @@ export class MSAViewer {
                 void this.uploadVisibleWindow();
             }
             this.syncMinimapViewportRect()
+            this.syncTracksViewport();
         };
         window.addEventListener("resize", this.onResize);
 
@@ -554,13 +596,12 @@ export class MSAViewer {
     }
     
     getVisibleWindowBounds() {
-        const snapshot = this.state.getSnapshot();
-        const cellWidth = snapshot.viewport.cellWidth;
-        const cellHeight = snapshot.viewport.cellHeight;
         const scrollLeft = this.alignmentView.scroller.scrollLeft;
         const scrollTop = this.alignmentView.scroller.scrollTop;
         const viewportWidth = this.alignmentView.scroller.clientWidth;
         const viewportHeight = this.alignmentView.scroller.clientHeight;
+        const cellWidth = this.alignmentView.getRenderedCellWidthCss();
+        const cellHeight = this.alignmentView.getRenderedCellHeightCss();
         const rowStart = Math.max(0, Math.floor(scrollTop / cellHeight) - this.viewportOverscanRows);
         const rowEnd = Math.min(
             this.alignmentStore.totalRows,
@@ -591,6 +632,7 @@ export class MSAViewer {
         this.alignmentStore = store;
         this.decodedTileCache.clear();
         this.visibleWindowState = null;
+        this.columnMetrics = null;
         this.hoveredColumn = null;
         this.isScrolling = false;
         this.alignmentState = { colProfileBuffer, totalCols, totalRows };
@@ -598,11 +640,13 @@ export class MSAViewer {
         this.setLoadedLayoutVisible(true);
 
         await this.recomputeColumnProfile();
+        await this.recomputeColumnMetrics();
+        
+        // quality tracks
 
         this.alignmentView.setAlignmentSize(totalCols, totalRows);
         this.alignmentView.scrollTo(0, 0);
         this.alignmentView.ensureCanvasSize();
-        this.headerView.setViewportHeight(this.alignmentView.scroller.clientHeight);
         this.headerView.renderRecords(records);
         this.headerView.syncScroll(this.alignmentView.scroller.scrollTop);
         this.alignmentView.setOverlayState({
@@ -614,6 +658,10 @@ export class MSAViewer {
         await this.rebuildMinimap();
         this.syncMinimapViewportRect()
         this.syncAlignmentOverlay();
+        this.ensureTracks();
+        this.qualityTrackView.setData(this.columnMetrics.quality);
+        this.syncTracksViewport();
+        this.headerView.setViewportHeight(this.alignmentView.scroller.clientHeight);
     }
     
     async loadFastaAlignment(source, format = "fasta") {
@@ -623,7 +671,25 @@ export class MSAViewer {
         await this.loadAlignment(parsed);
         return parsed;
     }
-    
+
+    syncTracksViewport() {
+        if (!this.trackStackView) return;
+        const scrollLeft = this.alignmentView.scroller.scrollLeft;
+        const viewportWidth = this.alignmentView.scroller.clientWidth;
+        const cellWidth = this.alignmentView.getRenderedCellWidthCss();
+        const totalCols = this.alignmentStore.totalCols;
+        const colStart = Math.floor(scrollLeft / cellWidth);
+        const colEnd = Math.min(totalCols, Math.ceil((scrollLeft + viewportWidth) / cellWidth));
+        this.trackStackView.setViewport({
+            scrollLeft,
+            viewportWidth,
+            cellWidth,
+            totalCols,
+            colStart,
+            colEnd,
+        });
+    }
+
     syncThemeBuffer() {
         const snapshot = this.state.getSnapshot();
         const darkMode = snapshot.theme.darkMode ? 1 : 0;
@@ -666,6 +732,87 @@ export class MSAViewer {
         if (mode != null) this.state.setThemeMode(mode);
         if (darkMode != null) this.state.setResolvedDarkMode(darkMode);
         await this.rebuildMinimap();
+    }
+    
+    async recomputeColumnMetrics() {
+        if (!this.alignmentStore) return;
+
+        const totalCols = this.alignmentStore.totalCols;
+        const totalRows = this.alignmentStore.totalRows;
+        const tileCols = this.alignmentStore.tileCols; // 512
+        const tileRows = this.alignmentStore.tileRows; // 256
+        const totalVerticalTiles = this.alignmentStore.rowTileCount;
+        
+        const metricPipeline = this.getColumnMetricPipeline();
+        const tileBuffer = this.getOrCreateMetricTileBuffer(tileCols * tileRows);
+        const uniformBuffer = this.getOrCreateMetricUniformBuffer();
+        const intermediateBuffer = this.getOrCreateMetricIntermediateBuffer(
+            tileCols * totalVerticalTiles * 21 * Uint32Array.BYTES_PER_ELEMENT
+        );
+        const bandMetricBuffer = this.getOrCreateMetricBandBuffer(
+            tileCols * Float32Array.BYTES_PER_ELEMENT
+        );
+        const finalMetrics = new Float32Array(totalCols);
+        
+        for (let colTile = 0; colTile < this.alignmentStore.colTileCount; colTile += 1) {
+            const colStart = colTile * tileCols;
+            const colsInBand = Math.min(tileCols, totalCols - colStart);
+            this.device.queue.writeBuffer(
+                intermediateBuffer, 0, new Uint32Array(colsInBand * totalVerticalTiles * 21)
+            );
+            for (let rowTile = 0; rowTile < totalVerticalTiles; rowTile += 1) {
+                const tileIndex = rowTile * this.alignmentStore.colTileCount + colTile;
+                const tileMeta = this.alignmentStore.tiles[tileIndex];
+                const tileData = await loadDecodedTile(this.alignmentStore, tileIndex, this.decodedTileCache);
+                this.device.queue.writeBuffer(tileBuffer, 0, tileData);
+                metricPipeline.updateUniforms(
+                    uniformBuffer,
+                    totalVerticalTiles,
+                    totalRows,
+                    totalCols,
+                    rowTile,
+                    colStart,
+                    colsInBand
+                );
+                const encoder = this.device.createCommandEncoder();
+                metricPipeline.encodeCount(
+                    encoder,
+                    tileBuffer,
+                    intermediateBuffer,
+                    uniformBuffer,
+                    colsInBand
+                );
+                this.device.queue.submit([encoder.finish()]);
+            }
+            {
+                const encoder = this.device.createCommandEncoder();
+                metricPipeline.updateUniforms(
+                    uniformBuffer,
+                    totalVerticalTiles,
+                    totalRows,
+                    totalCols,
+                    0,
+                    colStart,
+                    colsInBand
+                );
+                metricPipeline.encodeAggregate(
+                    encoder,
+                    intermediateBuffer,
+                    bandMetricBuffer,
+                    uniformBuffer,
+                    colsInBand
+                );
+                this.device.queue.submit([encoder.finish()]);
+            }
+
+            const bandMetrics = await this.readMetricBandBuffer(bandMetricBuffer, colsInBand);
+            finalMetrics.set(bandMetrics, colStart);
+        }
+        
+        this.columnMetrics = {
+            quality: finalMetrics,
+        };
+        console.log("computed metrics", this.columnMetrics)
     }
     
     async recomputeColumnProfile() {
@@ -757,6 +904,92 @@ export class MSAViewer {
             );
         }
         return this.computePipelines.get(schemeKey);
+    }
+
+    getColumnMetricPipeline() {
+        if (!this.metricPipeline) {
+            this.metricPipeline = new ColumnMetricCompute(
+                this.device,
+                this.computeShaderCodes.metrics,
+                this.blosum62Buffer
+            );
+        }
+        return this.metricPipeline;
+    }
+
+    getOrCreateMetricTileBuffer(byteLength) {
+        if (this.metricTileBuffer && this.metricTileCapacity >= byteLength) {
+            return this.metricTileBuffer;
+        }
+        this.metricTileBuffer?.destroy?.();
+        this.metricTileCapacity = byteLength;
+        this.metricTileBuffer = this.device.createBuffer({
+            size: byteLength,
+            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+        });
+        return this.metricTileBuffer;
+    }
+
+    getOrCreateMetricUniformBuffer() {
+        if (this.metricUniformBuffer) {
+            return this.metricUniformBuffer;
+        }
+        this.metricUniformBuffer = this.device.createBuffer({
+            size: Uint32Array.BYTES_PER_ELEMENT * 8,
+            usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+        });
+        return this.metricUniformBuffer;
+    }
+
+    getOrCreateMetricIntermediateBuffer(byteLength) {
+        if (this.metricIntermediateBuffer && this.metricIntermediateCapacity >= byteLength) {
+            return this.metricIntermediateBuffer;
+        }
+        this.metricIntermediateBuffer?.destroy?.();
+        this.metricIntermediateCapacity = byteLength;
+        this.metricIntermediateBuffer = this.device.createBuffer({
+            size: byteLength,
+            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+        });
+        return this.metricIntermediateBuffer;
+    }
+
+    getOrCreateMetricBandBuffer(byteLength) {
+        if (this.metricBandBuffer && this.metricBandCapacity >= byteLength) {
+            return this.metricBandBuffer;
+        }
+        this.metricBandBuffer?.destroy?.();
+        this.metricBandCapacity = byteLength;
+        this.metricBandBuffer = this.device.createBuffer({
+            size: byteLength,
+            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
+        });
+        return this.metricBandBuffer;
+    }
+
+    getOrCreateMetricReadbackBuffer(byteLength) {
+        if (this.metricReadbackBuffer && this.metricReadbackCapacity >= byteLength) {
+            return this.metricReadbackBuffer;
+        }
+        this.metricReadbackBuffer?.destroy?.();
+        this.metricReadbackCapacity = byteLength;
+        this.metricReadbackBuffer = this.device.createBuffer({
+            size: byteLength,
+            usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+        });
+        return this.metricReadbackBuffer;
+    }
+
+    async readMetricBandBuffer(metricBuffer, colsInBand) {
+        const byteLength = colsInBand * Float32Array.BYTES_PER_ELEMENT;
+        const readbackBuffer = this.getOrCreateMetricReadbackBuffer(byteLength);
+        const encoder = this.device.createCommandEncoder();
+        encoder.copyBufferToBuffer(metricBuffer, 0, readbackBuffer, 0, byteLength);
+        this.device.queue.submit([encoder.finish()]);
+        await readbackBuffer.mapAsync(GPUMapMode.READ, 0, byteLength);
+        const copy = new Float32Array(readbackBuffer.getMappedRange(0, byteLength)).slice();
+        readbackBuffer.unmap();
+        return copy;
     }
 
     getOrCreateMinimapChunkBuffer(byteLength) {

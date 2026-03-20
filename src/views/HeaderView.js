@@ -17,9 +17,11 @@ export class HeaderView {
         Object.assign(this.root.style, {
             position: "relative",
             flex: "0 0 auto",
-            width: "fit-content",
+            // width: "fit-content",
+            // maxWidth: "300px",
+            // height: "100%",
             maxWidth: "300px",
-            height: "100%",
+            minWidth: "0",
             overflowX: "hidden",
             overflowY: "auto",
             backgroundColor: "var(--header-bg)",
