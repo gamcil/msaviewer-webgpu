@@ -21,6 +21,7 @@ import { MinimapCompute } from "../graphics/pipelines/MinimapCompute.js";
 import { ColumnMetricCompute } from "../graphics/pipelines/ColumnMetricCompute.js";
 import { TrackStackView } from "../views/TrackStackView.js";
 import { BarTrackView } from "../views/BarTrackView.js";
+import { LineTrackView } from "../views/LineTrackView.js";
 
 function writeThemeUniformBuffer(device, buffer, darkMode, colorScheme) {
     const data = new Uint32Array([darkMode, colorScheme]);
@@ -255,8 +256,17 @@ export class MSAViewer {
             label: "Occupancy",
             height: 60
         });
+        const entropyTrackRoot = document.createElement("div");
+        entropyTrackRoot.className = "msa-track";
+        this.entropyTrackView = new LineTrackView({
+            root: entropyTrackRoot,
+            id: "entropy",
+            label: "Entropy",
+            height: 60
+        });
         this.trackStackView.addTrack(this.qualityTrackView);
         this.trackStackView.addTrack(this.occupancyTrackView);
+        this.trackStackView.addTrack(this.entropyTrackView);
     }
     
     getCoordsFromScrollerPosition({ clientX, clientY }) {
@@ -670,6 +680,7 @@ export class MSAViewer {
         this.ensureTracks();
         this.qualityTrackView.setData(this.columnMetrics.quality);
         this.occupancyTrackView.setData(this.columnMetrics.occupancy);
+        this.entropyTrackView.setData(this.columnMetrics.entropy);
         this.syncTracksViewport();
         this.headerView.setViewportHeight(this.alignmentView.scroller.clientHeight);
     }
@@ -760,10 +771,11 @@ export class MSAViewer {
             tileCols * totalVerticalTiles * 21 * Uint32Array.BYTES_PER_ELEMENT
         );
         const bandMetricBuffer = this.getOrCreateMetricBandBuffer(
-            tileCols * 2 * Float32Array.BYTES_PER_ELEMENT
+            tileCols * 3 * Float32Array.BYTES_PER_ELEMENT
         );
         const finalQuality = new Float32Array(totalCols);
         const finalOccupancy = new Float32Array(totalCols);
+        const finalEntropy = new Float32Array(totalCols);
         
         for (let colTile = 0; colTile < this.alignmentStore.colTileCount; colTile += 1) {
             const colStart = colTile * tileCols;
@@ -816,17 +828,19 @@ export class MSAViewer {
                 this.device.queue.submit([encoder.finish()]);
             }
 
-            const bandMetrics = await this.readMetricBandBuffer(bandMetricBuffer, colsInBand * 2);
+            const bandMetrics = await this.readMetricBandBuffer(bandMetricBuffer, colsInBand * 3);
             for (let i = 0; i < colsInBand; i += 1) {
-                const offset = i * 2;
+                const offset = i * 3;
                 finalQuality[colStart + i] = bandMetrics[offset];
                 finalOccupancy[colStart + i] = bandMetrics[offset + 1];
+                finalEntropy[colStart + i] = bandMetrics[offset + 2];
             }
         }
         
         this.columnMetrics = {
             quality: finalQuality,
             occupancy: finalOccupancy,
+            entropy: finalEntropy,
         };
     }
     

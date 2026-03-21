@@ -20,6 +20,7 @@ struct PartialCounts {
 struct ColumnMetrics {
     quality: f32,
     occupancy: f32,
+    entropy: f32,
 }
 
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
@@ -109,6 +110,27 @@ fn calculate_quality(final_counts: array<u32, 21>) -> f32 {
     return max(0.0, (quality / total_pairs) * occupancy);
 }
 
+fn calculate_entropy(final_counts: array<u32, 21>) -> f32 {
+    var non_gap_count = 0u;
+    for (var i = 0u; i < 20u; i = i + 1u) {
+        non_gap_count += final_counts[i];
+    }
+    if (non_gap_count < 2u) {
+        return 0.0;
+    }
+
+    let total = f32(non_gap_count);
+    var entropy = 0.0;
+    for (var i = 0u; i < 20u; i = i + 1u) {
+        let count = final_counts[i];
+        if (count == 0u) { continue; }
+        let p = f32(count) / total;
+        entropy -= p * log2(p);
+    }
+
+    return entropy / log2(20.0);
+}
+
 @compute @workgroup_size(64, 1, 1)
 fn count_residues(@builtin(global_invocation_id) gid: vec3u) {
     let col = gid.x;
@@ -151,7 +173,9 @@ fn aggregate_metrics(@builtin(global_invocation_id) gid: vec3u) {
     
     let quality = calculate_quality(final_counts);
     let occupancy = f32(non_gap_count) / f32(uniforms.msa_height);
+    let entropy = calculate_entropy(final_counts);
 
     metrics_out[col].quality = quality; 
     metrics_out[col].occupancy = occupancy; 
+    metrics_out[col].entropy = entropy;
 }
