@@ -1,0 +1,242 @@
+const LOGO_MEASURE_CANVAS = document.createElement("canvas");
+LOGO_MEASURE_CANVAS.width = 256;
+LOGO_MEASURE_CANVAS.height = 256;
+const LOGO_MEASURE_CONTEXT = LOGO_MEASURE_CANVAS.getContext("2d", { willReadFrequently: true });
+const LOGO_GLYPH_METRIC_CACHE = new Map();
+
+function getLogoGlyphMetrics(font, glyph) {
+    const cacheKey = `${font}::${glyph}`;
+    const cached = LOGO_GLYPH_METRIC_CACHE.get(cacheKey);
+    if (cached) {
+        return cached;
+    }
+
+    const ctx = LOGO_MEASURE_CONTEXT;
+    const width = LOGO_MEASURE_CANVAS.width;
+    const height = LOGO_MEASURE_CANVAS.height;
+    const baselineY = 200;
+    const drawX = width / 2;
+
+    ctx.clearRect(0, 0, width, height);
+    ctx.font = font;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "alphabetic";
+    ctx.fillStyle = "#000";
+    ctx.fillText(glyph, drawX, baselineY);
+
+    const imageData = ctx.getImageData(0, 0, width, height);
+    const pixels = imageData.data;
+    let top = height;
+    let bottom = -1;
+    let left = width;
+    let right = -1;
+
+    for (let y = 0; y < height; y += 1) {
+        for (let x = 0; x < width; x += 1) {
+            const alpha = pixels[(y * width + x) * 4 + 3];
+            if (alpha === 0) continue;
+            top = Math.min(top, y);
+            bottom = Math.max(bottom, y);
+            left = Math.min(left, x);
+            right = Math.max(right, x);
+        }
+    }
+
+    const metrics = ctx.measureText(glyph);
+    const fallbackAscent = metrics.actualBoundingBoxAscent || 80;
+    const fallbackDescent = metrics.actualBoundingBoxDescent || 20;
+    const result = bottom >= top
+        ? {
+            width: Math.max(1, right - left + 1),
+            height: Math.max(1, bottom - top + 1),
+            ascent: Math.max(1, baselineY - top),
+        }
+        : {
+            width: Math.max(1, metrics.width),
+            height: Math.max(1, fallbackAscent + fallbackDescent),
+            ascent: Math.max(1, fallbackAscent),
+        };
+
+    LOGO_GLYPH_METRIC_CACHE.set(cacheKey, result);
+    return result;
+}
+
+export function getTrackRenderGeometry(viewport) {
+    const dpr = window.devicePixelRatio || 1;
+    const cellWidthPx = Math.max(1, Math.round(viewport.cellWidth * dpr));
+    const localScrollLeft = viewport.scrollLeft - viewport.colStart * viewport.cellWidth;
+    const localScrollLeftPx = Math.round(localScrollLeft * dpr);
+    return { dpr, cellWidthPx, localScrollLeftPx };
+}
+
+export function renderBars(context, {
+    bars,
+    cellWidthPx,
+    localScrollLeftPx,
+    canvasHeight,
+    fillStyle = "rgba(89, 211, 255, 0.25)",
+    strokeStyle = null,
+    lineWidth = 1,
+}) {
+    if (!bars?.length) return;
+
+    if (fillStyle) {
+        context.fillStyle = fillStyle;
+    }
+    if (strokeStyle) {
+        context.strokeStyle = strokeStyle;
+        context.lineWidth = lineWidth;
+    }
+
+    context.beginPath();
+    for (const { column, fraction, baseY = canvasHeight, plotHeight = canvasHeight } of bars) {
+        const x = column * cellWidthPx - localScrollLeftPx;
+        const barHeight = plotHeight * fraction;
+        context.rect(x, baseY - barHeight, cellWidthPx, barHeight);
+    }
+    if (fillStyle) {
+        context.fill();
+    }
+    if (strokeStyle) {
+        context.stroke();
+    }
+}
+
+export function renderLine(context, {
+    points,
+    canvasHeight,
+    strokeStyle = "rgb(0, 122, 178)",
+    fillStyle = null,
+    lineWidth = 1,
+    showPoints = false,
+    pointRadius = 5,
+    skipZeroPoints = true,
+}) {
+    if (!points?.length) return;
+
+    context.strokeStyle = strokeStyle;
+    context.lineWidth = lineWidth;
+    if (fillStyle) {
+        context.fillStyle = fillStyle;
+        context.beginPath();
+        context.moveTo(points[0].x, canvasHeight);
+        for (const { x, y } of points) {
+            context.lineTo(x, y);
+        }
+        context.lineTo(points[points.length - 1].x, canvasHeight);
+        context.closePath();
+        context.fill();
+    }
+
+    context.beginPath();
+    context.moveTo(points[0].x, points[0].y);
+    for (let i = 1; i < points.length; i += 1) {
+        context.lineTo(points[i].x, points[i].y);
+    }
+    context.stroke();
+
+    if (!showPoints) return;
+
+    for (const { score, x, y } of points) {
+        if (skipZeroPoints && score === 0) continue;
+        context.beginPath();
+        context.arc(x, y, pointRadius, 0, Math.PI * 2, false);
+        if (fillStyle) {
+            context.fillStyle = fillStyle;
+            context.fill();
+        }
+        context.stroke();
+    }
+}
+
+export function renderGlyphs(context, {
+    glyphs,
+    cellWidthPx,
+    localScrollLeftPx,
+    canvasHeight,
+    font,
+    fillStyle = "#333",
+    textAlign = "center",
+    textBaseline = "bottom",
+}) {
+    if (!glyphs?.length) return;
+
+    context.font = font;
+    context.textAlign = textAlign;
+    context.textBaseline = textBaseline;
+
+    for (const { column, glyph, color = fillStyle, y = canvasHeight } of glyphs) {
+        const x = column * cellWidthPx + cellWidthPx / 2 - localScrollLeftPx;
+        context.fillStyle = color;
+        context.fillText(glyph, x, y);
+    }
+}
+
+export function renderSequenceLogo(context, {
+    columns,
+    cellWidthPx,
+    localScrollLeftPx,
+    plotHeightPx,
+    font = `bold 100px "IBM Plex Mono", monospace`,
+    maxScaleX = 1.25,
+    capGlyphHeight = true,
+    maxGlyphHeightRatio = 0.9,
+    minGlyphPixelHeight = 1,
+}) {
+    if (!columns?.length) return;
+    context.font = font;
+    context.textAlign = "center";
+    context.textBaseline = "alphabetic";
+
+    for (const { column, stackHeightPx, letters } of columns) {
+        const columnX = column * cellWidthPx - localScrollLeftPx;
+        const xCenter = columnX + cellWidthPx / 2;
+        const stackTopPx = plotHeightPx - stackHeightPx;
+        let stackedOffsetPx = 0;
+        const maxGlyphHeightPx = Math.min(plotHeightPx * maxGlyphHeightRatio, cellWidthPx * 2.5);
+
+        const renderableLetters = letters
+            .filter(({ heightPx }) => heightPx >= minGlyphPixelHeight)
+            .map((letter) => {
+                const renderedHeightPx = capGlyphHeight
+                    ? Math.min(letter.heightPx, maxGlyphHeightPx)
+                    : letter.heightPx;
+                return {
+                    ...letter,
+                    renderedHeightPx,
+                };
+            });
+
+        const totalRenderedHeightPx = renderableLetters.reduce(
+            (sum, letter) => sum + letter.renderedHeightPx,
+            0
+        );
+        const availableGapPx = Math.max(0, stackHeightPx - totalRenderedHeightPx);
+        const interLetterGapPx = renderableLetters.length > 1
+            ? availableGapPx / (renderableLetters.length - 1)
+            : 0;
+
+        for (const { glyph, color, renderedHeightPx } of renderableLetters) {
+            const finalHeightPx = renderedHeightPx;
+
+            const glyphMetrics = getLogoGlyphMetrics(font, glyph);
+            const scaleX = Math.min(cellWidthPx / glyphMetrics.width, maxScaleX);
+            const scaleY = finalHeightPx / glyphMetrics.height;
+
+            context.save();
+            context.beginPath();
+            context.rect(columnX, 0, cellWidthPx, plotHeightPx);
+            context.clip();
+            context.translate(
+                xCenter,
+                stackTopPx + stackedOffsetPx + (glyphMetrics.ascent * scaleY)
+            );
+            context.scale(scaleX, scaleY);
+            context.fillStyle = color ?? "#333";
+            context.fillText(glyph, 0, 0);
+            context.restore();
+
+            stackedOffsetPx += finalHeightPx + interLetterGapPx;
+        }
+    }
+}

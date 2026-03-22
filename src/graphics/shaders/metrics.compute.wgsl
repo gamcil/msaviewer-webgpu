@@ -28,6 +28,7 @@ struct ColumnMetrics {
 @group(0) @binding(2) var<storage, read_write> intermediate_buffer: array<PartialCounts>;
 @group(0) @binding(3) var<storage, read_write> metrics_out: array<ColumnMetrics>;
 @group(0) @binding(4) var<storage, read> blosum62: array<i32>;
+@group(0) @binding(5) var<storage, read_write> counts: array<u32>;
 
 
 fn normalize_residue(raw: u32) -> u32 {
@@ -131,6 +132,10 @@ fn calculate_entropy(final_counts: array<u32, 21>) -> f32 {
     return entropy / log2(20.0);
 }
 
+fn calculate_counts_offset(col: u32, aa: u32) -> u32 {
+    return col * 21u + aa;
+}
+
 @compute @workgroup_size(64, 1, 1)
 fn count_residues(@builtin(global_invocation_id) gid: vec3u) {
     let col = gid.x;
@@ -163,6 +168,7 @@ fn aggregate_metrics(@builtin(global_invocation_id) gid: vec3u) {
         let slot = calculate_intermediate_offset(col, t);
         for (var aa = 0u; aa < 21u; aa = aa + 1u) {
             final_counts[aa] += intermediate_buffer[slot].counts[aa];
+            counts[calculate_counts_offset(col, aa)] = final_counts[aa];
         }
     }
     

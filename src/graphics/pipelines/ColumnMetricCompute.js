@@ -30,7 +30,7 @@ export class ColumnMetricCompute {
         pass.end();
     }
 
-    encodeAggregate(commandEncoder, intermediateBuffer, qualityTrackBuffer, uniformBuffer, currentTileCols) {
+    encodeAggregate(commandEncoder, intermediateBuffer, qualityTrackBuffer, uniformBuffer, currentTileCols, countsBuffer) {
         const bindGroup = this.device.createBindGroup({
             layout: this.aggregatePipeline.getBindGroupLayout(0),
             entries: [
@@ -38,7 +38,8 @@ export class ColumnMetricCompute {
                 // Binding 1 is msa_tile (unused in stage 2)
                 { binding: 2, resource: { buffer: intermediateBuffer } },
                 { binding: 3, resource: { buffer: qualityTrackBuffer } },
-                { binding: 4, resource: { buffer: this.blosumBuffer } }
+                { binding: 4, resource: { buffer: this.blosumBuffer } },
+                { binding: 5, resource: { buffer: countsBuffer } },
             ]
         });
 

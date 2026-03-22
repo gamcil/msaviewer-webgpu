@@ -32,6 +32,12 @@ export class TrackStackView {
         }
     }
 
+    setTheme(theme) {
+        for (const track of this.tracks) {
+            track.setTheme?.(theme);
+        }
+    }
+
     render() {
         for (const track of this.tracks) {
             track.render();

@@ -22,6 +22,8 @@ import { ColumnMetricCompute } from "../graphics/pipelines/ColumnMetricCompute.j
 import { TrackStackView } from "../views/TrackStackView.js";
 import { BarTrackView } from "../views/BarTrackView.js";
 import { LineTrackView } from "../views/LineTrackView.js";
+import { GlyphTrackView } from "../views/GlyphTrackView.js";
+import { ConsensusTrackView } from "../views/ConsensusTrackView.js";
 
 function writeThemeUniformBuffer(device, buffer, darkMode, colorScheme) {
     const data = new Uint32Array([darkMode, colorScheme]);
@@ -108,8 +110,12 @@ export class MSAViewer {
         this.metricIntermediateCapacity = 0;
         this.metricBandBuffer = null;
         this.metricBandCapacity = 0;
+        this.metricCountBuffer = null;
+        this.metricCountCapacity = 0;
         this.metricReadbackBuffer = null;
         this.metricReadbackCapacity = 0;
+        this.countsReadbackBuffer = null;
+        this.countsReadbackCapacity = 0;
         this.metricPipeline = null;
         this.columnMetrics = null;
 
@@ -264,9 +270,21 @@ export class MSAViewer {
             label: "Entropy",
             height: 60
         });
+        const consensusTrackRoot = document.createElement("div");
+        consensusTrackRoot.className = "msa-track";
+        this.consensusTrackView = new ConsensusTrackView({
+            root: consensusTrackRoot,
+            id: "consensus",
+            label: "Consensus",
+            height: 80,
+            darkMode: this.state.getSnapshot().theme.darkMode,
+        });
+
         this.trackStackView.addTrack(this.qualityTrackView);
         this.trackStackView.addTrack(this.occupancyTrackView);
         this.trackStackView.addTrack(this.entropyTrackView);
+        this.trackStackView.addTrack(this.consensusTrackView);
+        this.trackStackView.setTheme({ darkMode: this.state.getSnapshot().theme.darkMode });
     }
     
     getCoordsFromScrollerPosition({ clientX, clientY }) {
@@ -488,6 +506,7 @@ export class MSAViewer {
 
             document.documentElement.dataset.theme = snapshot.theme.darkMode ? "dark" : "light";
             this.syncThemeBuffer();
+            this.trackStackView?.setTheme?.({ darkMode: snapshot.theme.darkMode });
 
             prevThemeDarkMode = snapshot.theme.darkMode;
             prevSchemeKey = snapshot.scheme.key;
@@ -681,6 +700,8 @@ export class MSAViewer {
         this.qualityTrackView.setData(this.columnMetrics.quality);
         this.occupancyTrackView.setData(this.columnMetrics.occupancy);
         this.entropyTrackView.setData(this.columnMetrics.entropy);
+        this.consensusTrackView.setData({ numSequences: totalRows, counts: this.columnMetrics.counts });
+
         this.syncTracksViewport();
         this.headerView.setViewportHeight(this.alignmentView.scroller.clientHeight);
     }
@@ -777,6 +798,12 @@ export class MSAViewer {
         const finalOccupancy = new Float32Array(totalCols);
         const finalEntropy = new Float32Array(totalCols);
         
+        // TODO: use some number of buckets per alphabet schema instead of 21 for AA
+        const bandCountBuffer = this.getOrCreateMetricCountBuffer(
+            tileCols * 21 * Uint32Array.BYTES_PER_ELEMENT
+        );
+        const finalCounts = new Uint32Array(totalCols * 21);
+        
         for (let colTile = 0; colTile < this.alignmentStore.colTileCount; colTile += 1) {
             const colStart = colTile * tileCols;
             const colsInBand = Math.min(tileCols, totalCols - colStart);
@@ -823,17 +850,23 @@ export class MSAViewer {
                     intermediateBuffer,
                     bandMetricBuffer,
                     uniformBuffer,
-                    colsInBand
+                    colsInBand,
+                    bandCountBuffer,
                 );
                 this.device.queue.submit([encoder.finish()]);
             }
 
             const bandMetrics = await this.readMetricBandBuffer(bandMetricBuffer, colsInBand * 3);
+            const bandCounts = await this.readCountBandBuffer(bandCountBuffer, colsInBand * 21);
             for (let i = 0; i < colsInBand; i += 1) {
                 const offset = i * 3;
                 finalQuality[colStart + i] = bandMetrics[offset];
                 finalOccupancy[colStart + i] = bandMetrics[offset + 1];
                 finalEntropy[colStart + i] = bandMetrics[offset + 2];
+
+                const countSrc = i * 21;
+                const countDst = (colStart + i) * 21;
+                finalCounts.set(bandCounts.subarray(countSrc, countSrc + 21), countDst);
             }
         }
         
@@ -841,6 +874,7 @@ export class MSAViewer {
             quality: finalQuality,
             occupancy: finalOccupancy,
             entropy: finalEntropy,
+            counts: finalCounts,
         };
     }
     
@@ -996,6 +1030,19 @@ export class MSAViewer {
         return this.metricBandBuffer;
     }
 
+    getOrCreateMetricCountBuffer(byteLength) {
+        if (this.metricCountBuffer && this.metricCountCapacity >= byteLength) {
+            return this.metricCountBuffer;
+        }
+        this.metricCountBuffer?.destroy?.();
+        this.metricCountCapacity = byteLength;
+        this.metricCountBuffer = this.device.createBuffer({
+            size: byteLength,
+            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
+        });
+        return this.metricCountBuffer;
+    }
+
     getOrCreateMetricReadbackBuffer(byteLength) {
         if (this.metricReadbackBuffer && this.metricReadbackCapacity >= byteLength) {
             return this.metricReadbackBuffer;
@@ -1017,6 +1064,31 @@ export class MSAViewer {
         this.device.queue.submit([encoder.finish()]);
         await readbackBuffer.mapAsync(GPUMapMode.READ, 0, byteLength);
         const copy = new Float32Array(readbackBuffer.getMappedRange(0, byteLength)).slice();
+        readbackBuffer.unmap();
+        return copy;
+    }
+    
+    getOrCreateCountsReadbackBuffer(byteLength) {
+        if (this.countsReadbackBuffer && this.countsReadbackCapacity >= byteLength) {
+            return this.countsReadbackBuffer;
+        }
+        this.countsReadbackBuffer?.destroy?.();
+        this.countsReadbackCapacity = byteLength;
+        this.countsReadbackBuffer = this.device.createBuffer({
+            size: byteLength,
+            usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+        });
+        return this.countsReadbackBuffer;
+    }
+
+    async readCountBandBuffer(countBuffer, countValueCount) {
+        const byteLength = countValueCount * Uint32Array.BYTES_PER_ELEMENT;
+        const readbackBuffer = this.getOrCreateCountsReadbackBuffer(byteLength);
+        const encoder = this.device.createCommandEncoder();
+        encoder.copyBufferToBuffer(countBuffer, 0, readbackBuffer, 0, byteLength);
+        this.device.queue.submit([encoder.finish()]);
+        await readbackBuffer.mapAsync(GPUMapMode.READ, 0, byteLength);
+        const copy = new Uint32Array(readbackBuffer.getMappedRange(0, byteLength)).slice();
         readbackBuffer.unmap();
         return copy;
     }
