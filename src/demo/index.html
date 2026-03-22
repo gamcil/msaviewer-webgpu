@@ -10,7 +10,7 @@
             color-scheme: light dark;
             --page-bg: light-dark(#eee, #202020);
             --page-fg: light-dark(#202020, #fff);
-            --panel-bg: light-dark(rgba(255, 255, 255, 0.7), rgba(20, 20, 20, 0.9));
+            --panel-bg: light-dark(rgba(255, 255, 255, 1.0), rgba(20, 20, 20, 1.0));
             --panel-border: light-dark(rgba(30, 30, 30, 0.12), rgba(255, 255, 255, 0.08));
             --panel-shadow: light-dark(0 1px 2px rgba(15, 23, 42, 0.06), none);
             --control-bg: light-dark(#ffffff, #1d2128);
@@ -50,10 +50,23 @@
             font-family: "IBM Plex Sans", sans-serif;
         }
         .toolbar {
+            width: min(95vw, 1600px);
+            display: grid;
+            gap: 12px;
+            margin-bottom: 16px;
+        }
+        .toolbar-row {
             display: flex;
             align-items: center;
             gap: 12px;
-            margin-bottom: 16px;
+            min-width: 0;
+        }
+        .toolbar-row.controls {
+            flex-wrap: wrap;
+        }
+        .loader-anchor {
+            position: relative;
+            flex: 0 0 auto;
         }
         .scheme-switcher {
             display: flex;
@@ -65,12 +78,17 @@
             background: var(--panel-bg);
             box-shadow: var(--panel-shadow);
         }
+        .scheme-switcher.scheme-control {
+            width: 260px;
+            justify-content: space-between;
+        }
         .scheme-switcher label {
             font-size: 13px;
             font-weight: 600;
             letter-spacing: 0.01em;
+            flex: 0 0 auto;
         }
-        .scheme-switcher select {
+        .control-select {
             appearance: none;
             -webkit-appearance: none;
             -moz-appearance: none;
@@ -93,13 +111,17 @@
             cursor: pointer;
             transition: border-color 120ms ease, background-color 120ms ease, box-shadow 120ms ease;
         }
-        .scheme-switcher select:hover {
+        .control-select:hover {
             border-color: var(--control-hover-border);
         }
-        .scheme-switcher select:focus {
+        .control-select:focus {
             outline: none;
             border-color: var(--control-focus-border);
             box-shadow: var(--control-focus-ring);
+        }
+        .scheme-switcher.scheme-control .control-select {
+            min-width: 0;
+            width: 140px;
         }
         .msa-headers::-webkit-scrollbar {
             display: none;
@@ -167,14 +189,7 @@
             width: 1px;
             height: 1px;
         }
-        .msa-alignment-canvas {
-            position: absolute;
-            inset: 0;
-            width: 100%;
-            height: 100%;
-            display: block;
-            pointer-events: none;
-        }
+        .msa-alignment-canvas,
         .msa-alignment-overlay-canvas {
             position: absolute;
             inset: 0;
@@ -224,40 +239,138 @@
             background: var(--button-disabled-bg);
             color: var(--button-disabled-fg);
         }
+        .pending-modal[hidden] {
+            display: none;
+        }
+        .pending-modal {
+            position: absolute;
+            top: calc(100% + 10px);
+            left: 0;
+            z-index: 20;
+            width: min(400px, calc(100vw - 32px));
+        }
+        .pending-modal-card {
+            width: 100%;
+            max-height: min(70vh, 520px);
+            display: grid;
+            gap: 12px;
+            padding: 14px;
+            border: 1px solid var(--panel-border);
+            border-radius: 14px;
+            background: var(--panel-bg);
+            box-shadow: 0 16px 40px rgba(0, 0, 0, 0.18);
+            overflow: auto;
+        }
+        .pending-modal-title h2 {
+            margin: 0;
+            font-size: 15px;
+        }
+        .pending-modal-title p {
+            margin: 0;
+            font-size: 13px;
+            opacity: 0.78;
+        }
+        .pending-file-list {
+            display: grid;
+            gap: 10px;
+        }
+        .pending-file-row {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) 148px;
+            align-items: center;
+            gap: 12px;
+            padding: 10px 12px;
+            border: 1px solid var(--control-border);
+            border-radius: 12px;
+            background: var(--control-bg);
+        }
+        .pending-file-name {
+            font-size: 13px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .pending-file-row .control-select {
+            min-width: 0;
+            width: 100%;
+        }
+        .column-selection-info {
+            flex: 0 0 auto;
+        }
+        #status {
+            min-width: 0;
+            flex: 1 1 auto;
+            font-size: 13px;
+            white-space: nowrap;
+            overflow: hidden;
+        }
+        @media (max-width: 900px) {
+            .toolbar-row {
+                flex-wrap: wrap;
+            }
+            .pending-modal {
+                left: 0;
+                right: auto;
+                width: min(420px, calc(100vw - 32px));
+            }
+            .pending-file-row {
+                grid-template-columns: 1fr;
+            }
+            #status {
+                white-space: normal;
+            }
+        }
     </style>
 </head>
 <body>
     <div class="toolbar">
-        <div class="column-selection-info">
-            <button disabled id="clear-selection-button">Clear selected columns</button>
+        <div class="toolbar-row controls">
+            <div class="loader-anchor">
+                <button id="upload-button" type="button">Open Alignment Files</button>
+                <div class="pending-modal" id="pending-files-panel" hidden>
+                    <div class="pending-modal-card" role="dialog" aria-labelledby="pending-modal-title">
+                        <div class="pending-modal-title">
+                            <p>Choose alphabets for alignments, then load.</p>
+                        </div>
+                        <div class="pending-file-list" id="pending-file-list"></div>
+                        <button id="load-files-button" type="button" disabled>Load Files</button>
+                    </div>
+                </div>
+            </div>
+            <div class="scheme-switcher scheme-control">
+                <label for="scheme-select">Color Scheme:</label>
+                <select id="scheme-select" class="control-select">
+                    <optgroup label="Column Statistics">
+                        <option value="clustalx">ClustalX</option>
+                        <option value="pid">PID</option>
+                        <option value="blosum62">BLOSUM62</option>
+                    </optgroup>
+                    <optgroup label="Residue Properties">
+                        <option value="hydrophobicity">Hydrophobicity</option>
+                        <option value="zappo">Zappo</option>
+                        <option value="taylor">Taylor</option>
+                        <option value="gecosBlossom">GECOS Blossom</option>
+                        <option value="gecosSunset">GECOS Sunset</option>
+                        <option value="gecosOcean">GECOS Ocean</option>
+                        <option value="helixPropensity">Helix Propensity</option>
+                        <option value="strandPropensity">Strand Propensity</option>
+                        <option value="turnPropensity">Turn Propensity</option>
+                        <option value="buriedIndex">Buried Index</option>
+                    </optgroup>
+                </select>
+            </div>
+            <div class="scheme-switcher scheme-control">
+                <label for="representation-select">Representation:</label>
+                <select id="representation-select" class="control-select" disabled>
+                    <option value="">None loaded</option>
+                </select>
+            </div>
+            <div class="column-selection-info">
+                <button disabled id="clear-selection-button">Clear selected columns</button>
+            </div>
+            <input type="file" id="file-input" accept=".fa,.fasta,.fas,.aln,.txt,.a3m" multiple hidden>
         </div>
-        <div class="scheme-switcher">
-            <label for="scheme-select">Color Scheme:</label>
-            <select id="scheme-select">
-                <optgroup label="Column Statistics">
-                    <option value="clustalx">ClustalX</option>
-                    <option value="pid">PID</option>
-                    <option value="blosum62">BLOSUM62</option>
-                </optgroup>
-                <optgroup label="Residue Properties">
-                    <option value="hydrophobicity">Hydrophobicity</option>
-                    <option value="zappo">Zappo</option>
-                    <option value="taylor">Taylor</option>
-                    <option value="gecosBlossom">GECOS Blossom</option>
-                    <option value="gecosSunset">GECOS Sunset</option>
-                    <option value="gecosOcean">GECOS Ocean</option>
-                    <option value="helixPropensity">Helix Propensity</option>
-                    <option value="strandPropensity">Strand Propensity</option>
-                    <option value="turnPropensity">Turn Propensity</option>
-                    <option value="buriedIndex">Buried Index</option>
-                </optgroup>
-            </select>
-        </div>
-        <div class="file-loader">
-            <button id="upload-button" type="button">Open FASTA Alignment</button>
-            <input type="file" id="file-input" accept=".fa,.fasta,.fas,.aln,.txt,.a3m" hidden>
-            <span id="status">Load an alignment to begin.</span>
-        </div>
+        <span id="status">Load an alignment to begin.</span>
     </div>
     <div class="viewer-shell" id="viewer"></div>
     <script type="module" src="./app.js"></script>

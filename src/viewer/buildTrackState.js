@@ -1,24 +1,10 @@
-const AA_SYMBOLS = [
-    "A", "R", "N", "D", "C",
-    "Q", "E", "G", "H", "I",
-    "L", "K", "M", "F", "P",
-    "S", "T", "W", "Y", "V",
-    "-",
-];
+import { aminoAcidAlphabet } from "../alphabets/index.js";
 
-const AA_LOGO_COLORS = [
-    "#33a02c", "#1f78b4", "#1f78b4", "#e31a1c", "#ff7f00",
-    "#1f78b4", "#e31a1c", "#ff7f00", "#6a3d9a", "#33a02c",
-    "#33a02c", "#1f78b4", "#33a02c", "#33a02c", "#ff7f00",
-    "#ff7f00", "#ff7f00", "#33a02c", "#33a02c", "#33a02c",
-    "#999999",
-];
-
-function buildConsensusColumns(columnMetrics, numSequences) {
+function buildConsensusColumns(columnMetrics, numSequences, alphabet) {
     const counts = columnMetrics.counts;
-    const bucketStride = 21;
-    const alphabetSize = 20;
-    const gapBucketIndex = 20;
+    const bucketStride = alphabet.bucketStride;
+    const alphabetSize = alphabet.coreSize;
+    const gapBucketIndex = alphabet.gapBucketIndex;
     const numColumns = Math.floor(counts.length / bucketStride);
     const columns = new Array(numColumns);
 
@@ -32,8 +18,8 @@ function buildConsensusColumns(columnMetrics, numSequences) {
             const count = counts[colOffset + i];
             if (count === 0) continue;
             letters.push({
-                glyph: AA_SYMBOLS[i],
-                color: AA_LOGO_COLORS[i],
+                glyph: alphabet.symbols[i],
+                color: alphabet.logoColors?.[i] ?? "#333",
                 count,
                 logoFraction: nonGapCount > 0 ? count / nonGapCount : 0,
             });
@@ -45,8 +31,8 @@ function buildConsensusColumns(columnMetrics, numSequences) {
         const consensusTie = columnMetrics.consensusTie?.[col] === 1;
         const consensusGlyph = consensusTie
             ? "+"
-            : (Number.isFinite(consensusIndex) && consensusIndex < AA_SYMBOLS.length
-                ? AA_SYMBOLS[consensusIndex]
+            : (Number.isFinite(consensusIndex) && consensusIndex < alphabet.symbols.length
+                ? alphabet.symbols[consensusIndex]
                 : null);
 
         columns[col] = {
@@ -62,13 +48,14 @@ function buildConsensusColumns(columnMetrics, numSequences) {
     return { columns };
 }
 
-export function buildTrackState(columnMetrics, numSequences) {
+export function buildTrackState(columnMetrics, numSequences, alphabet = aminoAcidAlphabet) {
     return {
+        alphabet,
         metrics: {
             quality: columnMetrics.quality,
             occupancy: columnMetrics.occupancy,
             entropy: columnMetrics.entropy,
         },
-        consensus: buildConsensusColumns(columnMetrics, numSequences),
+        consensus: buildConsensusColumns(columnMetrics, numSequences, alphabet),
     };
 }

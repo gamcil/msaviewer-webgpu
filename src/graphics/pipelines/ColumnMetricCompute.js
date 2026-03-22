@@ -1,5 +1,5 @@
 export class ColumnMetricCompute {
-    constructor(device, shaderCode, blosumBuffer) {
+    constructor(device, shaderCode, qualityMatrixBuffer) {
         this.device = device;
         this.countPipeline = device.createComputePipeline({
             layout: 'auto',
@@ -9,7 +9,7 @@ export class ColumnMetricCompute {
             layout: 'auto',
             compute: { module: device.createShaderModule({ code: shaderCode }), entryPoint: 'aggregate_metrics' }
         });
-        this.blosumBuffer = blosumBuffer;
+        this.qualityMatrixBuffer = qualityMatrixBuffer;
     }
 
     encodeCount(commandEncoder, tileBuffer, intermediateBuffer, uniformBuffer, currentTileCols) {
@@ -20,7 +20,7 @@ export class ColumnMetricCompute {
                 { binding: 1, resource: { buffer: tileBuffer } },
                 { binding: 2, resource: { buffer: intermediateBuffer } },
                 // { binding: 3, resource: { buffer: uniformBuffer } },
-                // { binding: 4, resource: { buffer: this.blosumBuffer } },
+                // { binding: 4, resource: { buffer: this.qualityMatrixBuffer } },
             ]
         })
         const pass = commandEncoder.beginComputePass();
@@ -38,7 +38,7 @@ export class ColumnMetricCompute {
                 // Binding 1 is msa_tile (unused in stage 2)
                 { binding: 2, resource: { buffer: intermediateBuffer } },
                 { binding: 3, resource: { buffer: qualityTrackBuffer } },
-                { binding: 4, resource: { buffer: this.blosumBuffer } },
+                { binding: 4, resource: { buffer: this.qualityMatrixBuffer } },
                 { binding: 5, resource: { buffer: countsBuffer } },
             ]
         });

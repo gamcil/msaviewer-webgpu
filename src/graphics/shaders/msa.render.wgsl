@@ -84,31 +84,8 @@ fn glyph_cell(res: u32) -> vec2<u32> {
 fn blosum_index(raw_res: u32) -> u32 {
     let res = normalize_residue(raw_res);
     switch res {
-        case 65u: { return 0u; }   // A
-        case 82u: { return 1u; }   // R
-        case 78u: { return 2u; }   // N
-        case 68u: { return 3u; }   // D
-        case 67u: { return 4u; }   // C
-        case 81u: { return 5u; }   // Q
-        case 69u: { return 6u; }   // E
-        case 71u: { return 7u; }   // G
-        case 72u: { return 8u; }   // H
-        case 73u: { return 9u; }   // I
-        case 76u: { return 10u; }  // L
-        case 75u: { return 11u; }  // K
-        case 77u: { return 12u; }  // M
-        case 70u: { return 13u; }  // F
-        case 80u: { return 14u; }  // P
-        case 83u: { return 15u; }  // S
-        case 84u: { return 16u; }  // T
-        case 87u: { return 17u; }  // W
-        case 89u: { return 18u; }  // Y
-        case 86u: { return 19u; }  // V
-        case 66u: { return 20u; }  // B
-        case 74u: { return 21u; }  // J
-        case 90u: { return 22u; }  // Z
-        case 88u: { return 23u; }  // X
-        default: { return 24u; }   // *
+        __QUALITY_INDEX_CASES__
+        default: { return __QUALITY_DEFAULT_INDEX__u; }
     }
 }
 
@@ -219,7 +196,7 @@ fn apply_blosum_rules(raw_res: u32, mask: u32) -> vec4<f32> {
     if (resIdx == consensusIdx) {
         return vec4<f32>(0.4, 0.4, 1.0, 1.0);
     }
-    let score = auxData[resIdx * 25u + consensusIdx];
+    let score = auxData[resIdx * __QUALITY_MATRIX_SIZE__u + consensusIdx];
     if (score >= 0) {
         return vec4<f32>(0.8, 0.8, 1.0, 1.0);
     }

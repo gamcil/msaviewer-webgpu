@@ -8,6 +8,8 @@ export class ViewerState {
         schemeKey = "clustalx",
         themeMode = "auto",
         darkMode = false,
+        alphabetId = "aa",
+        representationId = null,
         cellWidth = 16,
         cellHeight = 16,
     } = {}) {
@@ -24,6 +26,8 @@ export class ViewerState {
                 records: [],
                 totalRows: 0,
                 totalCols: 0,
+                alphabetId,
+                representationId,
                 loaded: false,
             },
             selection: {
@@ -94,16 +98,47 @@ export class ViewerState {
         this.state.scheme.key = key;
         this.emit();
     }
-    setAlignment({ records, totalRows, totalCols }) {
+    setAlignment({
+        records,
+        totalRows,
+        totalCols,
+        alphabetId = this.state.alignment.alphabetId,
+        representationId = this.state.alignment.representationId,
+        preserveSelection = false,
+        preserveScroll = false,
+    }) {
         this.state.alignment = {
             records,
             totalRows,
             totalCols,
+            alphabetId,
+            representationId,
             loaded: true,
         };
-        this.state.selection.columns = new Set();
-        this.state.viewport.scrollLeft = 0;
-        this.state.viewport.scrollTop = 0;
+        if (!preserveSelection) {
+            this.state.selection.columns = new Set();
+        }
+        if (!preserveScroll) {
+            this.state.viewport.scrollLeft = 0;
+            this.state.viewport.scrollTop = 0;
+        }
+        this.emit();
+    }
+    setActiveAlphabetId(alphabetId) {
+        if (!alphabetId || this.state.alignment.alphabetId === alphabetId) return;
+        this.state.alignment.alphabetId = alphabetId;
+        this.emit();
+    }
+    setActiveRepresentationId(representationId, alphabetId = this.state.alignment.alphabetId) {
+        if (!representationId) return;
+        if (
+            this.state.alignment.representationId === representationId &&
+            this.state.alignment.alphabetId === alphabetId
+        ) {
+            return;
+        }
+        this.state.alignment.representationId = representationId;
+        this.state.alignment.alphabetId = alphabetId;
         this.emit();
     }
     clearAlignment() {
@@ -111,6 +146,8 @@ export class ViewerState {
             records: [],
             totalRows: 0,
             totalCols: 0,
+            alphabetId: this.state.alignment.alphabetId,
+            representationId: this.state.alignment.representationId,
             loaded: false,
         };
         this.state.selection.columns = new Set();

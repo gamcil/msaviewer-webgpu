@@ -5,7 +5,11 @@ import { AlignmentView } from "../views/AlignmentView.js";
 import { MSARenderer } from "../graphics/pipelines/MSARenderer.js";
 import { ColumnProfileCompute } from "../graphics/pipelines/ColumnProfileCompute.js";
 import { BLOSUM62 } from "../graphics/data/blosum62.js";
-import { SCHEMES } from "../schemes/registry.js";
+import {
+    SCHEMES,
+    getDefaultSchemeKeyForAlphabet,
+    isSchemeSupportedForAlphabet as schemeSupportsAlphabet,
+} from "../schemes/registry.js";
 import { loadImageBitmap } from "../util.js";
 import { parseFastaAlignment } from "../alignment/fasta.js";
 import { parseA3MAlignment } from "../alignment/a3m.js";
@@ -15,7 +19,9 @@ import clustalxComputeShaderCode from "../graphics/shaders/clustalx.compute.wgsl
 import pidComputeShaderCode from "../graphics/shaders/pident.compute.wgsl?raw";
 import blosumComputeShaderCode from "../graphics/shaders/blosum.compute.wgsl?raw";
 import minimapComputeShaderCode from "../graphics/shaders/minimap.compute.wgsl?raw";
-import metricsComputeShaderCode from "../graphics/shaders/metrics.compute.wgsl?raw";
+import { buildMetricShaderCode } from "../graphics/shaders/buildMetricShader.js";
+import { buildMSARenderShaderCode } from "../graphics/shaders/buildMSARenderShader.js";
+import { buildMinimapShaderCode } from "../graphics/shaders/buildMinimapShader.js";
 import { MinimapView } from "../views/MinimapView.js";
 import { MinimapCompute } from "../graphics/pipelines/MinimapCompute.js";
 import { ColumnMetricCompute } from "../graphics/pipelines/ColumnMetricCompute.js";
@@ -24,6 +30,7 @@ import { BarTrackView } from "../views/BarTrackView.js";
 import { LineTrackView } from "../views/LineTrackView.js";
 import { ConsensusTrackView } from "../views/ConsensusTrackView.js";
 import { buildTrackState } from "./buildTrackState.js";
+import { defaultAlphabetRegistry } from "../alphabets/index.js";
 
 function writeThemeUniformBuffer(device, buffer, darkMode, colorScheme) {
     const data = new Uint32Array([darkMode, colorScheme]);
@@ -69,16 +76,24 @@ export class MSAViewer {
         device,
         format,
         themeMedia,
+        alphabet = "aa",
+        alphabetRegistry = defaultAlphabetRegistry,
     }) {
         this.root = root;
         this.device = device;
         this.format = format;
         this.themeMedia = themeMedia ?? window.matchMedia("(prefers-color-scheme: dark)");
+        this.alphabetRegistry = alphabetRegistry;
+        const initialAlphabet = typeof alphabet === "string" ? this.alphabetRegistry.get(alphabet) : alphabet;
+        if (!initialAlphabet) {
+            throw new Error(`Unknown alphabet: ${alphabet}`);
+        }
         
         this.state = new ViewerState({
             schemeKey: "clustalx",
             themeMode: "auto",
             darkMode: this.themeMedia.matches,
+            alphabetId: initialAlphabet.id,
         });
 
         this.renderShaderCode = null;
@@ -87,6 +102,7 @@ export class MSAViewer {
         this.headerView = null;
         this.alignmentView = null;
         this.renderer = null;
+        this.renderersByAlphabet = new Map();
 
         this.uniformBuffer = null;
         this.themeBuffer = null;
@@ -96,6 +112,7 @@ export class MSAViewer {
         this.computePipelines = new Map();
         this.alignmentState = null;
         this.alignmentStore = null;
+        this.representations = new Map();
         this.visibleWindowState = null;
         this.decodedTileCache = new TileCache(64 * 1024 * 1024);
         this.viewportOverscanRows = 8;
@@ -116,6 +133,8 @@ export class MSAViewer {
         this.countsReadbackBuffer = null;
         this.countsReadbackCapacity = 0;
         this.metricPipeline = null;
+        this.metricPipelineAlphabetId = null;
+        this.qualityMatrixBuffers = new Map();
         this.columnMetrics = null;
 
         // minimap chunking separate to column statistics
@@ -126,6 +145,7 @@ export class MSAViewer {
         this.minimapChunkTexture = null;
         this.minimapChunkTextureWidth = 0;
         this.minimapChunkTextureHeight = 0;
+        this.minimapPipelinesByAlphabet = new Map();
         
         // alignment view hover state
         this.hoveredCell = null;
@@ -134,6 +154,89 @@ export class MSAViewer {
         this.isScrolling = false;
         
         this.frameHandle = null;
+    }
+
+    getActiveAlphabet() {
+        const activeRepresentation = this.getActiveRepresentation();
+        if (activeRepresentation) {
+            return this.alphabetRegistry.get(activeRepresentation.alphabetId);
+        }
+        return this.alphabetRegistry.get(this.state.getSnapshot().alignment.alphabetId);
+    }
+
+    getActiveRepresentation() {
+        const representationId = this.state.getSnapshot().alignment.representationId;
+        if (!representationId) return null;
+        return this.representations.get(representationId) ?? null;
+    }
+
+    getActiveAlignmentStore() {
+        return this.getActiveRepresentation()?.store ?? this.alignmentStore;
+    }
+
+    getActiveAlignmentState() {
+        return this.getActiveRepresentation()?.alignmentState ?? this.alignmentState;
+    }
+
+    getActiveColumnMetrics() {
+        return this.getActiveRepresentation()?.columnMetrics ?? this.columnMetrics;
+    }
+
+    async setAlphabet(alphabet) {
+        const resolvedAlphabet = typeof alphabet === "string" ? this.alphabetRegistry.get(alphabet) : alphabet;
+        if (!resolvedAlphabet) {
+            throw new Error(`Unknown alphabet: ${alphabet}`);
+        }
+        const matchingRepresentation = Array.from(this.representations.values())
+            .find((representation) => representation.alphabetId === resolvedAlphabet.id);
+        if (matchingRepresentation) {
+            await this.setActiveRepresentation(matchingRepresentation.id);
+            return;
+        }
+        this.state.setActiveAlphabetId(resolvedAlphabet.id);
+        const activeColumnMetrics = this.getActiveColumnMetrics();
+        const activeAlignmentStore = this.getActiveAlignmentStore();
+        if (activeColumnMetrics && activeAlignmentStore) {
+            this.renderer = this.getRendererForAlphabet(resolvedAlphabet);
+            this.alignmentView.renderer = this.renderer;
+            await this.recomputeColumnMetrics();
+            const updatedTrackState = buildTrackState(
+                this.getActiveColumnMetrics(),
+                activeAlignmentStore.totalRows,
+                resolvedAlphabet
+            );
+            this.trackStackView.setTrackState(
+                updatedTrackState
+            );
+            const activeRepresentation = this.getActiveRepresentation();
+            if (activeRepresentation) {
+                activeRepresentation.alphabetId = resolvedAlphabet.id;
+                activeRepresentation.columnMetrics = this.getActiveColumnMetrics();
+                activeRepresentation.trackState = updatedTrackState;
+                activeRepresentation.minimapCache = null;
+            }
+        }
+    }
+
+    isSchemeSupportedForAlphabet(schemeKey, alphabet = this.getActiveAlphabet()) {
+        return schemeSupportsAlphabet(schemeKey, alphabet);
+    }
+
+    getFallbackSchemeForAlphabet(alphabet = this.getActiveAlphabet()) {
+        return getDefaultSchemeKeyForAlphabet(alphabet);
+    }
+
+    ensureCompatibleSchemeForAlphabet(alphabet = this.getActiveAlphabet()) {
+        const snapshot = this.state.getSnapshot();
+        if (this.isSchemeSupportedForAlphabet(snapshot.scheme.key, alphabet)) {
+            return snapshot.scheme.key;
+        }
+        const fallbackSchemeKey = this.getFallbackSchemeForAlphabet(alphabet);
+        if (fallbackSchemeKey && fallbackSchemeKey !== snapshot.scheme.key) {
+            this.state.setScheme(fallbackSchemeKey);
+            this.syncThemeBuffer();
+        }
+        return fallbackSchemeKey;
     }
     
     async init() {
@@ -196,7 +299,7 @@ export class MSAViewer {
         this.minimapRoot = minimapRoot;
         this.trackstackRoot = trackstackRoot;
         
-        this.renderer = new MSARenderer(this.device, this.format, this.renderShaderCode);
+        this.renderer = this.getRendererForAlphabet(this.getActiveAlphabet());
 
         this.headerView = new HeaderView({
             root: headerRoot,
@@ -309,14 +412,24 @@ export class MSAViewer {
     }
     
     async rebuildMinimap() {
-        if (!this.alignmentStore || !this.minimapView || !this.device) return;
+        const alignmentStore = this.getActiveAlignmentStore();
+        const alignmentState = this.getActiveAlignmentState();
+        if (!alignmentStore || !alignmentState || !this.minimapView || !this.device) return;
+        const activeRepresentation = this.getActiveRepresentation();
+        this.ensureCompatibleSchemeForAlphabet();
 
         const minimapWidth = this.minimapView.getWidth();
         const minimapHeight = this.minimapView.getHeight();
         if (minimapWidth <= 0 || minimapHeight <= 0) return; 
+        const minimapCacheKey = this.getMinimapCacheKey(minimapWidth, minimapHeight);
+        if (activeRepresentation?.minimapCache?.key === minimapCacheKey) {
+            const { pixels, width, height } = activeRepresentation.minimapCache;
+            await this.minimapView.setImageData(pixels, width, height);
+            return;
+        }
 
-        const totalRows = this.alignmentStore.totalRows;
-        const totalCols = this.alignmentStore.totalCols;
+        const totalRows = alignmentStore.totalRows;
+        const totalCols = alignmentStore.totalCols;
         const maxTextureDim = this.device.limits.maxTextureDimension2D || 8192;
         const chunkCols = Math.min(totalCols, maxTextureDim);
         const chunkRows = Math.min(totalRows, maxTextureDim);
@@ -332,7 +445,7 @@ export class MSAViewer {
             for (let colStart = 0; colStart < totalCols; colStart += chunkCols) {
                 const colsInChunk = Math.min(chunkCols, totalCols - colStart);
                 const chunkData = await materializeWindowFromTiles(
-                    this.alignmentStore,
+                    alignmentStore,
                     rowStart,
                     rowsInChunk,
                     colStart,
@@ -361,9 +474,9 @@ export class MSAViewer {
                 minimapPipeline.encode(
                     encoder,
                     chunkTexture.createView(),
-                    this.alignmentState.colProfileBuffer,
+                    alignmentState.colProfileBuffer,
                     this.themeBuffer,
-                    this.state.getSnapshot().scheme.key === "blosum62" ? this.blosum62Buffer : this.dummyAuxBuffer,
+                    this.getActiveSchemeAuxBuffer(),
                     outputBuffer,
                     params
                 );
@@ -375,7 +488,25 @@ export class MSAViewer {
             await this.device.queue.onSubmittedWorkDone();
         }
         finalizeMinimapPixels(minimapPixels, minimapSums, minimapWeights, this.state.getSnapshot().theme.darkMode);
+        if (activeRepresentation) {
+            activeRepresentation.minimapCache = {
+                key: minimapCacheKey,
+                width: minimapWidth,
+                height: minimapHeight,
+                pixels: minimapPixels.slice(),
+            };
+        }
         await this.minimapView.setImageData(minimapPixels, minimapWidth, minimapHeight);
+    }
+
+    getMinimapCacheKey(width, height) {
+        const snapshot = this.state.getSnapshot();
+        return [
+            snapshot.scheme.key,
+            snapshot.theme.darkMode ? "dark" : "light",
+            width,
+            height,
+        ].join(":");
     }
     
     async readMinimapChunkBuffer(outputBuffer, minimapWidth, minimapHeight) {
@@ -391,20 +522,25 @@ export class MSAViewer {
     }
     
     getMinimapPipeline() {
-        if (!this.minimapPipeline) {
-            this.minimapPipeline = new MinimapCompute(this.device, this.computeShaderCodes["minimap"]);
+        const alphabet = this.getActiveAlphabet();
+        if (!this.minimapPipelinesByAlphabet.has(alphabet.id)) {
+            this.minimapPipelinesByAlphabet.set(
+                alphabet.id,
+                new MinimapCompute(this.device, buildMinimapShaderCode(alphabet))
+            );
         }
-        return this.minimapPipeline;
+        return this.minimapPipelinesByAlphabet.get(alphabet.id);
     }
     
     syncMinimapViewportRect() {
-        if (!this.alignmentStore || !this.minimapView) return;
+        const alignmentStore = this.getActiveAlignmentStore();
+        if (!alignmentStore || !this.minimapView) return;
         const scrollLeft = this.alignmentView.scroller.scrollLeft;
         const scrollTop = this.alignmentView.scroller.scrollTop;
         const viewportWidth = this.alignmentView.scroller.clientWidth;
         const viewportHeight = this.alignmentView.scroller.clientHeight;
-        const contentWidth = this.alignmentStore.totalCols * this.state.getSnapshot().viewport.cellWidth
-        const contentHeight = this.alignmentStore.totalRows * this.state.getSnapshot().viewport.cellHeight;
+        const contentWidth = alignmentStore.totalCols * this.state.getSnapshot().viewport.cellWidth
+        const contentHeight = alignmentStore.totalRows * this.state.getSnapshot().viewport.cellHeight;
         const minimapWidth = this.minimapView.getWidth();
         const minimapHeight = this.minimapView.getHeight();
         const x = scrollLeft / contentWidth * minimapWidth;
@@ -487,7 +623,6 @@ export class MSAViewer {
             pid: pidComputeShaderCode,
             blosum62: blosumComputeShaderCode,
             minimap: minimapComputeShaderCode,
-            metrics: metricsComputeShaderCode,
         };
         this.computePipelines = new Map();
     }
@@ -549,7 +684,7 @@ export class MSAViewer {
                 this.alignmentView.scroller.scrollLeft,
                 this.alignmentView.scroller.scrollTop
             );
-            if (this.alignmentStore) {
+            if (this.getActiveAlignmentStore()) {
                 void this.uploadVisibleWindow();
             }
             this.syncMinimapViewportRect()
@@ -565,7 +700,7 @@ export class MSAViewer {
             this.alignmentView.ensureCanvasSize();
             this.headerView.setViewportHeight(this.alignmentView.scroller.clientHeight);
             this.state.setCanvasSize(this.alignmentView.canvas.width, this.alignmentView.canvas.height);
-            if (this.alignmentStore) {
+            if (this.getActiveAlignmentStore()) {
                 void this.uploadVisibleWindow();
             }
             this.syncMinimapViewportRect()
@@ -584,7 +719,7 @@ export class MSAViewer {
 
         // keyboard scrolling
         this.onKeyDown = (event) => {
-            if (!this.alignmentState) return;
+            if (!this.getActiveAlignmentState()) return;
             let handled = true;
             const dx = this.state.getSnapshot().viewport.cellWidth;
             const dy = this.state.getSnapshot().viewport.cellHeight;
@@ -607,11 +742,13 @@ export class MSAViewer {
         // minimap drag
         this.minimapView.onViewportRequest = (request) => {
             if (!request.type) return;
+            const alignmentStore = this.getActiveAlignmentStore();
+            if (!alignmentStore) return;
             const viewportWidth = this.alignmentView.scroller.clientWidth;
             const viewportHeight = this.alignmentView.scroller.clientHeight;
             const snapshot = this.state.getSnapshot();
-            const contentWidth = this.alignmentStore.totalCols * snapshot.viewport.cellWidth;
-            const contentHeight = this.alignmentStore.totalRows * snapshot.viewport.cellHeight;
+            const contentWidth = alignmentStore.totalCols * snapshot.viewport.cellWidth;
+            const contentHeight = alignmentStore.totalRows * snapshot.viewport.cellHeight;
             const maxScrollLeft = Math.max(0, contentWidth - viewportWidth);
             const maxScrollTop = Math.max(0, contentHeight - viewportHeight);
             if (request.type === "drag") {
@@ -633,6 +770,7 @@ export class MSAViewer {
     }
     
     getVisibleWindowBounds() {
+        const alignmentStore = this.getActiveAlignmentStore();
         const scrollLeft = this.alignmentView.scroller.scrollLeft;
         const scrollTop = this.alignmentView.scroller.scrollTop;
         const viewportWidth = this.alignmentView.scroller.clientWidth;
@@ -641,49 +779,67 @@ export class MSAViewer {
         const cellHeight = this.alignmentView.getRenderedCellHeightCss();
         const rowStart = Math.max(0, Math.floor(scrollTop / cellHeight) - this.viewportOverscanRows);
         const rowEnd = Math.min(
-            this.alignmentStore.totalRows,
+            alignmentStore.totalRows,
             Math.ceil((scrollTop + viewportHeight) / cellHeight) + this.viewportOverscanRows
         );
         const colStart = Math.max(0, Math.floor(scrollLeft / cellWidth) - this.viewportOverscanCols);
         const colEnd = Math.min(
-            this.alignmentStore.totalCols,
+            alignmentStore.totalCols,
             Math.ceil((scrollLeft + viewportWidth) / cellWidth) + this.viewportOverscanCols
         );
         return { rowStart, rowEnd, colStart, colEnd };
     }
 
-    async loadAlignment(store) {
-        const { records, totalCols, totalRows } = store;
-        const snapshot = this.state.getSnapshot();
-        const scheme = SCHEMES[snapshot.scheme.key];
-
-        let colProfileBuffer = this.alignmentState?.colProfileBuffer ?? null;
-        if (!colProfileBuffer || this.alignmentState?.totalCols !== totalCols) {
-            colProfileBuffer?.destroy?.();
-            colProfileBuffer = this.device.createBuffer({
-                size: totalCols * scheme.profileStride,
-                usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-            });
+    async activateRepresentation(id, { resetView = false } = {}) {
+        const representation = this.representations.get(id);
+        if (!representation) {
+            throw new Error(`Unknown representation: ${id}`);
         }
 
+        const previousSnapshot = this.state.getSnapshot();
+        const previousScrollLeft = this.alignmentView?.scroller?.scrollLeft ?? previousSnapshot.viewport.scrollLeft;
+        const previousScrollTop = this.alignmentView?.scroller?.scrollTop ?? previousSnapshot.viewport.scrollTop;
+        const { store, alphabetId } = representation;
+        const { records, totalCols, totalRows } = store;
+
         this.alignmentStore = store;
+        this.alignmentState = representation.alignmentState;
+        this.columnMetrics = representation.columnMetrics;
         this.decodedTileCache.clear();
         this.visibleWindowState = null;
-        this.columnMetrics = null;
         this.hoveredColumn = null;
         this.isScrolling = false;
-        this.alignmentState = { colProfileBuffer, totalCols, totalRows };
-        this.state.setAlignment({ records, totalCols, totalRows });
+
+        this.state.setAlignment({
+            records,
+            totalCols,
+            totalRows,
+            alphabetId,
+            representationId: id,
+            preserveSelection: !resetView,
+            preserveScroll: !resetView,
+        });
         this.setLoadedLayoutVisible(true);
+        this.ensureCompatibleSchemeForAlphabet(this.alphabetRegistry.get(alphabetId));
+        this.renderer = this.getRendererForAlphabet(this.getActiveAlphabet());
+        this.alignmentView.renderer = this.renderer;
 
         await this.recomputeColumnProfile();
-        await this.recomputeColumnMetrics();
-        
-        // quality tracks
+        if (!representation.columnMetrics) {
+            await this.recomputeColumnMetrics();
+        }
+        const activeColumnMetrics = representation.columnMetrics ?? this.getActiveColumnMetrics();
+        if (!representation.trackState) {
+            representation.trackState = buildTrackState(activeColumnMetrics, totalRows, this.getActiveAlphabet());
+        }
 
         this.alignmentView.setAlignmentSize(totalCols, totalRows);
-        this.alignmentView.scrollTo(0, 0);
         this.alignmentView.ensureCanvasSize();
+        if (resetView) {
+            this.alignmentView.scrollTo(0, 0);
+        } else {
+            this.alignmentView.scrollTo(previousScrollLeft, previousScrollTop);
+        }
         this.headerView.renderRecords(records);
         this.headerView.syncScroll(this.alignmentView.scroller.scrollTop);
         this.alignmentView.setOverlayState({
@@ -693,13 +849,80 @@ export class MSAViewer {
 
         await this.uploadVisibleWindow();
         await this.rebuildMinimap();
-        this.syncMinimapViewportRect()
+        this.syncMinimapViewportRect();
         this.syncAlignmentOverlay();
         this.ensureTracks();
-        this.trackStackView.setTrackState(buildTrackState(this.columnMetrics, totalRows));
-
+        this.trackStackView.setTrackState(representation.trackState);
         this.syncTracksViewport();
         this.headerView.setViewportHeight(this.alignmentView.scroller.clientHeight);
+    }
+
+    registerRepresentation(id, store, { alphabetId = id } = {}) {
+        const resolvedAlphabet = this.alphabetRegistry.get(alphabetId);
+        if (!resolvedAlphabet) {
+            throw new Error(`Unknown alphabet: ${alphabetId}`);
+        }
+
+        const { totalCols, totalRows } = store;
+        const snapshot = this.state.getSnapshot();
+        const scheme = SCHEMES[snapshot.scheme.key];
+
+        let colProfileBuffer = this.representations.get(id)?.alignmentState?.colProfileBuffer ?? null;
+        if (!colProfileBuffer || this.representations.get(id)?.alignmentState?.totalCols !== totalCols) {
+            colProfileBuffer?.destroy?.();
+            colProfileBuffer = this.device.createBuffer({
+                size: totalCols * scheme.profileStride,
+                usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+            });
+        }
+
+        const representation = {
+            id,
+            alphabetId: resolvedAlphabet.id,
+            store,
+            columnMetrics: null,
+            alignmentState: { colProfileBuffer, totalCols, totalRows },
+            trackState: null,
+            minimapCache: null,
+        };
+        this.representations.set(id, representation);
+        return representation;
+    }
+
+    async loadRepresentation(id, store, { alphabetId = id } = {}) {
+        this.registerRepresentation(id, store, { alphabetId });
+        await this.activateRepresentation(id, { resetView: true });
+    }
+
+    async loadRepresentations(representations, { activeId = null } = {}) {
+        if (!Array.isArray(representations) || representations.length === 0) {
+            throw new Error("loadRepresentations requires a non-empty array.");
+        }
+
+        let nextActiveId = activeId;
+        for (const representation of representations) {
+            const { id, store, alphabetId = id } = representation;
+            if (!id || !store) {
+                throw new Error("Each representation must include an id and store.");
+            }
+            this.registerRepresentation(id, store, { alphabetId });
+
+            if (nextActiveId == null) {
+                nextActiveId = id;
+            }
+        }
+
+        await this.activateRepresentation(nextActiveId, { resetView: true });
+    }
+
+    async setActiveRepresentation(id) {
+        await this.activateRepresentation(id, { resetView: false });
+    }
+
+    async loadAlignment(store) {
+        const defaultRepresentationId = this.state.getSnapshot().alignment.representationId ?? "default";
+        const activeAlphabetId = this.state.getSnapshot().alignment.alphabetId;
+        await this.loadRepresentation(defaultRepresentationId, store, { alphabetId: activeAlphabetId });
     }
     
     async loadFastaAlignment(source, format = "fasta") {
@@ -712,10 +935,12 @@ export class MSAViewer {
 
     syncTracksViewport() {
         if (!this.trackStackView) return;
+        const alignmentStore = this.getActiveAlignmentStore();
+        if (!alignmentStore) return;
         const scrollLeft = this.alignmentView.scroller.scrollLeft;
         const viewportWidth = this.alignmentView.scroller.clientWidth;
         const cellWidth = this.alignmentView.getRenderedCellWidthCss();
-        const totalCols = this.alignmentStore.totalCols;
+        const totalCols = alignmentStore.totalCols;
         const colStart = Math.floor(scrollLeft / cellWidth);
         const colEnd = Math.min(totalCols, Math.ceil((scrollLeft + viewportWidth) / cellWidth));
         this.trackStackView.setViewport({
@@ -744,6 +969,10 @@ export class MSAViewer {
     
     async setScheme(schemeKey) {
         const snapshot = this.state.getSnapshot();
+        if (!this.isSchemeSupportedForAlphabet(schemeKey)) {
+            throw new Error(`Scheme '${schemeKey}' is not supported for alphabet '${this.getActiveAlphabet().id}'.`);
+        }
+        const alignmentState = this.getActiveAlignmentState();
         if (snapshot.scheme.key === schemeKey) return;
 
         this.state.setScheme(schemeKey);
@@ -759,7 +988,7 @@ export class MSAViewer {
 
             this.state.setGpuResources({
                 msaTexture: this.visibleWindowState.texture,
-                colProfileBuffer: this.alignmentState.colProfileBuffer,
+                colProfileBuffer: alignmentState.colProfileBuffer,
                 renderBindGroup: this.renderBindGroup,
             });
         }
@@ -773,19 +1002,22 @@ export class MSAViewer {
     }
     
     async recomputeColumnMetrics() {
-        if (!this.alignmentStore) return;
+        const alignmentStore = this.getActiveAlignmentStore();
+        if (!alignmentStore) return;
+        const alphabet = this.getActiveAlphabet();
+        const bucketStride = alphabet.metricConfig.bucketStride;
 
-        const totalCols = this.alignmentStore.totalCols;
-        const totalRows = this.alignmentStore.totalRows;
-        const tileCols = this.alignmentStore.tileCols; // 512
-        const tileRows = this.alignmentStore.tileRows; // 256
-        const totalVerticalTiles = this.alignmentStore.rowTileCount;
+        const totalCols = alignmentStore.totalCols;
+        const totalRows = alignmentStore.totalRows;
+        const tileCols = alignmentStore.tileCols; // 512
+        const tileRows = alignmentStore.tileRows; // 256
+        const totalVerticalTiles = alignmentStore.rowTileCount;
         
         const metricPipeline = this.getColumnMetricPipeline();
         const tileBuffer = this.getOrCreateMetricTileBuffer(tileCols * tileRows);
         const uniformBuffer = this.getOrCreateMetricUniformBuffer();
         const intermediateBuffer = this.getOrCreateMetricIntermediateBuffer(
-            tileCols * totalVerticalTiles * 21 * Uint32Array.BYTES_PER_ELEMENT
+            tileCols * totalVerticalTiles * bucketStride * Uint32Array.BYTES_PER_ELEMENT
         );
         const bandMetricBuffer = this.getOrCreateMetricBandBuffer(
             tileCols * 7 * Float32Array.BYTES_PER_ELEMENT
@@ -795,25 +1027,24 @@ export class MSAViewer {
         const finalEntropy = new Float32Array(totalCols);
         const finalModalFractionNonGap = new Float32Array(totalCols);
         const finalInformationContentRaw = new Float32Array(totalCols);
-        const finalConsensusIndex = new Uint8Array(totalCols);
+        const finalConsensusIndex = new Uint16Array(totalCols);
         const finalConsensusTie = new Uint8Array(totalCols);
         
-        // TODO: use some number of buckets per alphabet schema instead of 21 for AA
         const bandCountBuffer = this.getOrCreateMetricCountBuffer(
-            tileCols * 21 * Uint32Array.BYTES_PER_ELEMENT
+            tileCols * bucketStride * Uint32Array.BYTES_PER_ELEMENT
         );
-        const finalCounts = new Uint32Array(totalCols * 21);
+        const finalCounts = new Uint32Array(totalCols * bucketStride);
         
-        for (let colTile = 0; colTile < this.alignmentStore.colTileCount; colTile += 1) {
+        for (let colTile = 0; colTile < alignmentStore.colTileCount; colTile += 1) {
             const colStart = colTile * tileCols;
             const colsInBand = Math.min(tileCols, totalCols - colStart);
             this.device.queue.writeBuffer(
-                intermediateBuffer, 0, new Uint32Array(colsInBand * totalVerticalTiles * 21)
+                intermediateBuffer, 0, new Uint32Array(colsInBand * totalVerticalTiles * bucketStride)
             );
             for (let rowTile = 0; rowTile < totalVerticalTiles; rowTile += 1) {
-                const tileIndex = rowTile * this.alignmentStore.colTileCount + colTile;
-                const tileMeta = this.alignmentStore.tiles[tileIndex];
-                const tileData = await loadDecodedTile(this.alignmentStore, tileIndex, this.decodedTileCache);
+                const tileIndex = rowTile * alignmentStore.colTileCount + colTile;
+                const tileMeta = alignmentStore.tiles[tileIndex];
+                const tileData = await loadDecodedTile(alignmentStore, tileIndex, this.decodedTileCache);
                 this.device.queue.writeBuffer(tileBuffer, 0, tileData);
                 metricPipeline.updateUniforms(
                     uniformBuffer,
@@ -857,7 +1088,7 @@ export class MSAViewer {
             }
 
             const bandMetrics = await this.readMetricBandBuffer(bandMetricBuffer, colsInBand * 7);
-            const bandCounts = await this.readCountBandBuffer(bandCountBuffer, colsInBand * 21);
+            const bandCounts = await this.readCountBandBuffer(bandCountBuffer, colsInBand * bucketStride);
             for (let i = 0; i < colsInBand; i += 1) {
                 const offset = i * 7;
                 finalQuality[colStart + i] = bandMetrics[offset];
@@ -868,9 +1099,9 @@ export class MSAViewer {
                 finalConsensusIndex[colStart + i] = Math.round(bandMetrics[offset + 5]);
                 finalConsensusTie[colStart + i] = Math.round(bandMetrics[offset + 6]);
 
-                const countSrc = i * 21;
-                const countDst = (colStart + i) * 21;
-                finalCounts.set(bandCounts.subarray(countSrc, countSrc + 21), countDst);
+                const countSrc = i * bucketStride;
+                const countDst = (colStart + i) * bucketStride;
+                finalCounts.set(bandCounts.subarray(countSrc, countSrc + bucketStride), countDst);
             }
         }
         
@@ -884,21 +1115,29 @@ export class MSAViewer {
             consensusTie: finalConsensusTie,
             counts: finalCounts,
         };
+        const activeRepresentation = this.getActiveRepresentation();
+        if (activeRepresentation) {
+            activeRepresentation.columnMetrics = this.columnMetrics;
+            activeRepresentation.trackState = null;
+            activeRepresentation.minimapCache = null;
+        }
     }
     
     async recomputeColumnProfile() {
+        const alignmentStore = this.getActiveAlignmentStore();
+        const alignmentState = this.getActiveAlignmentState();
         const snapshot = this.state.getSnapshot();
         const activeScheme = SCHEMES[snapshot.scheme.key];
         if (activeScheme.type !== "columnStatistic") {
             this.device.queue.writeBuffer(
-                this.alignmentState.colProfileBuffer,
+                alignmentState.colProfileBuffer,
                 0,
-                new Uint32Array(this.alignmentState.totalCols),
+                new Uint32Array(alignmentState.totalCols),
             );
             return;
         }
-        const totalCols = this.alignmentStore.totalCols;
-        const totalRows = this.alignmentStore.totalRows;
+        const totalCols = alignmentStore.totalCols;
+        const totalRows = alignmentStore.totalRows;
         const maxTextureDim = this.device.limits.maxTextureDimension2D ?? 8192;
         const maxLayers = this.device.limits.maxTextureArrayLayers ?? 256;
         const rowsPerLayer = Math.min(totalRows, maxTextureDim);
@@ -912,7 +1151,7 @@ export class MSAViewer {
         for (let colStart = 0; colStart < totalCols; colStart += chunkCols) {
             const colsInChunk = Math.min(chunkCols, totalCols - colStart);
             const chunkData = await materializeWindowFromTiles(
-                this.alignmentStore,
+                alignmentStore,
                 0,
                 totalRows,
                 colStart,
@@ -957,7 +1196,7 @@ export class MSAViewer {
             commandEncoder.copyBufferToBuffer(
                 chunkBuffer,
                 0,
-                this.alignmentState.colProfileBuffer,
+                alignmentState.colProfileBuffer,
                 colStart * activeScheme.profileStride,
                 colsInChunk * activeScheme.profileStride
             );
@@ -978,14 +1217,40 @@ export class MSAViewer {
     }
 
     getColumnMetricPipeline() {
-        if (!this.metricPipeline) {
+        const alphabet = this.getActiveAlphabet();
+        if (!this.metricPipeline || this.metricPipelineAlphabetId !== alphabet.id) {
             this.metricPipeline = new ColumnMetricCompute(
                 this.device,
-                this.computeShaderCodes.metrics,
-                this.blosum62Buffer
+                buildMetricShaderCode(alphabet),
+                this.getQualityMatrixBuffer(alphabet)
             );
+            this.metricPipelineAlphabetId = alphabet.id;
         }
         return this.metricPipeline;
+    }
+
+    getQualityMatrixBuffer(alphabet) {
+        if (!alphabet.supports?.quality || !alphabet.qualityMatrix) {
+            return this.dummyAuxBuffer;
+        }
+        if (this.qualityMatrixBuffers.has(alphabet.id)) {
+            return this.qualityMatrixBuffers.get(alphabet.id);
+        }
+        const buffer = this.device.createBuffer({
+            size: alphabet.qualityMatrix.byteLength,
+            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+        });
+        this.device.queue.writeBuffer(buffer, 0, alphabet.qualityMatrix);
+        this.qualityMatrixBuffers.set(alphabet.id, buffer);
+        return buffer;
+    }
+
+    getActiveSchemeAuxBuffer() {
+        const snapshot = this.state.getSnapshot();
+        if (snapshot.scheme.key === "blosum62" && this.getActiveAlphabet().supports?.quality) {
+            return this.getQualityMatrixBuffer(this.getActiveAlphabet());
+        }
+        return this.dummyAuxBuffer;
     }
 
     getOrCreateMetricTileBuffer(byteLength) {
@@ -1160,9 +1425,12 @@ export class MSAViewer {
     }
 
     async uploadVisibleWindow() {
-        if (!this.alignmentStore) {
+        const alignmentStore = this.getActiveAlignmentStore();
+        const alignmentState = this.getActiveAlignmentState();
+        if (!alignmentStore || !alignmentState) {
             return;
         }
+        this.ensureCompatibleSchemeForAlphabet();
 
         const { rowStart, rowEnd, colStart, colEnd } = this.getVisibleWindowBounds();
         const rowCount = rowEnd - rowStart;
@@ -1176,7 +1444,7 @@ export class MSAViewer {
         }
 
         const data = await materializeWindowFromTiles(
-            this.alignmentStore,
+            alignmentStore,
             rowStart,
             rowCount,
             colStart,
@@ -1211,13 +1479,13 @@ export class MSAViewer {
 
         this.visibleWindowState = { key, rowStart, rowCount, colStart, colCount, texture };
         this.decodedTileCache.retain(
-            getTileIndicesForWindow(this.alignmentStore, rowStart, rowCount, colStart, colCount)
+            getTileIndicesForWindow(alignmentStore, rowStart, rowCount, colStart, colCount)
         );
         this.renderBindGroup = this.createRenderBindGroup();
         this.alignmentView.setBindGroup(this.renderBindGroup);
         this.state.setGpuResources({
             msaTexture: texture,
-            colProfileBuffer: this.alignmentState.colProfileBuffer,
+            colProfileBuffer: alignmentState.colProfileBuffer,
             renderBindGroup: this.renderBindGroup,
         });
 
@@ -1228,32 +1496,42 @@ export class MSAViewer {
     }
 
     createRenderBindGroup() {
+        const alignmentState = this.getActiveAlignmentState();
         const snapshot = this.state.getSnapshot();
         return this.device.createBindGroup({
             layout: this.renderer.pipeline.getBindGroupLayout(0),
             entries: [
                 { binding: 0, resource: { buffer: this.uniformBuffer } },
                 { binding: 1, resource: this.visibleWindowState.texture.createView() },
-                { binding: 2, resource: { buffer: this.alignmentState.colProfileBuffer } },
+                { binding: 2, resource: { buffer: alignmentState.colProfileBuffer } },
                 { binding: 3, resource: { buffer: this.themeBuffer } },
                 { binding: 4, resource: this.atlasTexture.createView() },
                 { binding: 5, resource: this.atlasSampler },
                 {
                     binding: 6,
-                    resource: {
-                        buffer: snapshot.scheme.key === "blosum62" ? this.blosum62Buffer : this.dummyAuxBuffer,
-                    }
+                    resource: { buffer: this.getActiveSchemeAuxBuffer() }
                 },
             ]
         });
     }
+
+    getRendererForAlphabet(alphabet) {
+        if (!this.renderersByAlphabet.has(alphabet.id)) {
+            this.renderersByAlphabet.set(
+                alphabet.id,
+                new MSARenderer(this.device, this.format, buildMSARenderShaderCode(alphabet))
+            );
+        }
+        return this.renderersByAlphabet.get(alphabet.id);
+    }
     
     frame = () => {
-        if (this.alignmentState && this.visibleWindowState) {
+        const alignmentState = this.getActiveAlignmentState();
+        if (alignmentState && this.visibleWindowState) {
             this.alignmentView.ensureCanvasSize();
             this.alignmentView.syncUniforms({
-                totalCols: this.alignmentState.totalCols,
-                totalRows: this.alignmentState.totalRows,
+                totalCols: alignmentState.totalCols,
+                totalRows: alignmentState.totalRows,
                 windowColStart: this.visibleWindowState.colStart,
                 windowRowStart: this.visibleWindowState.rowStart,
                 windowCols: this.visibleWindowState.colCount,

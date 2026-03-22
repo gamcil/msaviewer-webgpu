@@ -14,7 +14,7 @@ struct Uniforms {
 }
 
 struct PartialCounts {
-    counts: array<u32, 21>,
+    counts: array<u32, __BUCKET_STRIDE__>,
 }
 
 struct ColumnMetrics {
@@ -31,7 +31,7 @@ struct ColumnMetrics {
 @group(0) @binding(1) var<storage, read> msa_tile: array<u32>;
 @group(0) @binding(2) var<storage, read_write> intermediate_buffer: array<PartialCounts>;
 @group(0) @binding(3) var<storage, read_write> metrics_out: array<ColumnMetrics>;
-@group(0) @binding(4) var<storage, read> blosum62: array<i32>;
+@group(0) @binding(4) var<storage, read> quality_matrix: array<i32>;
 @group(0) @binding(5) var<storage, read_write> counts: array<u32>;
 
 
@@ -45,27 +45,8 @@ fn normalize_residue(raw: u32) -> u32 {
 fn residue_to_index(raw: u32) -> u32 {
     let residue = normalize_residue(raw);
     switch residue {
-        case 65u: { return 0u; }  // A
-        case 82u: { return 1u; }  // R
-        case 78u: { return 2u; }  // N
-        case 68u: { return 3u; }  // D
-        case 67u: { return 4u; }  // C
-        case 81u: { return 5u; }  // Q
-        case 69u: { return 6u; }  // E
-        case 71u: { return 7u; }  // G
-        case 72u: { return 8u; }  // H
-        case 73u: { return 9u; }  // I
-        case 76u: { return 10u; } // L
-        case 75u: { return 11u; } // K
-        case 77u: { return 12u; } // M
-        case 70u: { return 13u; } // F
-        case 80u: { return 14u; } // P
-        case 83u: { return 15u; } // S
-        case 84u: { return 16u; } // T
-        case 87u: { return 17u; } // W
-        case 89u: { return 18u; } // Y
-        case 86u: { return 19u; } // V
-        default: { return 20u; }  // gap/unknown/other
+        __RESIDUE_TO_INDEX_CASES__
+        default: { return __GAP_BUCKET_INDEX__u; }  // gap/unknown/other
     }
 }
 
@@ -80,62 +61,29 @@ fn get_residue_from_blob(col: u32, row: u32) -> u32 {
     return extractBits(msa_tile[u32_index], bit_offset, 8u);
 }
 
-fn calculate_quality(final_counts: array<u32, 21>) -> f32 {
-    var non_gap_count = 0u;
-    for (var i = 0u; i < 20u; i = i + 1u) {
-        non_gap_count += final_counts[i];
-    }
-    if (non_gap_count < 2u || uniforms.msa_height == 0u) {
-        return 0.0;
-    }
-    let occupancy = f32(non_gap_count) / f32(uniforms.msa_height);
+__QUALITY_FUNCTION__
 
-    var quality = 0.0;
-    var total_pairs = 0.0;
-
-    for (var i = 0u; i < 20u; i = i + 1u) {
-        let count_i = f32(final_counts[i]);
-        if (count_i == 0.0) { continue; }
-
-        for (var j = 0u; j < 20u; j = j + 1u) {
-            let count_j = f32(final_counts[j]);
-            if (count_j == 0.0) { continue; }
-
-            let pair_count = count_i * count_j;
-            let pair_score = f32(blosum62[i * 25u + j]);
-            let self_i = f32(blosum62[i * 25u + i]);
-            let self_j = f32(blosum62[j * 25u + j]);
-            let denom = max(self_i, self_j);
-            let ratio = select(0.0, pair_score / denom, denom > 0.0);
-            quality += pair_count * ratio;
-            total_pairs += pair_count;
-        }
-    }
-    if (total_pairs == 0.0) { return 0.0; }
-    return max(0.0, (quality / total_pairs) * occupancy);
-}
-
-fn calculate_entropy(final_counts: array<u32, 21>, non_gap_count: u32) -> f32 {
+fn calculate_entropy(final_counts: array<u32, __BUCKET_STRIDE__>, non_gap_count: u32) -> f32 {
     if (non_gap_count < 2u) {
         return 0.0;
     }
 
     let total = f32(non_gap_count);
     var entropy = 0.0;
-    for (var i = 0u; i < 20u; i = i + 1u) {
+    for (var i = 0u; i < __CORE_SIZE__u; i = i + 1u) {
         let count = final_counts[i];
         if (count == 0u) { continue; }
         let p = f32(count) / total;
         entropy -= p * log2(p);
     }
 
-    return entropy / log2(20.0);
+    return entropy / log2(f32(__CORE_SIZE__));
 }
 
-fn calculate_modal_fraction_non_gap(final_counts: array<u32, 21>) -> f32 {
+fn calculate_modal_fraction_non_gap(final_counts: array<u32, __BUCKET_STRIDE__>) -> f32 {
     var non_gap_count = 0u;
     var max_count = 0u;
-    for (var i = 0u; i < 20u; i = i + 1u) {
+    for (var i = 0u; i < __CORE_SIZE__u; i = i + 1u) {
         non_gap_count += final_counts[i];
         max_count = max(max_count, final_counts[i]);
     }
@@ -149,13 +97,14 @@ fn calculate_information_content_raw(entropy: f32, non_gap_count: u32) -> f32 {
     if (non_gap_count == 0u) {
         return 0.0;
     }
-    return max(0.0, (log2(20.0) - entropy) / log2(20.0));
+    let max_entropy = log2(f32(__CORE_SIZE__));
+    return max(0.0, (max_entropy - entropy) / max_entropy);
 }
 
-fn calculate_consensus_index(final_counts: array<u32, 21>) -> f32 {
+fn calculate_consensus_index(final_counts: array<u32, __BUCKET_STRIDE__>) -> f32 {
     var max_count = 0u;
-    var max_index = 20u;
-    for (var i = 0u; i < 20u; i = i + 1u) {
+    var max_index = __GAP_BUCKET_INDEX__u;
+    for (var i = 0u; i < __CORE_SIZE__u; i = i + 1u) {
         if (final_counts[i] > max_count) {
             max_count = final_counts[i];
             max_index = i;
@@ -164,9 +113,9 @@ fn calculate_consensus_index(final_counts: array<u32, 21>) -> f32 {
     return f32(max_index);
 }
 
-fn calculate_consensus_tie(final_counts: array<u32, 21>) -> f32 {
+fn calculate_consensus_tie(final_counts: array<u32, __BUCKET_STRIDE__>) -> f32 {
     var max_count = 0u;
-    for (var i = 0u; i < 20u; i = i + 1u) {
+    for (var i = 0u; i < __CORE_SIZE__u; i = i + 1u) {
         max_count = max(max_count, final_counts[i]);
     }
     if (max_count == 0u) {
@@ -174,7 +123,7 @@ fn calculate_consensus_tie(final_counts: array<u32, 21>) -> f32 {
     }
 
     var num_max = 0u;
-    for (var i = 0u; i < 20u; i = i + 1u) {
+    for (var i = 0u; i < __CORE_SIZE__u; i = i + 1u) {
         if (final_counts[i] == max_count) {
             num_max += 1u;
         }
@@ -183,7 +132,7 @@ fn calculate_consensus_tie(final_counts: array<u32, 21>) -> f32 {
 }
 
 fn calculate_counts_offset(col: u32, aa: u32) -> u32 {
-    return col * 21u + aa;
+    return col * __BUCKET_STRIDE__u + aa;
 }
 
 @compute @workgroup_size(64, 1, 1)
@@ -191,7 +140,7 @@ fn count_residues(@builtin(global_invocation_id) gid: vec3u) {
     let col = gid.x;
     if (col >= uniforms.current_tile_cols) { return; }    
     
-    var local_counts = array<u32, 21>();
+    var local_counts = array<u32, __BUCKET_STRIDE__>();
     
     let tile_start_row = uniforms.current_row_tile * TILE_HEIGHT;
     
@@ -213,17 +162,17 @@ fn aggregate_metrics(@builtin(global_invocation_id) gid: vec3u) {
     if (col >= uniforms.total_msa_columns) { return; }
     
     // final summation of counts
-    var final_counts = array<u32, 21>();
+    var final_counts = array<u32, __BUCKET_STRIDE__>();
     for (var t = 0u; t < uniforms.total_vertical_tiles; t = t + 1u) {
         let slot = calculate_intermediate_offset(col, t);
-        for (var aa = 0u; aa < 21u; aa = aa + 1u) {
+        for (var aa = 0u; aa < __BUCKET_STRIDE__u; aa = aa + 1u) {
             final_counts[aa] += intermediate_buffer[slot].counts[aa];
             counts[calculate_counts_offset(col, aa)] = final_counts[aa];
         }
     }
     
     var non_gap_count = 0u;
-    for (var i = 0u; i < 20u; i = i + 1u) {
+    for (var i = 0u; i < __CORE_SIZE__u; i = i + 1u) {
         non_gap_count += final_counts[i];
     }
     
@@ -231,7 +180,7 @@ fn aggregate_metrics(@builtin(global_invocation_id) gid: vec3u) {
     let occupancy = f32(non_gap_count) / f32(uniforms.msa_height);
     let entropy = calculate_entropy(final_counts, non_gap_count);
     let modal_fraction_non_gap = calculate_modal_fraction_non_gap(final_counts);
-    let information_content_raw = calculate_information_content_raw(entropy * log2(20.0), non_gap_count);
+    let information_content_raw = calculate_information_content_raw(entropy * log2(f32(__CORE_SIZE__)), non_gap_count);
     let consensus_index = calculate_consensus_index(final_counts);
     let consensus_tie = calculate_consensus_tie(final_counts);
 
