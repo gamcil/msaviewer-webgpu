@@ -77,6 +77,12 @@ export const SCHEMES = {
         profileStride: 4,
         supports: (alphabet) => alphabet?.id === "aa",
     },
+    "3di": {
+        id: 13,
+        type: "residueProperty",
+        profileStride: 4,
+        supports: (alphabet) => alphabet?.id === "3di",
+    }
 };
 
 const DEFAULT_SCHEME_ORDER = [
@@ -93,6 +99,7 @@ const DEFAULT_SCHEME_ORDER = [
     "strandPropensity",
     "turnPropensity",
     "buriedIndex",
+    "3di"
 ];
 
 export function isSchemeSupportedForAlphabet(schemeKey, alphabet) {

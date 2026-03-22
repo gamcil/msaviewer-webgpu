@@ -162,6 +162,33 @@ fn apply_blosum_rules(raw_res: u32, mask: u32) -> vec4<f32> {
     return default_scheme_color();
 }
 
+fn apply_3di_rules(raw_res: u32) -> vec4<f32> {
+    if (is_gap_residue(raw_res)) { return default_scheme_color(); }
+    let res = normalize_residue(raw_res);
+    if (res == 65u) { return vec4<f32>(0.875, 0.604, 0.549, 1.0); } // A #DF9A8C
+    if (res == 67u) { return vec4<f32>(0.984, 0.447, 0.773, 1.0); } // C #FB72C5
+    if (res == 68u) { return vec4<f32>(0.706, 0.639, 0.847, 1.0); } // D #B4A3D8
+    if (res == 69u) { return vec4<f32>(1.0, 0.341, 0.004, 1.0); }   // E #FF5701
+    if (res == 70u) { return vec4<f32>(0.851, 0.620, 0.506, 1.0); } // F #D99E81
+    if (res == 71u) { return vec4<f32>(0.455, 0.569, 0.773, 1.0); } // G #7491C5
+    if (res == 72u) { return vec4<f32>(0.580, 0.671, 0.882, 1.0); } // H #94ABE1
+    if (res == 73u) { return vec4<f32>(0.376, 0.616, 0.482, 1.0); } // I #609D7B
+    if (res == 75u) { return vec4<f32>(0.843, 0.639, 0.016, 1.0); } // K #D7A304
+    if (res == 76u) { return vec4<f32>(0.996, 0.298, 0.545, 1.0); } // L #FE4C8B
+    if (res == 77u) { return vec4<f32>(0.071, 0.647, 0.392, 1.0); } // M #12A564
+    if (res == 78u) { return vec4<f32>(0.835, 0.439, 0.992, 1.0); } // N #D570FD
+    if (res == 80u) { return vec4<f32>(0.796, 0.600, 0.769, 1.0); } // P #CB99C4
+    if (res == 81u) { return vec4<f32>(0.855, 0.557, 0.600, 1.0); } // Q #DA8E99
+    if (res == 82u) { return vec4<f32>(0.580, 0.529, 0.816, 1.0); } // R #9487D0
+    if (res == 83u) { return vec4<f32>(0.910, 0.259, 0.996, 1.0); } // S #E842FE
+    if (res == 84u) { return vec4<f32>(0.259, 0.635, 0.600, 1.0); } // T #42A299
+    if (res == 86u) { return vec4<f32>(0.984, 0.494, 0.867, 1.0); } // V #FB7EDD
+    if (res == 87u) { return vec4<f32>(0.820, 0.639, 0.408, 1.0); } // W #D1A368
+    if (res == 88u) { return vec4<f32>(0.753, 0.753, 0.753, 1.0); } // X #C0C0C0
+    if (res == 89u) { return vec4<f32>(0.090, 0.659, 0.992, 1.0); } // Y #17A8FD
+    return default_scheme_color();
+}
+
 fn apply_hydrophobicity_rules(raw_res: u32) -> vec4<f32> {
     let res = normalize_residue(raw_res);
     if (res == 65u) { return vec4<f32>(0.678, 0.0, 0.322, 1.0); } // A #ad0052
@@ -463,6 +490,7 @@ fn scheme_color(raw_res: u32, global_col: u32) -> vec4<f32> {
         case 0u: { return apply_clustalx_rules(raw_res, mask); }
         case 1u: { return apply_pid_rules(raw_res, mask); }
         case 2u: { return apply_blosum_rules(raw_res, mask); }
+        case 13u: { return apply_3di_rules(raw_res); }
         case 3u: { return apply_hydrophobicity_rules(raw_res); }
         case 4u: { return apply_zappo_rules(raw_res); }
         case 5u: { return apply_taylor_rules(raw_res); }
