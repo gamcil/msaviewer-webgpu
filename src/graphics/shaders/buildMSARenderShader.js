@@ -1,4 +1,5 @@
 import renderShaderTemplate from "./msa.render.wgsl?raw";
+import { buildSchemeColorWgsl } from "./buildSchemeColorWgsl.js";
 
 export function buildMSARenderShaderCode(alphabet) {
     const renderConfig = alphabet.renderConfig;
@@ -7,7 +8,5 @@ export function buildMSARenderShaderCode(alphabet) {
     }
 
     return renderShaderTemplate
-        .replace("__QUALITY_INDEX_CASES__", renderConfig.qualityIndexCasesWgsl.trim())
-        .replaceAll("__QUALITY_DEFAULT_INDEX__", String(renderConfig.qualityDefaultIndex))
-        .replaceAll("__QUALITY_MATRIX_SIZE__", String(renderConfig.qualityMatrixSize));
+        .replace("__SCHEME_COLOR_WGSL__", buildSchemeColorWgsl(alphabet));
 }
