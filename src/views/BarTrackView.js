@@ -3,6 +3,12 @@ import { getTrackRenderGeometry, renderBars } from "./renderers/trackRenderers.j
 
 
 export class BarTrackView extends BaseTrackView {
+    setTrackState(trackState) {
+        super.setTrackState(trackState);
+        const nextData = trackState?.metrics?.[this.id] ?? null;
+        this.setData(nextData);
+    }
+
     render() {
         this.clear();
         if (!this.data || !this.viewport || !this.context) return;

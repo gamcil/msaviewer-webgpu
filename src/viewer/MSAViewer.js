@@ -22,8 +22,8 @@ import { ColumnMetricCompute } from "../graphics/pipelines/ColumnMetricCompute.j
 import { TrackStackView } from "../views/TrackStackView.js";
 import { BarTrackView } from "../views/BarTrackView.js";
 import { LineTrackView } from "../views/LineTrackView.js";
-import { GlyphTrackView } from "../views/GlyphTrackView.js";
 import { ConsensusTrackView } from "../views/ConsensusTrackView.js";
+import { buildTrackState } from "./buildTrackState.js";
 
 function writeThemeUniformBuffer(device, buffer, darkMode, colorScheme) {
     const data = new Uint32Array([darkMode, colorScheme]);
@@ -62,7 +62,6 @@ function finalizeMinimapPixels(outPixels, minimapSums, minimapWeights, darkMode)
         outPixels[dstOffset + 3] = 255;
     }
 }
-
 
 export class MSAViewer {
     constructor({
@@ -697,10 +696,7 @@ export class MSAViewer {
         this.syncMinimapViewportRect()
         this.syncAlignmentOverlay();
         this.ensureTracks();
-        this.qualityTrackView.setData(this.columnMetrics.quality);
-        this.occupancyTrackView.setData(this.columnMetrics.occupancy);
-        this.entropyTrackView.setData(this.columnMetrics.entropy);
-        this.consensusTrackView.setData({ numSequences: totalRows, counts: this.columnMetrics.counts });
+        this.trackStackView.setTrackState(buildTrackState(this.columnMetrics, totalRows));
 
         this.syncTracksViewport();
         this.headerView.setViewportHeight(this.alignmentView.scroller.clientHeight);
@@ -792,11 +788,15 @@ export class MSAViewer {
             tileCols * totalVerticalTiles * 21 * Uint32Array.BYTES_PER_ELEMENT
         );
         const bandMetricBuffer = this.getOrCreateMetricBandBuffer(
-            tileCols * 3 * Float32Array.BYTES_PER_ELEMENT
+            tileCols * 7 * Float32Array.BYTES_PER_ELEMENT
         );
         const finalQuality = new Float32Array(totalCols);
         const finalOccupancy = new Float32Array(totalCols);
         const finalEntropy = new Float32Array(totalCols);
+        const finalModalFractionNonGap = new Float32Array(totalCols);
+        const finalInformationContentRaw = new Float32Array(totalCols);
+        const finalConsensusIndex = new Uint8Array(totalCols);
+        const finalConsensusTie = new Uint8Array(totalCols);
         
         // TODO: use some number of buckets per alphabet schema instead of 21 for AA
         const bandCountBuffer = this.getOrCreateMetricCountBuffer(
@@ -856,13 +856,17 @@ export class MSAViewer {
                 this.device.queue.submit([encoder.finish()]);
             }
 
-            const bandMetrics = await this.readMetricBandBuffer(bandMetricBuffer, colsInBand * 3);
+            const bandMetrics = await this.readMetricBandBuffer(bandMetricBuffer, colsInBand * 7);
             const bandCounts = await this.readCountBandBuffer(bandCountBuffer, colsInBand * 21);
             for (let i = 0; i < colsInBand; i += 1) {
-                const offset = i * 3;
+                const offset = i * 7;
                 finalQuality[colStart + i] = bandMetrics[offset];
                 finalOccupancy[colStart + i] = bandMetrics[offset + 1];
                 finalEntropy[colStart + i] = bandMetrics[offset + 2];
+                finalModalFractionNonGap[colStart + i] = bandMetrics[offset + 3];
+                finalInformationContentRaw[colStart + i] = bandMetrics[offset + 4];
+                finalConsensusIndex[colStart + i] = Math.round(bandMetrics[offset + 5]);
+                finalConsensusTie[colStart + i] = Math.round(bandMetrics[offset + 6]);
 
                 const countSrc = i * 21;
                 const countDst = (colStart + i) * 21;
@@ -874,6 +878,10 @@ export class MSAViewer {
             quality: finalQuality,
             occupancy: finalOccupancy,
             entropy: finalEntropy,
+            modalFractionNonGap: finalModalFractionNonGap,
+            informationContentRaw: finalInformationContentRaw,
+            consensusIndex: finalConsensusIndex,
+            consensusTie: finalConsensusTie,
             counts: finalCounts,
         };
     }

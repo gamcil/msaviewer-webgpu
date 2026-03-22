@@ -6,11 +6,15 @@ export class TrackStackView {
     constructor({ root }) {
         this.root = root;
         this.tracks = [];
+        this.trackState = null;
     }
 
     addTrack(track) {
         this.tracks.push(track);
         this.root.appendChild(track.root);
+        if (this.trackState) {
+            track.setTrackState?.(this.trackState);
+        }
     }
 
     removeTrack(trackId) {
@@ -26,9 +30,10 @@ export class TrackStackView {
         }
     }
 
-    setMetrics(metrics) {
+    setTrackState(trackState) {
+        this.trackState = trackState;
         for (const track of this.tracks) {
-            track.setMetrics(metrics);
+            track.setTrackState?.(trackState);
         }
     }
 

@@ -11,6 +11,7 @@ export class BaseTrackView {
 
         this.viewport = null;
         this.data = null;
+        this.trackState = null;
         
         this.root.classList.add("msa-track-row");
 
@@ -39,6 +40,10 @@ export class BaseTrackView {
     setData(data) {
         this.data = data;
         this.render();
+    }
+
+    setTrackState(trackState) {
+        this.trackState = trackState;
     }
     
     ensureCanvasSize() {

@@ -21,6 +21,10 @@ struct ColumnMetrics {
     quality: f32,
     occupancy: f32,
     entropy: f32,
+    modal_fraction_non_gap: f32,
+    information_content_raw: f32,
+    consensus_index: f32,
+    consensus_tie: f32,
 }
 
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
@@ -111,11 +115,7 @@ fn calculate_quality(final_counts: array<u32, 21>) -> f32 {
     return max(0.0, (quality / total_pairs) * occupancy);
 }
 
-fn calculate_entropy(final_counts: array<u32, 21>) -> f32 {
-    var non_gap_count = 0u;
-    for (var i = 0u; i < 20u; i = i + 1u) {
-        non_gap_count += final_counts[i];
-    }
+fn calculate_entropy(final_counts: array<u32, 21>, non_gap_count: u32) -> f32 {
     if (non_gap_count < 2u) {
         return 0.0;
     }
@@ -130,6 +130,56 @@ fn calculate_entropy(final_counts: array<u32, 21>) -> f32 {
     }
 
     return entropy / log2(20.0);
+}
+
+fn calculate_modal_fraction_non_gap(final_counts: array<u32, 21>) -> f32 {
+    var non_gap_count = 0u;
+    var max_count = 0u;
+    for (var i = 0u; i < 20u; i = i + 1u) {
+        non_gap_count += final_counts[i];
+        max_count = max(max_count, final_counts[i]);
+    }
+    if (non_gap_count == 0u) {
+        return 0.0;
+    }
+    return f32(max_count) / f32(non_gap_count);
+}
+
+fn calculate_information_content_raw(entropy: f32, non_gap_count: u32) -> f32 {
+    if (non_gap_count == 0u) {
+        return 0.0;
+    }
+    return max(0.0, (log2(20.0) - entropy) / log2(20.0));
+}
+
+fn calculate_consensus_index(final_counts: array<u32, 21>) -> f32 {
+    var max_count = 0u;
+    var max_index = 20u;
+    for (var i = 0u; i < 20u; i = i + 1u) {
+        if (final_counts[i] > max_count) {
+            max_count = final_counts[i];
+            max_index = i;
+        }
+    }
+    return f32(max_index);
+}
+
+fn calculate_consensus_tie(final_counts: array<u32, 21>) -> f32 {
+    var max_count = 0u;
+    for (var i = 0u; i < 20u; i = i + 1u) {
+        max_count = max(max_count, final_counts[i]);
+    }
+    if (max_count == 0u) {
+        return 0.0;
+    }
+
+    var num_max = 0u;
+    for (var i = 0u; i < 20u; i = i + 1u) {
+        if (final_counts[i] == max_count) {
+            num_max += 1u;
+        }
+    }
+    return select(0.0, 1.0, num_max > 1u);
 }
 
 fn calculate_counts_offset(col: u32, aa: u32) -> u32 {
@@ -179,9 +229,17 @@ fn aggregate_metrics(@builtin(global_invocation_id) gid: vec3u) {
     
     let quality = calculate_quality(final_counts);
     let occupancy = f32(non_gap_count) / f32(uniforms.msa_height);
-    let entropy = calculate_entropy(final_counts);
+    let entropy = calculate_entropy(final_counts, non_gap_count);
+    let modal_fraction_non_gap = calculate_modal_fraction_non_gap(final_counts);
+    let information_content_raw = calculate_information_content_raw(entropy * log2(20.0), non_gap_count);
+    let consensus_index = calculate_consensus_index(final_counts);
+    let consensus_tie = calculate_consensus_tie(final_counts);
 
     metrics_out[col].quality = quality; 
     metrics_out[col].occupancy = occupancy; 
     metrics_out[col].entropy = entropy;
+    metrics_out[col].modal_fraction_non_gap = modal_fraction_non_gap;
+    metrics_out[col].information_content_raw = information_content_raw;
+    metrics_out[col].consensus_index = consensus_index;
+    metrics_out[col].consensus_tie = consensus_tie;
 }
