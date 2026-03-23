@@ -2,6 +2,10 @@ import { aminoAcidAlphabet } from "../alphabets/index.js";
 
 function buildConsensusColumns(columnMetrics, numSequences, alphabet) {
     const counts = columnMetrics.counts;
+    if (!counts) {
+        return { columns: [] };
+    }
+
     const bucketStride = alphabet.bucketStride;
     const alphabetSize = alphabet.coreSize;
     const gapBucketIndex = alphabet.gapBucketIndex;
@@ -48,14 +52,30 @@ function buildConsensusColumns(columnMetrics, numSequences, alphabet) {
     return { columns };
 }
 
+export class TrackStateBuilder {
+    buildMetricsState(columnMetrics) {
+        return {
+            quality: columnMetrics?.quality ?? null,
+            occupancy: columnMetrics?.occupancy ?? null,
+            entropy: columnMetrics?.entropy ?? null,
+        };
+    }
+
+    buildConsensusState(columnMetrics, numSequences, alphabet = aminoAcidAlphabet) {
+        return buildConsensusColumns(columnMetrics, numSequences, alphabet);
+    }
+
+    build(columnMetrics, numSequences, alphabet = aminoAcidAlphabet) {
+        return {
+            alphabet,
+            metrics: this.buildMetricsState(columnMetrics),
+            consensus: this.buildConsensusState(columnMetrics, numSequences, alphabet),
+        };
+    }
+}
+
+const defaultTrackStateBuilder = new TrackStateBuilder();
+
 export function buildTrackState(columnMetrics, numSequences, alphabet = aminoAcidAlphabet) {
-    return {
-        alphabet,
-        metrics: {
-            quality: columnMetrics.quality,
-            occupancy: columnMetrics.occupancy,
-            entropy: columnMetrics.entropy,
-        },
-        consensus: buildConsensusColumns(columnMetrics, numSequences, alphabet),
-    };
+    return defaultTrackStateBuilder.build(columnMetrics, numSequences, alphabet);
 }

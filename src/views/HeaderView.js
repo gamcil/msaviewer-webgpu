@@ -7,25 +7,31 @@ export class HeaderView {
         this.root = root;
         this.rowHeight = rowHeight;
 
+        this.scrollport = document.createElement("div");
+        this.scrollport.className = "msa-headers-scrollport";
+
         this.track = document.createElement("div");
         this.track.className = "msa-headers-track";
-        this.root.appendChild(this.track);
+        this.scrollport.appendChild(this.track);
+        this.root.appendChild(this.scrollport);
         this.root.style.setProperty("--row-height", `${this.rowHeight}px`);
         this.applyStyles();
     }
     applyStyles() {
         Object.assign(this.root.style, {
             position: "relative",
-            flex: "0 0 auto",
-            // width: "fit-content",
-            // maxWidth: "300px",
-            // height: "100%",
+            height: "100%",
             maxWidth: "300px",
             minWidth: "0",
-            overflowX: "hidden",
-            overflowY: "auto",
+            overflow: "hidden",
             backgroundColor: "var(--header-bg)",
             borderRight: "1px solid var(--header-border)",
+        });
+        Object.assign(this.scrollport.style, {
+            position: "relative",
+            height: "100%",
+            overflowX: "hidden",
+            overflowY: "auto",
             scrollbarWidth: "none",
             msOverflowStyle: "none",
         });
@@ -41,7 +47,9 @@ export class HeaderView {
         this.root.style.setProperty("--row-height", `${this.rowHeight}px`);
     }
     setViewportHeight(height) {
-        this.root.style.height = `${Math.max(1, height)}px`;
+        const nextHeight = `${Math.max(1, height)}px`;
+        if (this.scrollport.style.height === nextHeight) return;
+        this.scrollport.style.height = nextHeight;
     }
     renderRecords(records) {
         this.track.replaceChildren();
@@ -69,11 +77,11 @@ export class HeaderView {
         this.track.style.height = `${Math.max(1, records.length * this.rowHeight)}px`;
     }
     syncScroll(scrollTop) {
-        this.root.scrollTop = scrollTop;
+        this.scrollport.scrollTop = scrollTop;
     }
     clear() {
         this.track.replaceChildren();
         this.track.style.height = "0px";
-        this.root.scrollTop = 0;
+        this.scrollport.scrollTop = 0;
     }
 }

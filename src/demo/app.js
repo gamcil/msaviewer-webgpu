@@ -68,7 +68,14 @@ async function main() {
 
     // Set up the MSAViewer
     // init() loads all necessary WebGPU components
-    const viewer = new MSAViewer({ root });
+    const viewer = new MSAViewer({
+        root,
+        layout: {
+            header: true,
+            minimap: true,
+            tracks: true,
+        },
+    });
     await viewer.init(); 
     const schemeCatalog = buildSchemeOptionCatalog(schemeSelect);
 
