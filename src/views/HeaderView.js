@@ -24,8 +24,8 @@ export class HeaderView {
             maxWidth: "300px",
             minWidth: "0",
             overflow: "hidden",
-            backgroundColor: "var(--header-bg)",
-            borderRight: "1px solid var(--header-border)",
+            backgroundColor: "var(--msa-header-bg)",
+            borderRight: "1px solid var(--msa-header-border)",
         });
         Object.assign(this.scrollport.style, {
             position: "relative",

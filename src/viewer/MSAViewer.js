@@ -38,12 +38,33 @@ function writeThemeUniformBuffer(device, buffer, darkMode, colorScheme) {
 const AUTO_LAYOUT_CSS = `
 :host {
     display: block;
+    color-scheme: light dark;
     box-sizing: border-box;
     width: 100%;
     height: 100%;
     min-width: 0;
     min-height: 0;
     --msa-minimap-height: 120px;
+    --msa-grid-line: rgba(0, 0, 0, 0.05);
+    --msa-scroller-bg: #fff;
+    --msa-header-bg: #f0f0f0;
+    --msa-header-border: rgba(30, 30, 30, 0.1);
+    --msa-scrollbar-thumb: rgba(0, 0, 0, 0.32);
+    --msa-scrollbar-track: rgba(0, 0, 0, 0.08);
+}
+
+:host([data-theme="dark"]) {
+    color-scheme: dark;
+    --msa-grid-line: rgba(255, 255, 255, 0.03);
+    --msa-scroller-bg: #111;
+    --msa-header-bg: #161616;
+    --msa-header-border: rgba(255, 255, 255, 0.08);
+    --msa-scrollbar-thumb: rgba(255, 255, 255, 0.35);
+    --msa-scrollbar-track: rgba(255, 255, 255, 0.12);
+}
+
+:host([data-theme="light"]) {
+    color-scheme: light;
 }
 
 *, *::before, *::after {
@@ -123,10 +144,16 @@ const AUTO_LAYOUT_CSS = `
     width: 100%;
     height: 100%;
     overflow: auto;
+    color-scheme: inherit;
+    scrollbar-color: var(--msa-scrollbar-thumb) var(--msa-scrollbar-track);
+    background: var(--msa-scroller-bg);
+}
+
+:host([data-loaded="false"]) .msa-alignment-scroller {
     background:
-        linear-gradient(90deg, var(--msa-grid-line, rgba(0, 0, 0, 0.05)) 1px, transparent 1px),
-        linear-gradient(var(--msa-grid-line, rgba(0, 0, 0, 0.05)) 1px, transparent 1px),
-        var(--msa-scroller-bg, #fff);
+        linear-gradient(90deg, var(--msa-grid-line) 1px, transparent 1px),
+        linear-gradient(var(--msa-grid-line) 1px, transparent 1px),
+        var(--msa-scroller-bg);
     background-size: 16px 16px;
 }
 
@@ -736,7 +763,9 @@ export class MSAViewer {
                 return;
             }
 
-            document.documentElement.dataset.theme = snapshot.theme.darkMode ? "dark" : "light";
+            const themeName = snapshot.theme.darkMode ? "dark" : "light";
+            document.documentElement.dataset.theme = themeName;
+            this.root.dataset.theme = themeName;
             this.syncThemeBuffer();
             for (const trackStackView of this.trackStackViews) {
                 trackStackView.setTheme?.({ darkMode: snapshot.theme.darkMode });
