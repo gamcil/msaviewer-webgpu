@@ -7,9 +7,11 @@ export class ViewportController {
         getTrackStackViews,
         minimapController,
         getAlignmentStore,
+        getColumnVisibility,
         getOverscanRows,
         getOverscanCols,
         uploadVisibleWindow,
+        requestRender,
         onHoverReset,
         onSetScrolling,
     }) {
@@ -20,9 +22,11 @@ export class ViewportController {
         this.getTrackStackViews = getTrackStackViews;
         this.minimapController = minimapController;
         this.getAlignmentStore = getAlignmentStore;
+        this.getColumnVisibility = getColumnVisibility;
         this.getOverscanRows = getOverscanRows;
         this.getOverscanCols = getOverscanCols;
         this.uploadVisibleWindow = uploadVisibleWindow;
+        this.requestRender = requestRender;
         this.onHoverReset = onHoverReset;
         this.onSetScrolling = onSetScrolling;
         this.resizeObserver = null;
@@ -44,6 +48,7 @@ export class ViewportController {
             if (this.getAlignmentStore()) {
                 void this.uploadVisibleWindow?.();
             }
+            this.requestRender?.();
             this.syncMinimapViewportRect();
             this.syncTracksViewport();
         };
@@ -80,7 +85,8 @@ export class ViewportController {
             const viewportWidth = this.alignmentView.scroller.clientWidth;
             const viewportHeight = this.alignmentView.scroller.clientHeight;
             const snapshot = this.state.getSnapshot();
-            const contentWidth = alignmentStore.totalCols * snapshot.viewport.cellWidth;
+            const visibleCount = this.getColumnVisibility?.()?.visibleCount ?? alignmentStore.totalCols;
+            const contentWidth = visibleCount * snapshot.viewport.cellWidth;
             const contentHeight = alignmentStore.totalRows * snapshot.viewport.cellHeight;
             const maxScrollLeft = Math.max(0, contentWidth - viewportWidth);
             const maxScrollTop = Math.max(0, contentHeight - viewportHeight);
@@ -117,6 +123,7 @@ export class ViewportController {
         if (this.getAlignmentStore()) {
             void this.uploadVisibleWindow?.();
         }
+        this.requestRender?.();
         this.syncMinimapViewportRect();
         this.syncTracksViewport();
     }
@@ -156,6 +163,7 @@ export class ViewportController {
         const viewportHeight = this.alignmentView.scroller.clientHeight;
         const cellWidth = this.alignmentView.getRenderedCellWidthCss();
         const cellHeight = this.alignmentView.getRenderedCellHeightCss();
+        const totalVisibleCols = this.getColumnVisibility?.()?.visibleCount ?? alignmentStore.totalCols;
         const rowStart = Math.max(0, Math.floor(scrollTop / cellHeight) - this.getOverscanRows());
         const rowEnd = Math.min(
             alignmentStore.totalRows,
@@ -163,7 +171,7 @@ export class ViewportController {
         );
         const colStart = Math.max(0, Math.floor(scrollLeft / cellWidth) - this.getOverscanCols());
         const colEnd = Math.min(
-            alignmentStore.totalCols,
+            totalVisibleCols,
             Math.ceil((scrollLeft + viewportWidth) / cellWidth) + this.getOverscanCols()
         );
         return { rowStart, rowEnd, colStart, colEnd };
@@ -174,12 +182,14 @@ export class ViewportController {
         if (trackStackViews.length === 0) return;
         const alignmentStore = this.getAlignmentStore();
         if (!alignmentStore) return;
+        const columnVisibility = this.getColumnVisibility?.() ?? null;
         const scrollLeft = this.alignmentView.scroller.scrollLeft;
         const viewportWidth = this.alignmentView.scroller.clientWidth;
         const cellWidth = this.alignmentView.getRenderedCellWidthCss();
-        const totalCols = alignmentStore.totalCols;
+        const totalCols = columnVisibility?.visibleCount ?? alignmentStore.totalCols;
         const colStart = Math.floor(scrollLeft / cellWidth);
         const colEnd = Math.min(totalCols, Math.ceil((scrollLeft + viewportWidth) / cellWidth));
+        const visibleRawColumns = columnVisibility?.visibleToRaw?.subarray(colStart, colEnd) ?? null;
         for (const trackStackView of trackStackViews) {
             trackStackView.setViewport({
                 scrollLeft,
@@ -188,6 +198,8 @@ export class ViewportController {
                 totalCols,
                 colStart,
                 colEnd,
+                columnVisibility,
+                visibleRawColumns,
             });
         }
     }
@@ -203,6 +215,7 @@ export class ViewportController {
             viewportHeight: this.alignmentView.scroller.clientHeight,
             cellWidth: this.state.getSnapshot().viewport.cellWidth,
             cellHeight: this.state.getSnapshot().viewport.cellHeight,
+            visibleColCount: this.getColumnVisibility?.()?.visibleCount ?? null,
         });
     }
 }

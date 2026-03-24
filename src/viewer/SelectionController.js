@@ -43,6 +43,7 @@ export class SelectionController {
         this.alignmentView.setOverlayState({
             hoveredColumn: this.hoveredColumn,
             selectedColumns,
+            columnVisibility: this.alignmentView.columnVisibility,
         });
     }
 

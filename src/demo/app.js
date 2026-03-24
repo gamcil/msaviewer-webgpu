@@ -60,6 +60,8 @@ async function main() {
     const loadFilesButton = document.getElementById("load-files-button");
     const schemeSelect = document.getElementById("scheme-select");
     const representationSelect = document.getElementById("representation-select");
+    const hideInsertionsCheckbox = document.getElementById("hide-insertions-checkbox");
+    const gapThresholdInput = document.getElementById("gap-threshold-input");
     const pendingFilesPanel = document.getElementById("pending-files-panel");
     const pendingFileList = document.getElementById("pending-file-list");
     const status = document.getElementById("status");
@@ -87,6 +89,21 @@ async function main() {
             schemeCatalog,
             alphabet,
             selectedSchemeKey,
+        });
+    };
+
+    const syncMaskControls = () => {
+        const masking = viewer.getColumnMasking();
+        hideInsertionsCheckbox.checked = masking.hideInsertionColumns === true;
+        gapThresholdInput.value = masking.gapThreshold == null ? "" : String(masking.gapThreshold);
+    };
+
+    const applyMaskControls = () => {
+        const gapThresholdValue = gapThresholdInput.value.trim();
+        const parsedGapThreshold = gapThresholdValue === "" ? null : Number(gapThresholdValue);
+        viewer.setColumnMasking({
+            hideInsertionColumns: hideInsertionsCheckbox.checked,
+            gapThreshold: Number.isFinite(parsedGapThreshold) ? parsedGapThreshold : null,
         });
     };
 
@@ -142,11 +159,18 @@ async function main() {
     schemeSelect.addEventListener("change", async (event) => {
         await viewer.setScheme(event.target.value);
     });
+    hideInsertionsCheckbox.addEventListener("change", () => {
+        applyMaskControls();
+    });
+    gapThresholdInput.addEventListener("change", () => {
+        applyMaskControls();
+    });
     representationSelect.addEventListener("change", async (event) => {
         if (!event.target.value) return;
         try {
             await viewer.setActiveRepresentation(event.target.value);
             refreshSchemeSelect();
+            syncMaskControls();
             status.textContent = `Switched to ${event.target.selectedOptions[0].textContent}`;
         } catch (error) {
             status.textContent = error.message;
@@ -185,6 +209,7 @@ async function main() {
 
             await viewer.loadRepresentations(representations, { activeId: representations[0].id });
             refreshSchemeSelect();
+            syncMaskControls();
 
             representationSelect.replaceChildren();
             for (const representation of representations) {
@@ -219,7 +244,9 @@ async function main() {
 
     clearButton.onclick = () => {
         viewer.clearSelectedColumns();
-    }
+    };
+
+    syncMaskControls();
 }
 
 main().catch((error) => {

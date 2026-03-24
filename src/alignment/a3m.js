@@ -113,6 +113,29 @@ function encodeA3MRow(record, totalCols, leadingWidth, insertionWidths, trailing
     return row;
 }
 
+function buildA3MColumnMetadata(totalCols, leadingWidth, coreLength, insertionWidths, trailingWidth) {
+    const isInsertionColumn = new Uint8Array(totalCols);
+    let offset = 0;
+    for (let i = 0; i < leadingWidth; i += 1) {
+        isInsertionColumn[offset + i] = 1;
+    }
+    offset += leadingWidth;
+    for (let coreIndex = 0; coreIndex < coreLength; coreIndex += 1) {
+        offset += 1;
+        if (coreIndex < insertionWidths.length) {
+            const insertionWidth = insertionWidths[coreIndex];
+            for (let i = 0; i < insertionWidth; i += 1) {
+                isInsertionColumn[offset + i] = 1;
+            }
+            offset += insertionWidth;
+        }
+    }
+    for (let i = 0; i < trailingWidth; i += 1) {
+        isInsertionColumn[offset + i] = 1;
+    }
+    return { kind: "a3m", isInsertionColumn };
+}
+
 export async function parseA3MAlignment(input, options = {}) {
     const lineSource = createA3MLineSource(input);
     const records = [];
@@ -204,5 +227,13 @@ export async function parseA3MAlignment(input, options = {}) {
     }
     finalizeSecondPassRecord();
 
-    return builder.finalize(records);
+    const alignment = builder.finalize(records);
+    alignment.columnMetadata = buildA3MColumnMetadata(
+        totalCols,
+        leadingWidth,
+        coreLength,
+        insertionWidths,
+        trailingWidth
+    );
+    return alignment;
 }

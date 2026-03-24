@@ -15,7 +15,7 @@ export class MinimapCompute {
         });
     }
 
-    encode(commandEncoder, msaTextureView, colProfileBuffer, themeBuffer, auxBuffer, outputBuffer, params) {
+    encode(commandEncoder, msaTextureView, colProfileBuffer, themeBuffer, visibleToRawBuffer, auxBuffer, outputBuffer, params) {
         const paramsData = new Uint32Array([
             params.totalRows,
             params.totalCols,
@@ -36,8 +36,9 @@ export class MinimapCompute {
                 { binding: 1, resource: msaTextureView },
                 { binding: 2, resource: { buffer: colProfileBuffer } },
                 { binding: 3, resource: { buffer: themeBuffer } },
-                { binding: 4, resource: { buffer: auxBuffer } },
-                { binding: 5, resource: { buffer: outputBuffer } },
+                { binding: 4, resource: { buffer: visibleToRawBuffer } },
+                { binding: 5, resource: { buffer: auxBuffer } },
+                { binding: 6, resource: { buffer: outputBuffer } },
             ]
         });
 
@@ -51,13 +52,14 @@ export class MinimapCompute {
         passEncoder.end();
     }
 
-    run(msaTextureView, colProfileBuffer, themeBuffer, auxBuffer, outputBuffer, params) {
+    run(msaTextureView, colProfileBuffer, themeBuffer, visibleToRawBuffer, auxBuffer, outputBuffer, params) {
         const commandEncoder = this.device.createCommandEncoder();
         this.encode(
             commandEncoder,
             msaTextureView,
             colProfileBuffer,
             themeBuffer,
+            visibleToRawBuffer,
             auxBuffer,
             outputBuffer,
             params

@@ -78,6 +78,7 @@ export class AlignmentView {
         // Hover state
         this.hoveredColumn = null;
         this.selectedColumns = new Set();
+        this.columnVisibility = null;
     }
     getRenderedCellWidthCss() {
         const dpr = window.devicePixelRatio || 1;
@@ -123,9 +124,14 @@ export class AlignmentView {
         const colEnd = Math.min(this.totalCols, Math.ceil((scrollLeft + viewportWidth) / cellWidth));
         return [colStart, colEnd];
     }
-    setOverlayState({ hoveredColumn = null, selectedColumns = this.selectedColumns }) {
+    setOverlayState({
+        hoveredColumn = null,
+        selectedColumns = this.selectedColumns,
+        columnVisibility = this.columnVisibility,
+    }) {
         this.hoveredColumn = hoveredColumn;
         this.selectedColumns = selectedColumns;
+        this.columnVisibility = columnVisibility;
         this.drawOverlay(); 
     }
     drawOverlay() {
@@ -144,9 +150,10 @@ export class AlignmentView {
         const numRows = Math.min(this.totalRows, Math.ceil(this.scroller.clientHeight / cellHeightCss));
         const heightPx = numRows * Math.max(1, Math.round(cellHeightCss * dpr));
 
-        for (const col of this.selectedColumns) {
-            if (col < colStart || col >= colEnd) continue;
-            const x = (col - colStart) * cellWidthPx - localScrollLeftPx;
+        for (const rawCol of this.selectedColumns) {
+            const visibleCol = this.columnVisibility?.rawToVisible?.[rawCol] ?? rawCol;
+            if (visibleCol < 0 || visibleCol < colStart || visibleCol >= colEnd) continue;
+            const x = (visibleCol - colStart) * cellWidthPx - localScrollLeftPx;
             this.overlayContext.strokeStyle = "rgb(0, 122, 178)";
             this.overlayContext.fillStyle = "rgba(89, 211, 255, 0.25)"; 
             this.overlayContext.lineWidth = Math.max(1, Math.round(dpr));
@@ -156,8 +163,11 @@ export class AlignmentView {
             this.overlayContext.stroke();
         }
         
-        if (this.hoveredColumn !== null && this.hoveredColumn >= colStart && this.hoveredColumn < colEnd) {
-            const x = (this.hoveredColumn - colStart) * cellWidthPx - localScrollLeftPx;
+        const hoveredVisibleCol = this.hoveredColumn == null
+            ? -1
+            : (this.columnVisibility?.rawToVisible?.[this.hoveredColumn] ?? this.hoveredColumn);
+        if (hoveredVisibleCol >= colStart && hoveredVisibleCol < colEnd) {
+            const x = (hoveredVisibleCol - colStart) * cellWidthPx - localScrollLeftPx;
             this.overlayContext.strokeStyle = "rgb(0, 122, 178)";
             this.overlayContext.lineWidth = Math.max(1, Math.round(dpr));
             this.overlayContext.strokeRect(x + 0.5, 0.5, Math.max(0, cellWidthPx - 1), Math.max(0, heightPx - 1));
@@ -189,10 +199,11 @@ export class AlignmentView {
         }
         this.drawOverlay();
     }
-    setAlignmentSize(totalCols, totalRows) {
-        this.totalCols = totalCols;
+    setAlignmentSize(totalCols, totalRows, columnVisibility = null) {
+        this.totalCols = columnVisibility?.visibleCount ?? totalCols;
         this.totalRows = totalRows;
-        const width = totalCols * this.getRenderedCellWidthCss();
+        this.columnVisibility = columnVisibility;
+        const width = this.totalCols * this.getRenderedCellWidthCss();
         const height = totalRows * this.getRenderedCellHeightCss();
         this.spacer.style.width = `${width}px`;
         this.spacer.style.height = `${height}px`;

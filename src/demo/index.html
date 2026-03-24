@@ -123,6 +123,45 @@
             min-width: 0;
             width: 140px;
         }
+        .mask-control {
+            width: auto;
+            gap: 10px;
+        }
+        .mask-toggle {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 13px;
+            font-weight: 600;
+            letter-spacing: 0.01em;
+            white-space: nowrap;
+        }
+        .mask-toggle input[type="checkbox"] {
+            margin: 0;
+        }
+        .mask-input {
+            width: 88px;
+            min-width: 0;
+            padding: 8px 12px;
+            border: 1px solid var(--control-border);
+            border-radius: 8px;
+            background-color: var(--control-bg);
+            color: inherit;
+            font: inherit;
+            line-height: 1.2;
+            transition: border-color 120ms ease, background-color 120ms ease, box-shadow 120ms ease;
+        }
+        .mask-input:hover {
+            border-color: var(--control-hover-border);
+        }
+        .mask-input:focus {
+            outline: none;
+            border-color: var(--control-focus-border);
+            box-shadow: var(--control-focus-ring);
+        }
+        .mask-input:disabled {
+            opacity: 0.6;
+        }
         .viewer-host {
             position: relative;
             width: 95vw;
@@ -272,6 +311,24 @@
                 <select id="representation-select" class="control-select" disabled>
                     <option value="">None loaded</option>
                 </select>
+            </div>
+            <div class="scheme-switcher mask-control">
+                <label class="mask-toggle" for="hide-insertions-checkbox">
+                    <input id="hide-insertions-checkbox" type="checkbox">
+                    Hide insertions
+                </label>
+                <label class="mask-toggle" for="gap-threshold-input">
+                    Gap &gt;
+                    <input
+                        id="gap-threshold-input"
+                        class="mask-input"
+                        type="number"
+                        min="0"
+                        max="1"
+                        step="0.05"
+                        placeholder="off"
+                    >
+                </label>
             </div>
             <div class="column-selection-info">
                 <button disabled id="clear-selection-button">Clear selected columns</button>

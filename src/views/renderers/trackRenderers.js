@@ -3,6 +3,52 @@ LOGO_MEASURE_CANVAS.width = 256;
 LOGO_MEASURE_CANVAS.height = 256;
 const LOGO_MEASURE_CONTEXT = LOGO_MEASURE_CANVAS.getContext("2d", { willReadFrequently: true });
 const LOGO_GLYPH_METRIC_CACHE = new Map();
+const COLOR_PARSE_CANVAS = document.createElement("canvas");
+COLOR_PARSE_CANVAS.width = 1;
+COLOR_PARSE_CANVAS.height = 1;
+const COLOR_PARSE_CONTEXT = COLOR_PARSE_CANVAS.getContext("2d");
+
+function clamp01(value) {
+    return Math.max(0, Math.min(1, value));
+}
+
+function parseCssColor(color) {
+    if (!COLOR_PARSE_CONTEXT) {
+        return [0, 0, 0, 255];
+    }
+    COLOR_PARSE_CONTEXT.clearRect(0, 0, 1, 1);
+    COLOR_PARSE_CONTEXT.fillStyle = "#000";
+    COLOR_PARSE_CONTEXT.fillStyle = color;
+    COLOR_PARSE_CONTEXT.fillRect(0, 0, 1, 1);
+    return COLOR_PARSE_CONTEXT.getImageData(0, 0, 1, 1).data;
+}
+
+export function interpolateColor(minColor, maxColor, t) {
+    const start = parseCssColor(minColor);
+    const end = parseCssColor(maxColor);
+    const mix = clamp01(t);
+    const r = Math.round(start[0] + (end[0] - start[0]) * mix);
+    const g = Math.round(start[1] + (end[1] - start[1]) * mix);
+    const b = Math.round(start[2] + (end[2] - start[2]) * mix);
+    const a = (start[3] + (end[3] - start[3]) * mix) / 255;
+    return `rgba(${r}, ${g}, ${b}, ${a})`;
+}
+
+export function resolveInterpolatedColor(score, {
+    minScore = 0,
+    maxScore = 1,
+    minColor,
+    maxColor,
+} = {}) {
+    if (minColor == null || maxColor == null) {
+        return null;
+    }
+    if (maxScore <= minScore) {
+        return maxColor;
+    }
+    const t = (score - minScore) / (maxScore - minScore);
+    return interpolateColor(minColor, maxColor, t);
+}
 
 function getLogoGlyphMetrics(font, glyph) {
     const cacheKey = `${font}::${glyph}`;
@@ -80,6 +126,29 @@ export function renderBars(context, {
 }) {
     if (!bars?.length) return;
 
+    const hasPerBarStyles = bars.some((bar) =>
+        bar.fillStyle !== undefined ||
+        bar.strokeStyle !== undefined ||
+        bar.lineWidth !== undefined
+    );
+
+    if (hasPerBarStyles) {
+        for (const { column, fraction, baseY = canvasHeight, plotHeight = canvasHeight, fillStyle: barFillStyle, strokeStyle: barStrokeStyle, lineWidth: barLineWidth } of bars) {
+            const x = column * cellWidthPx - localScrollLeftPx;
+            const barHeight = plotHeight * fraction;
+            if (barFillStyle) {
+                context.fillStyle = barFillStyle;
+                context.fillRect(x, baseY - barHeight, cellWidthPx, barHeight);
+            }
+            if (barStrokeStyle) {
+                context.strokeStyle = barStrokeStyle;
+                context.lineWidth = barLineWidth ?? lineWidth;
+                context.strokeRect(x, baseY - barHeight, cellWidthPx, barHeight);
+            }
+        }
+        return;
+    }
+
     if (fillStyle) {
         context.fillStyle = fillStyle;
     }
@@ -137,14 +206,16 @@ export function renderLine(context, {
 
     if (!showPoints) return;
 
-    for (const { score, x, y } of points) {
+    for (const { score, x, y, pointFillStyle, pointStrokeStyle, pointLineWidth } of points) {
         if (skipZeroPoints && score === 0) continue;
         context.beginPath();
         context.arc(x, y, pointRadius, 0, Math.PI * 2, false);
-        if (fillStyle) {
-            context.fillStyle = fillStyle;
+        if (pointFillStyle ?? fillStyle) {
+            context.fillStyle = pointFillStyle ?? fillStyle;
             context.fill();
         }
+        context.strokeStyle = pointStrokeStyle ?? strokeStyle;
+        context.lineWidth = pointLineWidth ?? lineWidth;
         context.stroke();
     }
 }

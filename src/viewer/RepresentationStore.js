@@ -70,6 +70,13 @@ export class RepresentationStore {
         return representation;
     }
 
+    setColumnVisibility(id, columnVisibility) {
+        const representation = this.get(id);
+        if (!representation) return null;
+        representation.columnVisibility = columnVisibility;
+        return representation;
+    }
+
     setTrackState(id, trackState) {
         const representation = this.get(id);
         if (!representation) return null;
@@ -87,6 +94,7 @@ export class RepresentationStore {
     invalidateDerived(id) {
         const representation = this.get(id);
         if (!representation) return null;
+        representation.columnVisibility = null;
         representation.trackState = null;
         representation.minimapCache = null;
         return representation;

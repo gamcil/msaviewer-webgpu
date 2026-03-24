@@ -5,6 +5,7 @@
  * @property {Object} store
  * @property {{ colProfileBuffer: GPUBuffer, totalCols: number, totalRows: number }} alignmentState
  * @property {Object|null} columnMetrics
+ * @property {Object|null} columnVisibility
  * @property {Object|null} trackState
  * @property {{ key: string, width: number, height: number, pixels: Uint8ClampedArray }|null} minimapCache
  */
@@ -16,6 +17,7 @@
  *   store: Object,
  *   alignmentState: { colProfileBuffer: GPUBuffer, totalCols: number, totalRows: number },
  *   columnMetrics?: Object|null,
+ *   columnVisibility?: Object|null,
  *   trackState?: Object|null,
  *   minimapCache?: { key: string, width: number, height: number, pixels: Uint8ClampedArray }|null,
  * }} params
@@ -27,6 +29,7 @@ export function createRepresentation({
     store,
     alignmentState,
     columnMetrics = null,
+    columnVisibility = null,
     trackState = null,
     minimapCache = null,
 }) {
@@ -36,6 +39,7 @@ export function createRepresentation({
         store,
         alignmentState,
         columnMetrics,
+        columnVisibility,
         trackState,
         minimapCache,
     };

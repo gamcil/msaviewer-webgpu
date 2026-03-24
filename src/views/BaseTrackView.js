@@ -34,12 +34,10 @@ export class BaseTrackView {
 
     setViewport(viewport) {
         this.viewport = viewport;
-        this.render();
     }
 
     setData(data) {
         this.data = data;
-        this.render();
     }
 
     setTrackState(trackState) {

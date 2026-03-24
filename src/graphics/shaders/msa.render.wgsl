@@ -14,13 +14,19 @@ struct ThemeUniforms {
     colorScheme: u32,
 }
 
+struct VisibleColumnMapEntry {
+    rawCol: u32,
+    rawWindowCol: u32,
+}
+
 @group(0) @binding(0) var<uniform> ui: Uniforms;
 @group(0) @binding(1) var msaData: texture_2d<u32>;
 @group(0) @binding(2) var<storage, read> colProfile: array<u32>;
 @group(0) @binding(3) var<uniform> theme: ThemeUniforms;
 @group(0) @binding(4) var fontAtlas: texture_2d<f32>;
 @group(0) @binding(5) var fontSampler: sampler;
-@group(0) @binding(6) var<storage, read> auxData: array<i32>;
+@group(0) @binding(6) var<storage, read> visibleColumnMap: array<VisibleColumnMapEntry>;
+@group(0) @binding(7) var<storage, read> auxData: array<i32>;
 
 struct VertexOutput {
     @builtin(position) pos: vec4<f32>,
@@ -135,8 +141,9 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         return base_background;
     }
 
-    let residue = read_residue(local_cell.y, local_cell.x);
-    let mask = colProfile[col];
+    let column_map = visibleColumnMap[local_cell.x];
+    let residue = read_residue(local_cell.y, column_map.rawWindowCol);
+    let mask = colProfile[column_map.rawCol];
     let color = resolve_scheme_color(residue, mask);
     let local = window_pixel % ui.gridSize;
     let local_uv = (vec2<f32>(local) + vec2<f32>(0.5, 0.5)) / vec2<f32>(ui.gridSize);

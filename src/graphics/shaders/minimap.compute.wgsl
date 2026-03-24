@@ -16,12 +16,18 @@ struct ThemeUniforms {
     colorScheme: u32,
 }
 
+struct VisibleColumnMapEntry {
+    rawCol: u32,
+    rawWindowCol: u32,
+}
+
 @group(0) @binding(0) var<uniform> params: MinimapParams;
 @group(0) @binding(1) var msaData: texture_2d<u32>;
 @group(0) @binding(2) var<storage, read> colProfile: array<u32>;
 @group(0) @binding(3) var<uniform> theme: ThemeUniforms;
-@group(0) @binding(4) var<storage, read> auxData: array<i32>;
-@group(0) @binding(5) var<storage, read_write> outPixels: array<u32>;
+@group(0) @binding(4) var<storage, read> visibleColumnMap: array<VisibleColumnMapEntry>;
+@group(0) @binding(5) var<storage, read> auxData: array<i32>;
+@group(0) @binding(6) var<storage, read_write> outPixels: array<u32>;
 
 const BIT_HYDROPHOBIC_60: u32 = 1u << 0u;
 const BIT_KR_60: u32 = 1u << 1u;
@@ -64,17 +70,18 @@ fn read_residue(local_row: u32, local_col: u32) -> u32 {
 
 __SCHEME_COLOR_WGSL__
 
-fn scheme_color(raw_res: u32, global_col: u32) -> vec4<f32> {
-    let mask = colProfile[global_col];
+fn scheme_color(raw_res: u32, local_col: u32) -> vec4<f32> {
+    let column_map = visibleColumnMap[local_col];
+    let mask = colProfile[column_map.rawCol];
     return resolve_scheme_color(raw_res, mask);
 }
 
 fn write_output(pixel_index: u32, r_sum: u32, g_sum: u32, b_sum: u32, count: u32) {
     let base = pixel_index * 4u;
-    outPixels[base] = r_sum;
-    outPixels[base + 1u] = g_sum;
-    outPixels[base + 2u] = b_sum;
-    outPixels[base + 3u] = count;
+    outPixels[base] = outPixels[base] + r_sum;
+    outPixels[base + 1u] = outPixels[base + 1u] + g_sum;
+    outPixels[base + 2u] = outPixels[base + 2u] + b_sum;
+    outPixels[base + 3u] = outPixels[base + 3u] + count;
 }
 
 @compute @workgroup_size(8, 8)
@@ -110,13 +117,13 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let local_col = sample_col - params.chunkColStart;
     let local_row = sample_row - params.chunkRowStart;
 
-    let residue = read_residue(local_row, local_col);
+    let residue = read_residue(local_row, visibleColumnMap[local_col].rawWindowCol);
     if (is_gap_residue(residue)) {
         write_output(pixel_index, 0u, 0u, 0u, 0u);
         return;
     }
 
-    let color = scheme_color(residue, sample_col);
+    let color = scheme_color(residue, local_col);
     let r = u32(round(color.r * 255.0));
     let g = u32(round(color.g * 255.0));
     let b = u32(round(color.b * 255.0));

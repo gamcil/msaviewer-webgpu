@@ -12,6 +12,8 @@ export class ViewerState {
         representationId = null,
         cellWidth = 16,
         cellHeight = 16,
+        hideInsertionColumns = false,
+        gapThreshold = null,
     } = {}) {
         this.listeners = new Set();
         this.state = {
@@ -21,6 +23,10 @@ export class ViewerState {
             },
             scheme: { 
                 key: schemeKey, // e.g. 'clustalx', 'pid', 'blosum62', etc.
+            },
+            masking: {
+                hideInsertionColumns,
+                gapThreshold: Number.isFinite(gapThreshold) ? gapThreshold : null,
             },
             alignment: { // MSA data
                 records: [],
@@ -52,6 +58,7 @@ export class ViewerState {
         return {
             theme: { ...this.state.theme },
             scheme: { ...this.state.scheme },
+            masking: { ...this.state.masking },
             alignment: { ...this.state.alignment },
             viewport: { ...this.state.viewport },
             gpu: { ...this.state.gpu },
@@ -96,6 +103,23 @@ export class ViewerState {
         if (!(key in SCHEMES)) return;
         if (this.state.scheme.key === key) return;
         this.state.scheme.key = key;
+        this.emit();
+    }
+    setColumnMasking({ hideInsertionColumns, gapThreshold } = {}) {
+        const nextHideInsertionColumns = hideInsertionColumns == null
+            ? this.state.masking.hideInsertionColumns
+            : hideInsertionColumns === true;
+        const nextGapThreshold = gapThreshold == null
+            ? this.state.masking.gapThreshold
+            : (Number.isFinite(gapThreshold) ? gapThreshold : null);
+        if (
+            this.state.masking.hideInsertionColumns === nextHideInsertionColumns &&
+            this.state.masking.gapThreshold === nextGapThreshold
+        ) {
+            return;
+        }
+        this.state.masking.hideInsertionColumns = nextHideInsertionColumns;
+        this.state.masking.gapThreshold = nextGapThreshold;
         this.emit();
     }
     setAlignment({

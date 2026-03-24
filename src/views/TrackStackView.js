@@ -7,13 +7,23 @@ export class TrackStackView {
         this.root = root;
         this.tracks = [];
         this.trackState = null;
+        this.viewport = null;
+        this.theme = null;
+        this.renderDirty = false;
+        this.frameHandle = 0;
     }
 
     addTrack(track) {
         this.tracks.push(track);
         this.root.appendChild(track.root);
+        if (this.viewport) {
+            track.setViewport(this.viewport);
+        }
         if (this.trackState) {
             track.setTrackState?.(this.trackState);
+        }
+        if (this.theme) {
+            track.setTheme?.(this.theme);
         }
     }
 
@@ -25,22 +35,42 @@ export class TrackStackView {
     }
 
     setViewport(viewport) {
+        this.viewport = viewport;
         for (const track of this.tracks) {
-            track.setViewport(viewport);
+            track.viewport = viewport;
         }
+        this.requestRender();
     }
 
     setTrackState(trackState) {
         this.trackState = trackState;
         for (const track of this.tracks) {
+            track.trackState = trackState;
             track.setTrackState?.(trackState);
         }
+        this.requestRender();
     }
 
     setTheme(theme) {
+        this.theme = theme;
         for (const track of this.tracks) {
             track.setTheme?.(theme);
         }
+        this.requestRender();
+    }
+
+    requestRender() {
+        this.renderDirty = true;
+        if (this.frameHandle) return;
+        this.frameHandle = window.requestAnimationFrame(() => {
+            this.frameHandle = 0;
+            if (!this.renderDirty) return;
+            this.renderDirty = false;
+            this.render();
+            if (this.renderDirty && !this.frameHandle) {
+                this.requestRender();
+            }
+        });
     }
 
     render() {
@@ -50,6 +80,11 @@ export class TrackStackView {
     }
 
     clear() {
+        if (this.frameHandle) {
+            window.cancelAnimationFrame(this.frameHandle);
+            this.frameHandle = 0;
+        }
+        this.renderDirty = false;
         for (const track of this.tracks) {
             track.destroy();
         }

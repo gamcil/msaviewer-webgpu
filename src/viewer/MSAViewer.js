@@ -29,6 +29,7 @@ import { ColumnMetricService } from "./ColumnMetricService.js";
 import { ColumnProfileService } from "./ColumnProfileService.js";
 import { VisibleWindowController } from "./VisibleWindowController.js";
 import { defaultAlphabetRegistry } from "../alphabets/index.js";
+import { buildColumnVisibility } from "./buildColumnVisibility.js";
 
 function writeThemeUniformBuffer(device, buffer, darkMode, colorScheme) {
     const data = new Uint32Array([darkMode, colorScheme]);
@@ -145,8 +146,6 @@ const AUTO_LAYOUT_CSS = `
     height: 100%;
     overflow: auto;
     color-scheme: inherit;
-    scrollbar-color: var(--msa-scrollbar-thumb) var(--msa-scrollbar-track);
-    background: var(--msa-scroller-bg);
 }
 
 :host([data-loaded="false"]) .msa-alignment-scroller {
@@ -268,6 +267,14 @@ export class MSAViewer {
         this.isScrolling = false;
         
         this.frameHandle = null;
+        this.renderDirty = false;
+        this.visibleWindowUploadFrameHandle = 0;
+        this.visibleWindowUploadInFlight = false;
+        this.visibleWindowUploadNeedsRerun = false;
+        this.minimapRebuildFrameHandle = 0;
+        this.minimapRebuildInFlight = false;
+        this.minimapRebuildNeedsRerun = false;
+        this.minimapRebuildGeneration = 0;
     }
 
     get headerView() { return this.views.header; }
@@ -332,6 +339,7 @@ export class MSAViewer {
             this.renderer = this.pipelineRegistry.getRenderer(resolvedAlphabet);
             this.alignmentView.renderer = this.renderer;
             await this.recomputeColumnMetrics();
+            this.recomputeColumnVisibility();
             const updatedTrackState = this.trackStateBuilder.build(
                 this.getActiveColumnMetrics(),
                 activeAlignmentStore.totalRows,
@@ -344,6 +352,7 @@ export class MSAViewer {
             if (activeRepresentation) {
                 this.representationStore.setAlphabetId(activeRepresentation.id, resolvedAlphabet.id);
                 this.representationStore.setColumnMetrics(activeRepresentation.id, this.getActiveColumnMetrics());
+                this.representationStore.setColumnVisibility(activeRepresentation.id, activeRepresentation.columnVisibility);
                 this.representationStore.setTrackState(activeRepresentation.id, updatedTrackState);
                 this.representationStore.setMinimapCache(activeRepresentation.id, null);
             }
@@ -368,7 +377,7 @@ export class MSAViewer {
         this.loadStaticAssets();
         this.bindEvents();
         this.syncThemeBuffer();
-        this.startFrameLoop();
+        this.requestRender();
     }
     
     async ensureGpuContext() {
@@ -480,9 +489,11 @@ export class MSAViewer {
             getTrackStackViews: () => this.trackStackViews,
             minimapController: this.minimapController,
             getAlignmentStore: () => this.getActiveAlignmentStore(),
+            getColumnVisibility: () => this.getActiveRepresentation()?.columnVisibility ?? null,
             getOverscanRows: () => this.viewportOverscanRows,
             getOverscanCols: () => this.viewportOverscanCols,
-            uploadVisibleWindow: () => this.uploadVisibleWindow(),
+            uploadVisibleWindow: () => this.scheduleVisibleWindowUpload(),
+            requestRender: () => this.requestRender(),
             onHoverReset: () => this.selectionController?.clearHover(),
             onSetScrolling: (isScrolling) => {
                 this.isScrolling = isScrolling;
@@ -531,9 +542,11 @@ export class MSAViewer {
             getTrackStackViews: () => this.trackStackViews,
             minimapController: this.minimapController,
             getAlignmentStore: () => this.getActiveAlignmentStore(),
+            getColumnVisibility: () => this.getActiveRepresentation()?.columnVisibility ?? null,
             getOverscanRows: () => this.viewportOverscanRows,
             getOverscanCols: () => this.viewportOverscanCols,
-            uploadVisibleWindow: () => this.uploadVisibleWindow(),
+            uploadVisibleWindow: () => this.scheduleVisibleWindowUpload(),
+            requestRender: () => this.requestRender(),
             onHoverReset: () => this.selectionController?.clearHover(),
             onSetScrolling: (isScrolling) => {
                 this.isScrolling = isScrolling;
@@ -563,7 +576,16 @@ export class MSAViewer {
             root: qualityTrackRoot,
             id: "quality",
             label: "Quality",
-            height: 60
+            height: 60,
+            style: {
+                strokeStyle: "#063306",
+            },
+            colorRamp: {
+                minScore: 0,
+                maxScore: 1,
+                minColor: "#063306",
+                maxColor: "#77ca8f"
+            }
         });
 
         const occupancyTrackRoot = document.createElement("div");
@@ -572,7 +594,17 @@ export class MSAViewer {
             root: occupancyTrackRoot,
             id: "occupancy",
             label: "Occupancy",
-            height: 60
+            height: 60,
+            style: {
+                strokeStyle: "#3e2709",
+            },
+            colorRamp: {
+                minScore: 0,
+                maxScore: 1,
+                minColor: "#3e2709",
+                maxColor: "#d4b080",
+                target: "fill"
+            }
         });
 
         const entropyTrackRoot = document.createElement("div");
@@ -581,7 +613,7 @@ export class MSAViewer {
             root: entropyTrackRoot,
             id: "entropy",
             label: "Entropy",
-            height: 60
+            height: 60,
         });
 
         const consensusTrackRoot = document.createElement("div");
@@ -595,10 +627,10 @@ export class MSAViewer {
         });
 
         return [
-            qualityTrackView,
-            occupancyTrackView,
-            entropyTrackView,
             consensusTrackView,
+            qualityTrackView,
+            entropyTrackView,
+            occupancyTrackView,
         ];
     }
     
@@ -620,7 +652,9 @@ export class MSAViewer {
         const cellWidth = this.alignmentView.getRenderedCellWidthCss();
         const cellHeight = this.alignmentView.getRenderedCellHeightCss();
         const snapshot = this.state.getSnapshot();
-        const col = Math.floor(contentX / cellWidth);
+        const visibleCol = Math.floor(contentX / cellWidth);
+        const columnVisibility = this.getActiveRepresentation()?.columnVisibility;
+        const col = columnVisibility?.visibleToRaw?.[visibleCol] ?? visibleCol;
         const row = Math.min(snapshot.alignment.totalRows - 1, Math.floor(contentY / cellHeight));
         return [col, row];
     }
@@ -638,7 +672,7 @@ export class MSAViewer {
         }
     }
     
-    async rebuildMinimap() {
+    async rebuildMinimap({ shouldApply = null } = {}) {
         const alignmentStore = this.getActiveAlignmentStore();
         const alignmentState = this.getActiveAlignmentState();
         const activeRepresentation = this.getActiveRepresentation();
@@ -650,8 +684,41 @@ export class MSAViewer {
             schemeKey: this.state.getSnapshot().scheme.key,
             darkMode: this.state.getSnapshot().theme.darkMode,
             themeBuffer: this.themeBuffer,
+            columnVisibility: activeRepresentation.columnVisibility,
             setMinimapCache: (id, cache) => this.representationStore.setMinimapCache(id, cache),
+            shouldApply,
         });
+    }
+
+    scheduleMinimapRebuild() {
+        this.minimapRebuildGeneration += 1;
+        if (this.minimapRebuildFrameHandle) return;
+        this.minimapRebuildFrameHandle = window.requestAnimationFrame(() => {
+            this.minimapRebuildFrameHandle = 0;
+            void this.flushMinimapRebuild();
+        });
+    }
+
+    async flushMinimapRebuild() {
+        if (this.minimapRebuildInFlight) {
+            this.minimapRebuildNeedsRerun = true;
+            return;
+        }
+
+        const generation = this.minimapRebuildGeneration;
+        this.minimapRebuildInFlight = true;
+        try {
+            await this.rebuildMinimap({
+                shouldApply: () => generation === this.minimapRebuildGeneration,
+            });
+        } finally {
+            this.minimapRebuildInFlight = false;
+        }
+
+        if (this.minimapRebuildNeedsRerun) {
+            this.minimapRebuildNeedsRerun = false;
+            this.scheduleMinimapRebuild();
+        }
     }
     
     syncAlignmentOverlay(selectedColumns = this.state.getSnapshot().selection.columns) {
@@ -737,6 +804,7 @@ export class MSAViewer {
         });
         this.visibleWindowController = new VisibleWindowController({
             device: this.device,
+            gpuResources: this.gpuResources,
             decodedTileCache: this.decodedTileCache,
         });
     }
@@ -770,6 +838,7 @@ export class MSAViewer {
             for (const trackStackView of this.trackStackViews) {
                 trackStackView.setTheme?.({ darkMode: snapshot.theme.darkMode });
             }
+            this.requestRender();
 
             prevThemeDarkMode = snapshot.theme.darkMode;
             prevSchemeKey = snapshot.scheme.key;
@@ -880,6 +949,9 @@ export class MSAViewer {
         if (!representation.columnMetrics) {
             await this.recomputeColumnMetrics();
         }
+        if (!representation.columnVisibility) {
+            this.recomputeColumnVisibility();
+        }
 
         const activeColumnMetrics = representation.columnMetrics ?? this.getActiveColumnMetrics();
         if (!representation.trackState) {
@@ -893,7 +965,7 @@ export class MSAViewer {
     applyActiveRepresentationToViews(representation, { previousScrollLeft, previousScrollTop, resetView }) {
         const { records, totalCols, totalRows } = representation.store;
 
-        this.alignmentView.setAlignmentSize(totalCols, totalRows);
+        this.alignmentView.setAlignmentSize(totalCols, totalRows, representation.columnVisibility);
         this.alignmentView.ensureCanvasSize();
         if (resetView) {
             this.alignmentView.scrollTo(0, 0);
@@ -903,10 +975,11 @@ export class MSAViewer {
         this.headerView?.renderRecords(records);
         this.headerView?.syncScroll(this.alignmentView.scroller.scrollTop);
         this.selectionController?.syncOverlay(this.state.getSnapshot().selection.columns);
+        this.requestRender();
     }
 
     async finalizeActiveRepresentationActivation(id) {
-        await this.uploadVisibleWindow();
+        await this.performVisibleWindowUpload();
         await this.rebuildMinimap();
         this.viewportController?.syncMinimapViewportRect();
         this.syncAlignmentOverlay();
@@ -916,6 +989,7 @@ export class MSAViewer {
         }
         this.viewportController?.syncTracksViewport();
         this.viewportController?.refreshLayout();
+        this.requestRender();
     }
 
     async activateRepresentation(id, { resetView = false } = {}) {
@@ -1019,13 +1093,62 @@ export class MSAViewer {
                 renderBindGroup: this.renderBindGroup,
             });
         }
-        await this.rebuildMinimap();
+        this.scheduleMinimapRebuild();
+        this.requestRender();
     }
     
     async setTheme({ mode, darkMode }) {
         if (mode != null) this.state.setThemeMode(mode);
         if (darkMode != null) this.state.setResolvedDarkMode(darkMode);
-        await this.rebuildMinimap();
+        this.scheduleMinimapRebuild();
+        this.requestRender();
+    }
+
+    setColumnMasking(masking) {
+        this.state.setColumnMasking(masking);
+        const columnVisibility = this.recomputeColumnVisibility();
+        const activeRepresentation = this.getActiveRepresentation();
+        if (!activeRepresentation) return;
+        this.representationStore.setMinimapCache(activeRepresentation.id, null);
+        this.visibleWindowController?.clear?.();
+        this.visibleWindowState = null;
+        this.alignmentView?.setAlignmentSize(
+            activeRepresentation.store.totalCols,
+            activeRepresentation.store.totalRows,
+            columnVisibility
+        );
+        this.viewportController?.refreshLayout();
+        this.scheduleVisibleWindowUpload();
+        this.scheduleMinimapRebuild();
+        this.requestRender();
+    }
+
+    getColumnMasking() {
+        return { ...this.state.getSnapshot().masking };
+    }
+
+    getColumnVisibility() {
+        return this.getActiveRepresentation()?.columnVisibility ?? null;
+    }
+
+    rawColumnToVisible(rawCol) {
+        const columnVisibility = this.getColumnVisibility();
+        const totalCols = this.getActiveAlignmentStore()?.totalCols ?? 0;
+        if (!Number.isInteger(rawCol) || rawCol < 0) return -1;
+        if (!columnVisibility) {
+            return rawCol < totalCols ? rawCol : -1;
+        }
+        return columnVisibility.rawToVisible[rawCol] ?? -1;
+    }
+
+    visibleColumnToRaw(visibleCol) {
+        const columnVisibility = this.getColumnVisibility();
+        const totalCols = this.getActiveAlignmentStore()?.totalCols ?? 0;
+        if (!Number.isInteger(visibleCol) || visibleCol < 0) return -1;
+        if (!columnVisibility) {
+            return visibleCol < totalCols ? visibleCol : -1;
+        }
+        return columnVisibility.visibleToRaw[visibleCol] ?? -1;
     }
     
     async recomputeColumnMetrics() {
@@ -1039,7 +1162,21 @@ export class MSAViewer {
         if (activeRepresentation) {
             this.representationStore.setColumnMetrics(activeRepresentation.id, columnMetrics);
             this.representationStore.invalidateDerived(activeRepresentation.id);
+            this.recomputeColumnVisibility();
         }
+    }
+
+    recomputeColumnVisibility() {
+        const alignmentStore = this.getActiveAlignmentStore();
+        const activeRepresentation = this.getActiveRepresentation();
+        if (!alignmentStore || !activeRepresentation) return null;
+        const columnVisibility = buildColumnVisibility({
+            alignmentStore,
+            columnMetrics: activeRepresentation.columnMetrics,
+            masking: this.state.getSnapshot().masking,
+        });
+        this.representationStore.setColumnVisibility(activeRepresentation.id, columnVisibility);
+        return columnVisibility;
     }
     
     async recomputeColumnProfile() {
@@ -1053,7 +1190,34 @@ export class MSAViewer {
         });
     }
 
-    async uploadVisibleWindow() {
+    scheduleVisibleWindowUpload() {
+        if (this.visibleWindowUploadFrameHandle) return;
+        this.visibleWindowUploadFrameHandle = window.requestAnimationFrame(() => {
+            this.visibleWindowUploadFrameHandle = 0;
+            void this.flushVisibleWindowUpload();
+        });
+    }
+
+    async flushVisibleWindowUpload() {
+        if (this.visibleWindowUploadInFlight) {
+            this.visibleWindowUploadNeedsRerun = true;
+            return;
+        }
+
+        this.visibleWindowUploadInFlight = true;
+        try {
+            await this.performVisibleWindowUpload();
+        } finally {
+            this.visibleWindowUploadInFlight = false;
+        }
+
+        if (this.visibleWindowUploadNeedsRerun) {
+            this.visibleWindowUploadNeedsRerun = false;
+            this.scheduleVisibleWindowUpload();
+        }
+    }
+
+    async performVisibleWindowUpload() {
         const alignmentStore = this.getActiveAlignmentStore();
         const alignmentState = this.getActiveAlignmentState();
         if (!alignmentStore || !alignmentState) {
@@ -1064,6 +1228,7 @@ export class MSAViewer {
         const nextVisibleWindowState = await this.visibleWindowController.update({
             alignmentStore,
             bounds: this.viewportController.getVisibleWindowBounds(),
+            columnVisibility: this.getActiveRepresentation()?.columnVisibility ?? null,
         });
         if (!nextVisibleWindowState) {
             return;
@@ -1079,6 +1244,7 @@ export class MSAViewer {
             colProfileBuffer: alignmentState.colProfileBuffer,
             renderBindGroup: this.renderBindGroup,
         });
+        this.requestRender();
     }
 
     createRenderBindGroup() {
@@ -1093,8 +1259,9 @@ export class MSAViewer {
                 { binding: 3, resource: { buffer: this.themeBuffer } },
                 { binding: 4, resource: this.atlasTexture.createView() },
                 { binding: 5, resource: this.atlasSampler },
+                { binding: 6, resource: { buffer: this.visibleWindowState.visibleColumnMapBuffer } },
                 {
-                    binding: 6,
+                    binding: 7,
                     resource: {
                         buffer: this.pipelineRegistry.getSchemeAuxBuffer(
                             this.state.getSnapshot().scheme.key,
@@ -1106,12 +1273,23 @@ export class MSAViewer {
         });
     }
     
+    requestRender() {
+        this.renderDirty = true;
+        if (this.frameHandle) return;
+        this.frameHandle = requestAnimationFrame(this.frame);
+    }
+
     frame = () => {
+        this.frameHandle = null;
+        if (!this.renderDirty) {
+            return;
+        }
+        this.renderDirty = false;
         const alignmentState = this.getActiveAlignmentState();
         if (alignmentState && this.visibleWindowState) {
             this.alignmentView.ensureCanvasSize();
             this.alignmentView.syncUniforms({
-                totalCols: alignmentState.totalCols,
+                totalCols: this.getActiveRepresentation()?.columnVisibility?.visibleCount ?? alignmentState.totalCols,
                 totalRows: alignmentState.totalRows,
                 windowColStart: this.visibleWindowState.colStart,
                 windowRowStart: this.visibleWindowState.rowStart,
@@ -1120,27 +1298,34 @@ export class MSAViewer {
             });
             this.alignmentView.render();
         }
-        this.frameHandle = requestAnimationFrame(this.frame);
-    }
-    
-    startFrameLoop() {
-        if (!this.frameHandle) {
+        if (this.renderDirty && !this.frameHandle) {
             this.frameHandle = requestAnimationFrame(this.frame);
         }
     }
 
-    stopFrameLoop() {
+    cancelRender() {
         if (this.frameHandle) {
             cancelAnimationFrame(this.frameHandle);
             this.frameHandle = null;
         }
+        this.renderDirty = false;
     }
 
     destroy() {
-        this.stopFrameLoop();
+        this.cancelRender();
+        if (this.visibleWindowUploadFrameHandle) {
+            cancelAnimationFrame(this.visibleWindowUploadFrameHandle);
+            this.visibleWindowUploadFrameHandle = 0;
+        }
+        if (this.minimapRebuildFrameHandle) {
+            cancelAnimationFrame(this.minimapRebuildFrameHandle);
+            this.minimapRebuildFrameHandle = 0;
+        }
+        this.minimapRebuildGeneration += 1;
         
         this.unsubscribeThemeState?.();
         this.unsubscribeViewportState?.();
+        this.unsubscribeSelectionState?.();
 
         this.selectionController?.destroy?.();
         this.viewportController?.destroy?.();
