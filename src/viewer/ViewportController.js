@@ -187,8 +187,12 @@ export class ViewportController {
         const viewportWidth = this.alignmentView.scroller.clientWidth;
         const cellWidth = this.alignmentView.getRenderedCellWidthCss();
         const totalCols = columnVisibility?.visibleCount ?? alignmentStore.totalCols;
-        const colStart = Math.floor(scrollLeft / cellWidth);
-        const colEnd = Math.min(totalCols, Math.ceil((scrollLeft + viewportWidth) / cellWidth));
+        const trackOverscanCols = 2;
+        const colStart = Math.max(0, Math.floor(scrollLeft / cellWidth) - trackOverscanCols);
+        const colEnd = Math.min(
+            totalCols,
+            Math.ceil((scrollLeft + viewportWidth) / cellWidth) + trackOverscanCols
+        );
         const visibleRawColumns = columnVisibility?.visibleToRaw?.subarray(colStart, colEnd) ?? null;
         for (const trackStackView of trackStackViews) {
             trackStackView.setViewport({
