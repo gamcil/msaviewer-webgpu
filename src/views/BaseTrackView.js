@@ -3,13 +3,23 @@ Base class for sequence score tracks
 */
 
 export class BaseTrackView {
-    constructor({ root, height, id, label, sublabel = null, metric = null, valueRange = null }) {
+    constructor({
+        root,
+        height,
+        id,
+        label,
+        sublabel = null,
+        metric = null,
+        valueRange = null,
+        tooltip = null,
+    }) {
         this.root = root;
         this.id = id;
         this.height = height;
         this.label = label;
         this.sublabel = sublabel;
         this.metric = metric ?? id;
+        this.tooltip = tooltip;
         this.valueRange = valueRange ? {
             min: valueRange.min ?? 0,
             max: valueRange.max ?? 1,
@@ -18,6 +28,7 @@ export class BaseTrackView {
         this.viewport = null;
         this.data = null;
         this.trackState = null;
+        this.theme = null;
         
         this.root.classList.add("msa-track-row");
 
@@ -59,6 +70,10 @@ export class BaseTrackView {
         this.trackState = trackState;
     }
 
+    setTheme(theme) {
+        this.theme = theme;
+    }
+
     setSublabel(sublabel) {
         this.sublabel = sublabel;
         const text = sublabel == null ? "" : String(sublabel);
@@ -74,6 +89,43 @@ export class BaseTrackView {
 
     getMetricData(trackState = this.trackState) {
         return trackState?.metrics?.[this.metric] ?? null;
+    }
+
+    formatTooltipValue(value) {
+        if (!Number.isFinite(value)) {
+            return null;
+        }
+        if (Number.isInteger(value)) {
+            return String(value);
+        }
+        if (Math.abs(value) >= 10) {
+            return value.toFixed(1);
+        }
+        return value.toFixed(3).replace(/\.?0+$/, "");
+    }
+
+    getTooltipData(rawColumn, context = {}) {
+        const value = this.data?.[rawColumn];
+        if (this.tooltip) {
+            return this.tooltip({
+                rawColumn,
+                value,
+                track: this,
+                trackState: this.trackState,
+                ...context,
+            });
+        }
+        if (!Number.isFinite(value)) {
+            return null;
+        }
+        return {
+            title: this.label,
+            subtitle: this.sublabel,
+            lines: [
+                `Column: ${rawColumn + 1}`,
+                `Value: ${this.formatTooltipValue(value)}`,
+            ],
+        };
     }
 
     normalizeValue(value) {

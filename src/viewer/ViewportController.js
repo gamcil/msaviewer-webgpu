@@ -3,6 +3,7 @@ export class ViewportController {
         state,
         alignmentView,
         headerView,
+        rulerView,
         minimapView,
         getTrackStackViews,
         minimapController,
@@ -18,6 +19,7 @@ export class ViewportController {
         this.state = state;
         this.alignmentView = alignmentView;
         this.headerView = headerView;
+        this.rulerView = rulerView;
         this.minimapView = minimapView;
         this.getTrackStackViews = getTrackStackViews;
         this.minimapController = minimapController;
@@ -50,6 +52,7 @@ export class ViewportController {
             }
             this.requestRender?.();
             this.syncMinimapViewportRect();
+            this.syncRulerViewport();
             this.syncTracksViewport();
         };
 
@@ -125,6 +128,7 @@ export class ViewportController {
         }
         this.requestRender?.();
         this.syncMinimapViewportRect();
+        this.syncRulerViewport();
         this.syncTracksViewport();
     }
 
@@ -206,6 +210,33 @@ export class ViewportController {
                 visibleRawColumns,
             });
         }
+    }
+
+    syncRulerViewport() {
+        if (!this.rulerView) return;
+        const alignmentStore = this.getAlignmentStore();
+        if (!alignmentStore) return;
+        const columnVisibility = this.getColumnVisibility?.() ?? null;
+        const scrollLeft = this.alignmentView.scroller.scrollLeft;
+        const viewportWidth = this.alignmentView.scroller.clientWidth;
+        const cellWidth = this.alignmentView.getRenderedCellWidthCss();
+        const totalCols = columnVisibility?.visibleCount ?? alignmentStore.totalCols;
+        const colStart = Math.max(0, Math.floor(scrollLeft / cellWidth));
+        const colEnd = Math.min(
+            totalCols,
+            Math.ceil((scrollLeft + viewportWidth) / cellWidth)
+        );
+        const visibleRawColumns = columnVisibility?.visibleToRaw?.subarray(colStart, colEnd) ?? null;
+        this.rulerView.setViewport({
+            scrollLeft,
+            viewportWidth,
+            cellWidth,
+            totalCols,
+            colStart,
+            colEnd,
+            columnVisibility,
+            visibleRawColumns,
+        });
     }
 
     syncMinimapViewportRect() {

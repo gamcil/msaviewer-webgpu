@@ -12,10 +12,11 @@ export class LineTrackView extends BaseTrackView {
         sublabel = null,
         metric = null,
         valueRange = null,
+        tooltip = null,
         style = {},
         colorRamp = null,
     }) {
-        super({ root, height, id, label, sublabel, metric, valueRange });
+        super({ root, height, id, label, sublabel, metric, valueRange, tooltip });
         this.style = createLineTrackStyle(style);
         this.colorRamp = colorRamp ? createColorRamp(colorRamp) : null;
     }

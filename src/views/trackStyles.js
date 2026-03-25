@@ -18,6 +18,16 @@ export function createBarTrackStyle(overrides = {}) {
     };
 }
 
+export function createGlyphTrackStyle(overrides = {}) {
+    return {
+        showGlyphs: false,
+        fillStyle: null,
+        fontSize: 14,
+        minCellWidth: 10,
+        ...overrides,
+    };
+}
+
 export function createLineTrackStyle(overrides = {}) {
     return {
         strokeStyle: "rgb(0, 122, 178)",
@@ -59,4 +69,3 @@ export function createConsensusTrackStyle(overrides = {}) {
         },
     };
 }
-

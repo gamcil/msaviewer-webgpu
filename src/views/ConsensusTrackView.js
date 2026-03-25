@@ -194,6 +194,32 @@ export class ConsensusTrackView extends BaseTrackView {
         this.render();
     }
 
+    getTooltipData(rawColumn) {
+        const columnData = this.data?.columns?.[rawColumn];
+        if (!columnData) {
+            return null;
+        }
+
+        const lines = [`Column: ${rawColumn + 1}`];
+        if (columnData.consensusGlyph) {
+            lines.push(`Consensus: ${columnData.consensusGlyph}`);
+        }
+
+        const residueLines = (columnData.letters ?? [])
+            .map((letter) => ({
+                glyph: letter.glyph,
+                percent: Math.round((letter.logoFraction ?? 0) * 100),
+            }))
+            .filter((letter) => Number.isFinite(letter.percent) && letter.percent > 0)
+            .map((letter) => `${letter.glyph} ${letter.percent}%`);
+
+        return {
+            title: this.label,
+            subtitle: this.sublabel,
+            lines: residueLines.length > 0 ? [...lines, ...residueLines] : lines,
+        };
+    }
+
     updateRenderStyles(dpr) {
         if (this.renderStyleDpr === dpr) return;
         this.renderStyleDpr = dpr;

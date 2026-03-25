@@ -3,6 +3,7 @@ import { ViewerState } from "./ViewerState.js";
 import { RepresentationStore } from "./RepresentationStore.js";
 import { HeaderView } from "../views/HeaderView.js";
 import { AlignmentView } from "../views/AlignmentView.js";
+import { RulerView } from "../views/RulerView.js";
 import {
     SCHEMES,
 } from "../schemes/registry.js";
@@ -46,6 +47,7 @@ const AUTO_LAYOUT_CSS = `
     min-width: 0;
     min-height: 0;
     --msa-minimap-height: 120px;
+    --msa-ruler-height: 28px;
     --msa-grid-line: rgba(0, 0, 0, 0.05);
     --msa-scroller-bg: #fff;
     --msa-header-bg: #f0f0f0;
@@ -79,7 +81,7 @@ const AUTO_LAYOUT_CSS = `
 .msa-auto-shell {
     display: grid;
     grid-template-columns: auto minmax(0, 1fr);
-    grid-template-rows: auto minmax(0, 1fr) auto;
+    grid-template-rows: auto auto minmax(0, 1fr) auto;
     width: 100%;
     height: 100%;
     min-width: 0;
@@ -89,6 +91,7 @@ const AUTO_LAYOUT_CSS = `
 .msa-main-row,
 .msa-headers,
 .viewer-body,
+.msa-ruler-body,
 .msa-minimap-body,
 .msa-trackstack-body {
     min-width: 0;
@@ -107,9 +110,16 @@ const AUTO_LAYOUT_CSS = `
     padding: 8px;
 }
 
+.msa-ruler-body {
+    grid-column: 2;
+    grid-row: 2;
+    min-height: var(--msa-ruler-height);
+    border-bottom: 1px solid var(--msa-header-border);
+}
+
 .msa-main-row {
     grid-column: 1 / -1;
-    grid-row: 2;
+    grid-row: 3;
     display: grid;
     grid-template-columns: subgrid;
 }
@@ -126,7 +136,7 @@ const AUTO_LAYOUT_CSS = `
 
 .msa-trackstack-body {
     grid-column: 1 / -1;
-    grid-row: 3;
+    grid-row: 4;
     display: grid;
     grid-template-columns: subgrid;
     align-self: start;
@@ -220,6 +230,7 @@ export class MSAViewer {
         alphabet = "aa",
         alphabetRegistry = defaultAlphabetRegistry,
         layout = {},
+        ruler = {},
         views = null,
     }) {
         this.root = root;
@@ -230,8 +241,13 @@ export class MSAViewer {
         this.providedViews = views;
         this.layout = {
             header: layout.header !== false,
+            ruler: layout.ruler !== false,
             minimap: layout.minimap !== false,
             tracks: layout.tracks !== false,
+        };
+        this.rulerOptions = {
+            tickInterval: Math.max(1, ruler.tickInterval ?? 10),
+            height: Math.max(20, ruler.height ?? 28),
         };
         const initialAlphabet = typeof alphabet === "string" ? this.alphabetRegistry.get(alphabet) : alphabet;
         if (!initialAlphabet) {
@@ -251,6 +267,7 @@ export class MSAViewer {
         this.views = {
             header: null,
             alignment: null,
+            ruler: null,
             minimap: null,
             trackStacks: [],
         };
@@ -294,6 +311,9 @@ export class MSAViewer {
 
     get alignmentView() { return this.views.alignment; }
     set alignmentView(view) { this.views.alignment = view; }
+
+    get rulerView() { return this.views.ruler; }
+    set rulerView(view) { this.views.ruler = view; }
 
     get minimapView() { return this.views.minimap; }
     set minimapView(view) { this.views.minimap = view; }
@@ -422,6 +442,11 @@ export class MSAViewer {
 
         const alignmentRoot = document.createElement("div");
         alignmentRoot.className = "viewer-body";
+
+        const rulerRoot = this.layout.ruler ? document.createElement("div") : null;
+        if (rulerRoot) {
+            rulerRoot.className = "msa-ruler-body";
+        }
         
         const minimapRoot = this.layout.minimap ? document.createElement("div") : null;
         if (minimapRoot) {
@@ -438,6 +463,9 @@ export class MSAViewer {
             mainRowRoot.appendChild(headerRoot);
         }
         mainRowRoot.appendChild(alignmentRoot);
+        if (rulerRoot) {
+            mountRoot.appendChild(rulerRoot);
+        }
         if (minimapRoot) {
             mountRoot.appendChild(minimapRoot);
         }
@@ -445,13 +473,14 @@ export class MSAViewer {
             mountRoot.appendChild(trackstackRoot);
         }
 
-        return { mainRowRoot, headerRoot, alignmentRoot, minimapRoot, trackstackRoot };
+        return { mainRowRoot, headerRoot, alignmentRoot, rulerRoot, minimapRoot, trackstackRoot };
     }
 
     getAutoLayoutMountRoot() {
         if (!this.shadowRootRef) {
             this.shadowRootRef = this.root.shadowRoot ?? this.root.attachShadow({ mode: "open" });
         }
+        this.root.style.setProperty("--msa-ruler-height", `${this.rulerOptions.height}px`);
         if (!this.autoLayoutShell) {
             this.shadowRootRef.replaceChildren();
             const style = document.createElement("style");
@@ -464,10 +493,11 @@ export class MSAViewer {
     }
 
     createAutoViews() {
-        const { mainRowRoot, headerRoot, alignmentRoot, minimapRoot, trackstackRoot } = this.createLayout();
+        const { mainRowRoot, headerRoot, alignmentRoot, rulerRoot, minimapRoot, trackstackRoot } = this.createLayout();
         this.mainRowRoot = mainRowRoot;
         this.headerRoot = headerRoot;
         this.alignmentRoot = alignmentRoot;
+        this.rulerRoot = rulerRoot;
         this.minimapRoot = minimapRoot;
         this.trackstackRoot = trackstackRoot;
         this.renderer = this.pipelineRegistry.getRenderer(this.getActiveAlphabet());
@@ -483,6 +513,11 @@ export class MSAViewer {
             minimapView: this.minimapView,
             decodedTileCache: this.decodedTileCache,
         }) : null;
+        this.rulerView = rulerRoot ? new RulerView({
+            root: rulerRoot,
+            tickInterval: this.rulerOptions.tickInterval,
+            height: this.rulerOptions.height,
+        }) : null;
         this.trackStackViews = trackstackRoot ? [new TrackStackView({ root: trackstackRoot })] : [];
         this.alignmentView = new AlignmentView({
             root: alignmentRoot,
@@ -497,6 +532,7 @@ export class MSAViewer {
             state: this.state,
             alignmentView: this.alignmentView,
             headerView: this.headerView,
+            rulerView: this.rulerView,
             minimapView: this.minimapView,
             getTrackStackViews: () => this.trackStackViews,
             minimapController: this.minimapController,
@@ -518,6 +554,7 @@ export class MSAViewer {
             getIsScrolling: () => this.isScrolling,
         });
         this.selectionController.bind();
+        this.rulerView?.setTheme?.({ darkMode: this.state.getSnapshot().theme.darkMode });
 
         this.setLoadedLayoutVisible(false);
     }
@@ -525,6 +562,7 @@ export class MSAViewer {
     attachProvidedViews({
         headerView = null,
         alignmentView,
+        rulerView = null,
         minimapView = null,
         trackStackViews = null,
     }) {
@@ -534,6 +572,7 @@ export class MSAViewer {
         this.renderer = this.pipelineRegistry.getRenderer(this.getActiveAlphabet());
         this.headerView = headerView;
         this.alignmentView = alignmentView;
+        this.rulerView = rulerView;
         this.minimapView = minimapView;
         this.trackStackViews = trackStackViews ?? [];
         if (this.alignmentView) {
@@ -550,6 +589,7 @@ export class MSAViewer {
             state: this.state,
             alignmentView: this.alignmentView,
             headerView: this.headerView,
+            rulerView: this.rulerView,
             minimapView: this.minimapView,
             getTrackStackViews: () => this.trackStackViews,
             minimapController: this.minimapController,
@@ -571,6 +611,7 @@ export class MSAViewer {
             getIsScrolling: () => this.isScrolling,
         });
         this.selectionController.bind();
+        this.rulerView?.setTheme?.({ darkMode: this.state.getSnapshot().theme.darkMode });
     }
 
     createViews() {
@@ -579,6 +620,61 @@ export class MSAViewer {
             return;
         }
         this.createAutoViews();
+    }
+
+    decodeConservationMask(mask) {
+        const propertyNames = [
+            "hydrophobic",
+            "polar",
+            "small",
+            "proline",
+            "tiny",
+            "aliphatic",
+            "aromatic",
+            "positive",
+            "negative",
+            "charged",
+        ];
+        const positive = [];
+        const negative = [];
+        const maskValue = Number(mask) >>> 0;
+        for (let i = 0; i < propertyNames.length; i += 1) {
+            if (maskValue & (1 << i)) {
+                positive.push(propertyNames[i]);
+            }
+            if (maskValue & (1 << (10 + i))) {
+                negative.push(`!${propertyNames[i]}`);
+            }
+        }
+        return {
+            positive,
+            negative,
+            isIdentity: Boolean(maskValue & (1 << 20)),
+            isFullyConserved: Boolean(maskValue & (1 << 21)),
+        };
+    }
+
+    buildConservationTooltip({ rawColumn, value, trackState }) {
+        if (!Number.isFinite(value)) {
+            return null;
+        }
+        const conservationMask = trackState?.metrics?.conservationMask?.[rawColumn] ?? 0;
+        const decoded = this.decodeConservationMask(conservationMask);
+        const lines = [
+            `Column: ${rawColumn + 1}`,
+            `Score: ${value}`,
+        ];
+        if (decoded.isIdentity) {
+            lines.push("* identity");
+        } else if (decoded.isFullyConserved) {
+            lines.push("+ fully conserved");
+        }
+        lines.push(...decoded.positive);
+        lines.push(...decoded.negative);
+        return {
+            title: "Conservation",
+            lines,
+        };
     }
 
     createDefaultTracksForStack() {
@@ -592,12 +688,14 @@ export class MSAViewer {
             style: {
                 strokeStyle: "#063306",
             },
-            colorRamp: {
-                minScore: 0,
-                maxScore: 1,
-                minColor: "#063306",
-                maxColor: "#77ca8f"
-            }
+            colorRamps: {
+                fill: {
+                    minScore: 0,
+                    maxScore: 1,
+                    minColor: "#063306",
+                    maxColor: "#77ca8f",
+                },
+            },
         });
 
         const occupancyTrackRoot = document.createElement("div");
@@ -610,13 +708,14 @@ export class MSAViewer {
             style: {
                 strokeStyle: "#3e2709",
             },
-            colorRamp: {
-                minScore: 0,
-                maxScore: 1,
-                minColor: "#3e2709",
-                maxColor: "#d4b080",
-                target: "fill"
-            }
+            colorRamps: {
+                fill: {
+                    minScore: 0,
+                    maxScore: 1,
+                    minColor: "#3e2709",
+                    maxColor: "#d4b080",
+                },
+            },
         });
 
         const entropyTrackRoot = document.createElement("div");
@@ -636,16 +735,22 @@ export class MSAViewer {
             label: "Conservation",
             metric: "conservationScore",
             valueRange: { min: 0, max: 11 },
-            height: 60,
+            tooltip: (context) => this.buildConservationTooltip(context),
+            height: 80,
             style: {
                 strokeStyle: "#080947",
             },
-            colorRamp: {
-                minScore: 0,
-                maxScore: 11,
-                minColor: "#080947",
-                maxColor: "#87a7f3",
-                target: "fill"
+            colorRamps: {
+                fill: { minScore: 0, maxScore: 11, minColor: "#080947", maxColor: "#87a7f3", },
+                glyph: { minScore: 0, maxScore: 11, minColor: "#080947", maxColor: "#87a7f3", },
+            },
+            glyph: ({ value }) => {
+                if (value === 11) return { glyph: "*" };
+                if (value === 10) return { glyph: "+" };
+                return { glyph: value };
+            },
+            glyphStyle: {
+                showGlyphs: true
             }
         });
 
@@ -697,6 +802,9 @@ export class MSAViewer {
         this.root.dataset.loaded = loaded ? "true" : "false";
         if (this.headerRoot) {
             this.headerRoot.hidden = !loaded;
+        }
+        if (this.rulerRoot) {
+            this.rulerRoot.hidden = !loaded;
         }
         if (this.minimapRoot) {
             this.minimapRoot.hidden = !loaded;
@@ -872,6 +980,7 @@ export class MSAViewer {
             for (const trackStackView of this.trackStackViews) {
                 trackStackView.setTheme?.({ darkMode: snapshot.theme.darkMode });
             }
+            this.rulerView?.setTheme?.({ darkMode: snapshot.theme.darkMode });
             this.requestRender();
 
             prevThemeDarkMode = snapshot.theme.darkMode;
@@ -1163,6 +1272,28 @@ export class MSAViewer {
 
     getColumnVisibility() {
         return this.getActiveRepresentation()?.columnVisibility ?? null;
+    }
+
+    setRulerOptions({ tickInterval, height } = {}) {
+        if (tickInterval != null) {
+            this.rulerOptions.tickInterval = Math.max(1, tickInterval);
+            this.rulerView?.setTickInterval?.(this.rulerOptions.tickInterval);
+        }
+        if (height != null) {
+            this.rulerOptions.height = Math.max(20, height);
+            this.root.style.setProperty("--msa-ruler-height", `${this.rulerOptions.height}px`);
+            if (this.rulerRoot) {
+                this.rulerRoot.style.height = `${this.rulerOptions.height}px`;
+                this.rulerRoot.style.minHeight = `${this.rulerOptions.height}px`;
+            }
+            if (this.rulerView) {
+                this.rulerView.height = this.rulerOptions.height;
+                this.rulerView.canvas.style.height = `${this.rulerOptions.height}px`;
+                this.rulerView.root.style.height = `${this.rulerOptions.height}px`;
+                this.rulerView.render();
+            }
+        }
+        this.viewportController?.refreshLayout();
     }
 
     rawColumnToVisible(rawCol) {
