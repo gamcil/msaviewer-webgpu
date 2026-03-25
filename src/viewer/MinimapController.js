@@ -91,6 +91,30 @@ export class MinimapController {
         };
     }
 
+    getChunkColCount(totalCols, colStart, maxVisibleChunkCols, maxTextureDim, columnVisibility) {
+        const remainingCols = totalCols - colStart;
+        if (remainingCols <= 0) return 0;
+        const maxCols = Math.min(maxVisibleChunkCols, remainingCols);
+        if (!columnVisibility) return maxCols;
+        const visibleToRaw = columnVisibility.visibleToRaw;
+        const firstRawCol = visibleToRaw[colStart];
+        let low = colStart + 1;
+        let high = colStart + maxCols;
+        let bestEndExclusive = colStart + 1;
+        while (low <= high) {
+            const mid = Math.floor((low + high) / 2);
+            const lastRawCol = visibleToRaw[mid - 1];
+            const rawSpan = lastRawCol - firstRawCol + 1;
+            if (rawSpan <= maxTextureDim) {
+                bestEndExclusive = mid;
+                low = mid + 1;
+            } else {
+                high = mid - 1;
+            }
+        }
+        return Math.max(1, bestEndExclusive - colStart);
+    }
+
     async materializeVisibleChunk(alignmentStore, rowStart, rowCount, colStart, colCount, columnVisibility) {
         if (!columnVisibility) {
             const chunkData = await materializeWindowFromTiles(
@@ -160,7 +184,7 @@ export class MinimapController {
         const totalRows = alignmentStore.totalRows;
         const totalCols = columnVisibility?.visibleCount ?? alignmentStore.totalCols;
         const maxTextureDim = this.device.limits.maxTextureDimension2D || 8192;
-        const chunkCols = Math.min(totalCols, maxTextureDim);
+        const maxVisibleChunkCols = Math.min(totalCols, maxTextureDim);
         const chunkRows = Math.min(totalRows, maxTextureDim);
 
         const minimapSums = new Uint32Array(minimapWidth * minimapHeight * 3);
@@ -178,8 +202,14 @@ export class MinimapController {
 
         for (let rowStart = 0; rowStart < totalRows; rowStart += chunkRows) {
             const rowsInChunk = Math.min(chunkRows, totalRows - rowStart);
-            for (let colStart = 0; colStart < totalCols; colStart += chunkCols) {
-                const colsInChunk = Math.min(chunkCols, totalCols - colStart);
+            for (let colStart = 0; colStart < totalCols;) {
+                const colsInChunk = this.getChunkColCount(
+                    totalCols,
+                    colStart,
+                    maxVisibleChunkCols,
+                    maxTextureDim,
+                    columnVisibility
+                );
                 const { chunkData, columnMap, rawTextureCols } = await this.materializeVisibleChunk(
                     alignmentStore,
                     rowStart,
@@ -227,6 +257,7 @@ export class MinimapController {
                     params
                 );
                 this.device.queue.submit([encoder.finish()]);
+                colStart += colsInChunk;
             }
         }
 
