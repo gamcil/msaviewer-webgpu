@@ -9,20 +9,29 @@ export class LineTrackView extends BaseTrackView {
         height,
         id,
         label,
+        sublabel = null,
+        metric = null,
+        valueRange = null,
         style = {},
         colorRamp = null,
     }) {
-        super({ root, height, id, label });
+        super({ root, height, id, label, sublabel, metric, valueRange });
         this.style = createLineTrackStyle(style);
         this.colorRamp = colorRamp ? createColorRamp(colorRamp) : null;
     }
 
-    setOptions({ style, colorRamp } = {}) {
+    setOptions({ style, colorRamp, valueRange } = {}) {
         if (style) {
             this.style = createLineTrackStyle({
                 ...this.style,
                 ...style,
             });
+        }
+        if (valueRange !== undefined) {
+            this.valueRange = valueRange ? {
+                min: valueRange.min ?? 0,
+                max: valueRange.max ?? 1,
+            } : null;
         }
         if (colorRamp !== undefined) {
             this.colorRamp = colorRamp ? createColorRamp({
@@ -34,7 +43,7 @@ export class LineTrackView extends BaseTrackView {
 
     setTrackState(trackState) {
         super.setTrackState(trackState);
-        const nextData = trackState?.metrics?.[this.id] ?? null;
+        const nextData = this.getMetricData(trackState);
         this.setData(nextData);
     }
 
@@ -52,8 +61,9 @@ export class LineTrackView extends BaseTrackView {
         for (let i = 0; i < (colEnd - colStart); i += 1) {
             const rawCol = visibleRawColumns?.[i] ?? (colStart + i);
             const score = this.data[rawCol] ?? 0;
+            const fraction = this.normalizeValue(score);
             const x = i * cellWidthPx + (cellWidthPx / 2) - localScrollLeftPx;
-            const y = heightPx - (heightPx * score);
+            const y = heightPx - (heightPx * fraction);
             const interpolatedColor = this.colorRamp
                 ? resolveInterpolatedColor(score, this.colorRamp)
                 : null;

@@ -3,11 +3,17 @@ Base class for sequence score tracks
 */
 
 export class BaseTrackView {
-    constructor({ root, height, id, label }) {
+    constructor({ root, height, id, label, sublabel = null, metric = null, valueRange = null }) {
         this.root = root;
         this.id = id;
         this.height = height;
         this.label = label;
+        this.sublabel = sublabel;
+        this.metric = metric ?? id;
+        this.valueRange = valueRange ? {
+            min: valueRange.min ?? 0,
+            max: valueRange.max ?? 1,
+        } : null;
 
         this.viewport = null;
         this.data = null;
@@ -17,7 +23,16 @@ export class BaseTrackView {
 
         this.labelEl = document.createElement("div");
         this.labelEl.className = "msa-track-label";
-        this.labelEl.textContent = label;
+
+        this.labelTextEl = document.createElement("div");
+        this.labelTextEl.className = "msa-track-label-text";
+        this.labelTextEl.textContent = label;
+        this.labelEl.appendChild(this.labelTextEl);
+
+        this.sublabelEl = document.createElement("div");
+        this.sublabelEl.className = "msa-track-sublabel";
+        this.labelEl.appendChild(this.sublabelEl);
+        this.setSublabel(sublabel);
 
         this.bodyEl = document.createElement("div");
         this.bodyEl.className = "msa-track-body";
@@ -42,6 +57,39 @@ export class BaseTrackView {
 
     setTrackState(trackState) {
         this.trackState = trackState;
+    }
+
+    setSublabel(sublabel) {
+        this.sublabel = sublabel;
+        const text = sublabel == null ? "" : String(sublabel);
+        const hasSublabel = text.trim().length > 0;
+        this.sublabelEl.textContent = hasSublabel ? text : "";
+        if (hasSublabel) {
+            this.sublabelEl.hidden = false;
+            this.sublabelEl.removeAttribute("hidden");
+        } else {
+            this.sublabelEl.hidden = true;
+        }
+    }
+
+    getMetricData(trackState = this.trackState) {
+        return trackState?.metrics?.[this.metric] ?? null;
+    }
+
+    normalizeValue(value) {
+        if (!Number.isFinite(value)) {
+            return 0;
+        }
+        if (!this.valueRange) {
+            return value;
+        }
+        const min = this.valueRange.min ?? 0;
+        const max = this.valueRange.max ?? 1;
+        if (max <= min) {
+            return 0;
+        }
+        const t = (value - min) / (max - min);
+        return Math.max(0, Math.min(1, t));
     }
     
     ensureCanvasSize() {

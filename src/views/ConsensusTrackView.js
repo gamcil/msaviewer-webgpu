@@ -17,6 +17,7 @@ export class ConsensusTrackView extends BaseTrackView {
         height,
         id,
         label,
+        sublabel = null,
         includeGaps = true,
         showHistogram = true,
         showConsensus = true,
@@ -27,7 +28,7 @@ export class ConsensusTrackView extends BaseTrackView {
         consensusStyle = {},
         style = {},
     }) {
-        super({ root, height, id, label });
+        super({ root, height, id, label, sublabel });
         this.includeGaps = includeGaps;
         this.showHistogram = showHistogram;
         this.showConsensus = showConsensus;

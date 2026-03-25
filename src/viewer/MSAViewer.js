@@ -182,11 +182,23 @@ const AUTO_LAYOUT_CSS = `
 .msa-track-label {
     grid-column: 1;
     display: flex;
-    align-items: end;
+    flex-direction: column;
+    align-items: flex-end;
     justify-content: flex-end;
     text-align: right;
     padding: 0 8px;
     min-width: 100px;
+}
+
+.msa-track-label-text {
+    line-height: 1.1;
+}
+
+.msa-track-sublabel {
+    margin-top: 2px;
+    font-size: 0.8em;
+    line-height: 1.1;
+    opacity: 0.72;
 }
 
 .msa-track-body {
@@ -615,6 +627,27 @@ export class MSAViewer {
             label: "Entropy",
             height: 60,
         });
+        
+        const conservationTrackRoot = document.createElement("div");
+        conservationTrackRoot.className = "msa-track";
+        const conservationTrackView = new BarTrackView({
+            root: conservationTrackRoot,
+            id: "conservation",
+            label: "Conservation",
+            metric: "conservationScore",
+            valueRange: { min: 0, max: 11 },
+            height: 60,
+            style: {
+                strokeStyle: "#080947",
+            },
+            colorRamp: {
+                minScore: 0,
+                maxScore: 11,
+                minColor: "#080947",
+                maxColor: "#87a7f3",
+                target: "fill"
+            }
+        });
 
         const consensusTrackRoot = document.createElement("div");
         consensusTrackRoot.className = "msa-track";
@@ -629,7 +662,8 @@ export class MSAViewer {
         return [
             consensusTrackView,
             qualityTrackView,
-            entropyTrackView,
+            // entropyTrackView,
+            conservationTrackView,
             occupancyTrackView,
         ];
     }

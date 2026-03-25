@@ -25,6 +25,8 @@ struct ColumnMetrics {
     information_content_raw: f32,
     consensus_index: f32,
     consensus_tie: f32,
+    conservation_score: f32,
+    conservation_mask: f32,
 }
 
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
@@ -62,6 +64,7 @@ fn get_residue_from_blob(col: u32, row: u32) -> u32 {
 }
 
 __QUALITY_FUNCTION__
+__CONSERVATION_FUNCTION__
 
 fn calculate_entropy(final_counts: array<u32, __BUCKET_STRIDE__>, non_gap_count: u32) -> f32 {
     if (non_gap_count < 2u) {
@@ -183,6 +186,7 @@ fn aggregate_metrics(@builtin(global_invocation_id) gid: vec3u) {
     let information_content_raw = calculate_information_content_raw(entropy * log2(f32(__CORE_SIZE__)), non_gap_count);
     let consensus_index = calculate_consensus_index(final_counts);
     let consensus_tie = calculate_consensus_tie(final_counts);
+    let conservation = calculate_conservation(final_counts, non_gap_count);
 
     metrics_out[col].quality = quality; 
     metrics_out[col].occupancy = occupancy; 
@@ -191,4 +195,6 @@ fn aggregate_metrics(@builtin(global_invocation_id) gid: vec3u) {
     metrics_out[col].information_content_raw = information_content_raw;
     metrics_out[col].consensus_index = consensus_index;
     metrics_out[col].consensus_tie = consensus_tie;
+    metrics_out[col].conservation_score = conservation.x;
+    metrics_out[col].conservation_mask = conservation.y;
 }

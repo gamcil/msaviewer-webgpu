@@ -58,6 +58,8 @@ export class TrackStateBuilder {
             quality: columnMetrics?.quality ?? null,
             occupancy: columnMetrics?.occupancy ?? null,
             entropy: columnMetrics?.entropy ?? null,
+            conservationScore: columnMetrics?.conservationScore ?? null,
+            conservationMask: columnMetrics?.conservationMask ?? null,
         };
     }
 

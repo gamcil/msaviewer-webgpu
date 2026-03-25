@@ -34,7 +34,7 @@ export class ColumnMetricService {
             usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
         });
         const bandMetricBuffer = this.gpuResources.getOrCreateGrowableBuffer("metricBandBuffer", {
-            minSize: tileCols * 7 * Float32Array.BYTES_PER_ELEMENT,
+            minSize: tileCols * 9 * Float32Array.BYTES_PER_ELEMENT,
             usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
         });
         const bandCountBuffer = this.gpuResources.getOrCreateGrowableBuffer("metricCountBuffer", {
@@ -49,6 +49,8 @@ export class ColumnMetricService {
         const finalInformationContentRaw = new Float32Array(totalCols);
         const finalConsensusIndex = new Uint16Array(totalCols);
         const finalConsensusTie = new Uint8Array(totalCols);
+        const finalConservationScore = new Uint8Array(totalCols);
+        const finalConservationMask = new Uint32Array(totalCols);
         const finalCounts = new Uint32Array(totalCols * bucketStride);
 
         for (let colTile = 0; colTile < alignmentStore.colTileCount; colTile += 1) {
@@ -104,10 +106,10 @@ export class ColumnMetricService {
                 this.device.queue.submit([encoder.finish()]);
             }
 
-            const bandMetrics = await this.readMetricBandBuffer(bandMetricBuffer, colsInBand * 7);
+            const bandMetrics = await this.readMetricBandBuffer(bandMetricBuffer, colsInBand * 9);
             const bandCounts = await this.readCountBandBuffer(bandCountBuffer, colsInBand * bucketStride);
             for (let i = 0; i < colsInBand; i += 1) {
-                const offset = i * 7;
+                const offset = i * 9;
                 finalQuality[colStart + i] = bandMetrics[offset];
                 finalOccupancy[colStart + i] = bandMetrics[offset + 1];
                 finalEntropy[colStart + i] = bandMetrics[offset + 2];
@@ -115,6 +117,8 @@ export class ColumnMetricService {
                 finalInformationContentRaw[colStart + i] = bandMetrics[offset + 4];
                 finalConsensusIndex[colStart + i] = Math.round(bandMetrics[offset + 5]);
                 finalConsensusTie[colStart + i] = Math.round(bandMetrics[offset + 6]);
+                finalConservationScore[colStart + i] = Math.round(bandMetrics[offset + 7]);
+                finalConservationMask[colStart + i] = Math.round(bandMetrics[offset + 8]);
 
                 const countSrc = i * bucketStride;
                 const countDst = (colStart + i) * bucketStride;
@@ -130,6 +134,8 @@ export class ColumnMetricService {
             informationContentRaw: finalInformationContentRaw,
             consensusIndex: finalConsensusIndex,
             consensusTie: finalConsensusTie,
+            conservationScore: finalConservationScore,
+            conservationMask: finalConservationMask,
             counts: finalCounts,
         };
     }
