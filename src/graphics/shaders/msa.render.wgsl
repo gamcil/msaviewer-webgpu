@@ -49,6 +49,10 @@ const BIT_G_PRESENT: u32 = 1u << 12u;
 const BIT_P_PRESENT: u32 = 1u << 13u;
 const BIT_AROMATIC_80_ANY: u32 = 1u << 14u;
 
+const ATLAS_SIZE: vec2<f32> = vec2<f32>(896.0, 256.0);
+const GLYPH_SIZE: vec2<f32> = vec2<f32>(64.0, 64.0);
+const ATLAS_PX_RANGE: f32 = 6.0;
+
 fn normalize_residue(raw: u32) -> u32 {
     if (raw >= 97u && raw <= 122u) {
         return raw - 32u;
@@ -69,31 +73,42 @@ fn has_mask(mask: u32, bit: u32) -> bool {
 }
 
 fn glyph_cell(res: u32) -> vec2<u32> {
-    if (res >= 65u && res <= 78u) {
-        return vec2<u32>(res - 65u, 0u);
+    if (res == 45u) {
+        return vec2<u32>(0u, 0u);
     }
-    if (res >= 79u && res <= 90u) {
-        return vec2<u32>(res - 79u, 1u);
+    if (res >= 65u && res <= 77u) {
+        return vec2<u32>((res - 65u) + 1u, 0u);
     }
-    if (res >= 97u && res <= 110u) {
+    if (res >= 78u && res <= 90u) {
+        return vec2<u32>(res - 78u, 1u);
+    }
+    if (res >= 97u && res <= 111u) {
         return vec2<u32>(res - 97u, 2u);
     }
-    if (res >= 111u && res <= 122u) {
-        return vec2<u32>(res - 111u, 3u);
+    if (res >= 112u && res <= 122u) {
+        return vec2<u32>(res - 112u, 3u);
     }
-    if (res == 45u) {
-        return vec2<u32>(12u, 1u);
-    }
-    return vec2<u32>(13u, 1u);
+    return vec2<u32>(0u, 0u);
 }
 
-fn sample_glyph_mask(res: u32, local_uv: vec2<f32>) -> f32 {
+fn median3(v: vec3<f32>) -> f32 {
+    return max(min(v.r, v.g), min(max(v.r, v.g), v.b));
+}
+
+fn glyph_atlas_uv(res: u32, local_uv: vec2<f32>) -> vec2<f32> {
     let cell = glyph_cell(res);
-    let atlas_size = vec2<f32>(896.0, 256.0);
-    let glyph_size = vec2<f32>(64.0, 64.0);
-    let atlas_uv = (vec2<f32>(cell) * glyph_size + local_uv * glyph_size) / atlas_size;
+    return (vec2<f32>(cell) * GLYPH_SIZE + local_uv * GLYPH_SIZE) / ATLAS_SIZE;
+}
+
+fn sample_glyph_distance(atlas_uv: vec2<f32>) -> f32 {
     let sample = textureSampleLevel(fontAtlas, fontSampler, atlas_uv, 0.0);
-    return max(sample.a, max(sample.r, max(sample.g, sample.b)));
+    return median3(sample.rgb) - 0.5;
+}
+
+fn screen_px_range(atlas_uv: vec2<f32>) -> f32 {
+    let unit_range = vec2<f32>(ATLAS_PX_RANGE, ATLAS_PX_RANGE) / ATLAS_SIZE;
+    let screen_tex_size = vec2<f32>(1.0, 1.0) / max(fwidth(atlas_uv), vec2<f32>(1e-6, 1e-6));
+    return max(0.5 * dot(unit_range, screen_tex_size), 1.0);
 }
 
 fn read_residue(window_row: u32, window_col: u32) -> u32 {
@@ -147,7 +162,10 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let color = resolve_scheme_color(residue, mask);
     let local = window_pixel % ui.gridSize;
     let local_uv = (vec2<f32>(local) + vec2<f32>(0.5, 0.5)) / vec2<f32>(ui.gridSize);
-    let glyph_mask = smoothstep(0.2, 0.8, sample_glyph_mask(residue, local_uv));
+    let atlas_uv = glyph_atlas_uv(residue, local_uv);
+    let glyph_distance = sample_glyph_distance(atlas_uv);
+    let glyph_screen_px_range = screen_px_range(atlas_uv);
+    let glyph_mask = clamp(glyph_distance * glyph_screen_px_range + 0.5, 0.0, 1.0);
     let background = color.rgb;
     let text_color = contrast_text_color(background);
     let rgb = mix(background, text_color, glyph_mask);
