@@ -312,6 +312,14 @@
                     <option value="">None loaded</option>
                 </select>
             </div>
+            <div class="scheme-switcher scheme-control">
+                <label for="selection-mode-select">Selection:</label>
+                <select id="selection-mode-select" class="control-select">
+                    <option value="column">Columns</option>
+                    <option value="row">Rows</option>
+                    <option value="cell">Cells</option>
+                </select>
+            </div>
             <div class="scheme-switcher mask-control">
                 <label class="mask-toggle" for="hide-insertions-checkbox">
                     <input id="hide-insertions-checkbox" type="checkbox">
@@ -332,6 +340,9 @@
             </div>
             <div class="column-selection-info">
                 <button disabled id="clear-selection-button">Clear selected columns</button>
+            </div>
+            <div class="column-selection-info">
+                <button id="motif-search-button" type="button">Motif search</button>
             </div>
             <input type="file" id="file-input" accept=".fa,.fasta,.fas,.aln,.txt,.a3m" multiple hidden>
         </div>

@@ -1,6 +1,12 @@
 /*
 View for managing a stack of individual tracks
 */
+import {
+    getHoveredTrack,
+    getRawColumnFromVisibleColumn,
+    getVisibleColumnFromPointerEvent,
+} from "./models/trackTooltipModel.js";
+import { TrackTooltipPresenter } from "./helpers/TrackTooltipPresenter.js";
 
 export class TrackStackView {
     constructor({ root }) {
@@ -12,7 +18,6 @@ export class TrackStackView {
         this.theme = null;
         this.renderDirty = false;
         this.frameHandle = 0;
-        this.tooltipTrack = null;
 
         this.tooltipOverlay = document.createElement("div");
         this.tooltipOverlay.style.position = "absolute";
@@ -31,23 +36,12 @@ export class TrackStackView {
         this.tooltipHitbox.style.background = "transparent";
 
         this.tooltipEl = document.createElement("div");
-        this.tooltipEl.style.position = "fixed";
-        this.tooltipEl.style.pointerEvents = "none";
-        this.tooltipEl.style.display = "none";
-        this.tooltipEl.style.minWidth = "120px";
-        this.tooltipEl.style.maxWidth = "240px";
-        this.tooltipEl.style.padding = "8px 10px";
-        this.tooltipEl.style.borderRadius = "6px";
-        this.tooltipEl.style.border = "1px solid rgba(0, 0, 0, 0.12)";
-        this.tooltipEl.style.boxShadow = "0 6px 20px rgba(0, 0, 0, 0.18)";
-        this.tooltipEl.style.fontSize = "12px";
-        this.tooltipEl.style.lineHeight = "1.35";
-        this.tooltipEl.style.whiteSpace = "nowrap";
 
         this.tooltipOverlay.appendChild(this.tooltipHitbox);
         this.tooltipOverlay.appendChild(this.tooltipEl);
         this.root.appendChild(this.tooltipOverlay);
-        this.applyTooltipTheme();
+        this.tooltipPresenter = new TrackTooltipPresenter({ tooltipEl: this.tooltipEl });
+        this.tooltipPresenter.applyTheme(this.theme);
         this.bindTooltipEvents();
     }
 
@@ -77,16 +71,15 @@ export class TrackStackView {
     setViewport(viewport) {
         this.viewport = viewport;
         for (const track of this.tracks) {
-            track.viewport = viewport;
+            track.setViewport?.(viewport);
         }
-        this.updateTooltipBounds();
+        this.hideTooltip();
         this.requestRender();
     }
 
     setTrackState(trackState) {
         this.trackState = trackState;
         for (const track of this.tracks) {
-            track.trackState = trackState;
             track.setTrackState?.(trackState);
         }
         this.updateTooltipBounds();
@@ -98,7 +91,7 @@ export class TrackStackView {
         for (const track of this.tracks) {
             track.setTheme?.(theme);
         }
-        this.applyTooltipTheme();
+        this.tooltipPresenter.applyTheme(theme);
         this.requestRender();
     }
 
@@ -140,43 +133,17 @@ export class TrackStackView {
         this.tooltipOverlay.style.height = `${Math.max(0, bottom - top)}px`;
     }
 
-    applyTooltipTheme() {
-        const darkMode = !!this.theme?.darkMode;
-        this.tooltipEl.style.background = darkMode ? "rgba(24, 24, 28, 0.96)" : "rgba(255, 255, 255, 0.98)";
-        this.tooltipEl.style.color = darkMode ? "#f3f3f5" : "#202226";
-        this.tooltipEl.style.borderColor = darkMode ? "rgba(255, 255, 255, 0.12)" : "rgba(0, 0, 0, 0.12)";
-    }
-
-    getHoveredTrack(clientY) {
-        for (const track of this.tracks) {
-            const rect = track.root.getBoundingClientRect();
-            if (clientY >= rect.top && clientY <= rect.bottom) {
-                return track;
-            }
-        }
-        return null;
-    }
-
-    getRawColumnFromEvent(event) {
-        if (!this.viewport) return null;
-        const bodyRect = this.tooltipOverlay.getBoundingClientRect();
-        const contentX = event.clientX - bodyRect.left + this.viewport.scrollLeft;
-        const visibleColumn = Math.floor(contentX / this.viewport.cellWidth);
-        if (visibleColumn < 0 || visibleColumn >= this.viewport.totalCols) {
-            return null;
-        }
-        return this.viewport.columnVisibility?.visibleToRaw?.[visibleColumn] ?? visibleColumn;
-    }
-
     handleTooltipPointerMove(event) {
-        const track = this.getHoveredTrack(event.clientY);
-        const rawColumn = this.getRawColumnFromEvent(event);
-        if (!track || rawColumn == null) {
+        const track = getHoveredTrack(this.tracks, event.clientY);
+        const overlayBounds = this.tooltipOverlay.getBoundingClientRect();
+        const visibleColumn = getVisibleColumnFromPointerEvent(event, overlayBounds, this.viewport);
+        const rawColumn = getRawColumnFromVisibleColumn(visibleColumn, this.viewport?.columnVisibility);
+        if (!track || visibleColumn == null || rawColumn == null) {
             this.hideTooltip();
             return;
         }
         const tooltipData = track.getTooltipData?.(rawColumn, {
-            visibleColumn: Math.floor((event.clientX - this.root.getBoundingClientRect().left + this.viewport.scrollLeft) / this.viewport.cellWidth),
+            visibleColumn,
             viewport: this.viewport,
             trackState: this.trackState,
         });
@@ -188,37 +155,11 @@ export class TrackStackView {
     }
 
     showTooltip(data, event) {
-        const title = data.title ? `<div style="font-weight:600;">${data.title}</div>` : "";
-        const subtitle = data.subtitle ? `<div style="font-size:11px; opacity:0.75; margin-top:2px;">${data.subtitle}</div>` : "";
-        const lines = (data.lines ?? []).map((line) =>
-            `<div style="margin-top:2px;">${line}</div>`
-        ).join("");
-        this.tooltipEl.innerHTML = `${title}${subtitle}${lines ? `<div style="margin-top:6px;">${lines}</div>` : ""}`;
-        this.tooltipEl.style.display = "block";
-
-        const offset = 12;
-        const tooltipWidth = this.tooltipEl.offsetWidth;
-        const tooltipHeight = this.tooltipEl.offsetHeight;
-        const maxLeft = Math.max(0, window.innerWidth - tooltipWidth);
-        const maxTop = Math.max(0, window.innerHeight - tooltipHeight);
-        let left = event.clientX + offset;
-        let top = event.clientY + offset;
-
-        if (left > maxLeft) {
-            left = event.clientX - tooltipWidth - offset;
-        }
-        if (top > maxTop) {
-            top = event.clientY - tooltipHeight - offset;
-        }
-
-        left = Math.max(0, Math.min(maxLeft, left));
-        top = Math.max(0, Math.min(maxTop, top));
-        this.tooltipEl.style.left = `${left}px`;
-        this.tooltipEl.style.top = `${top}px`;
+        this.tooltipPresenter.show(data, event);
     }
 
     hideTooltip() {
-        this.tooltipEl.style.display = "none";
+        this.tooltipPresenter.hide();
     }
 
     requestRender() {
@@ -229,7 +170,6 @@ export class TrackStackView {
             if (!this.renderDirty) return;
             this.renderDirty = false;
             this.render();
-            this.updateTooltipBounds();
             if (this.renderDirty && !this.frameHandle) {
                 this.requestRender();
             }

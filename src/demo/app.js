@@ -56,10 +56,12 @@ async function main() {
     const root = document.getElementById("viewer");
     const fileInput = document.getElementById("file-input");
     const clearButton = document.getElementById("clear-selection-button");
+    const motifSearchButton = document.getElementById("motif-search-button");
     const uploadButton = document.getElementById("upload-button");
     const loadFilesButton = document.getElementById("load-files-button");
     const schemeSelect = document.getElementById("scheme-select");
     const representationSelect = document.getElementById("representation-select");
+    const selectionModeSelect = document.getElementById("selection-mode-select");
     const hideInsertionsCheckbox = document.getElementById("hide-insertions-checkbox");
     const gapThresholdInput = document.getElementById("gap-threshold-input");
     const pendingFilesPanel = document.getElementById("pending-files-panel");
@@ -96,6 +98,10 @@ async function main() {
         const masking = viewer.getColumnMasking();
         hideInsertionsCheckbox.checked = masking.hideInsertionColumns === true;
         gapThresholdInput.value = masking.gapThreshold == null ? "" : String(masking.gapThreshold);
+    };
+
+    const syncSelectionModeControl = () => {
+        selectionModeSelect.value = viewer.getSelectionMode();
     };
 
     const applyMaskControls = () => {
@@ -171,11 +177,16 @@ async function main() {
             await viewer.setActiveRepresentation(event.target.value);
             refreshSchemeSelect();
             syncMaskControls();
+            syncSelectionModeControl();
             status.textContent = `Switched to ${event.target.selectedOptions[0].textContent}`;
         } catch (error) {
             status.textContent = error.message;
             console.error(error);
         }
+    });
+    selectionModeSelect.addEventListener("change", (event) => {
+        viewer.setSelectionMode(event.target.value);
+        status.textContent = `Selection mode: ${event.target.selectedOptions[0].textContent}`;
     });
     fileInput.addEventListener("change", async (event) => {
         const files = Array.from(event.target.files ?? []);
@@ -232,21 +243,42 @@ async function main() {
         }
     });
     
-    const unsubscribe = viewer.onSelectionChange((selectedColumns) => {
-        if (selectedColumns.size > 0) {
-            clearButton.textContent = `Clear ${selectedColumns.size} selected columns`;
+    const unsubscribe = viewer.onSelectionChange((selection) => {
+        const selectionCount = selection?.componentCount ?? 0;
+        if (selectionCount > 0) {
+            clearButton.textContent = `Clear ${selectionCount} selection${selectionCount === 1 ? "" : "s"}`;
             clearButton.disabled = false;
         } else {
-            clearButton.textContent = `Clear selected columns`;
+            clearButton.textContent = "Clear selection";
             clearButton.disabled = true;
         }
     });
 
     clearButton.onclick = () => {
-        viewer.clearSelectedColumns();
+        viewer.clearSelection();
     };
 
+    motifSearchButton.addEventListener("click", async () => {
+        const currentQuery = viewer.motifController?.query ?? "";
+        const nextQuery = window.prompt("Motif query", currentQuery);
+        if (nextQuery === null) return;
+        const trimmedQuery = nextQuery.trim();
+        try {
+            if (!trimmedQuery) {
+                await viewer.clearMotifQuery();
+                status.textContent = "Motif search cleared.";
+                return;
+            }
+            await viewer.setMotifQuery(trimmedQuery);
+            status.textContent = `Motif search: ${trimmedQuery} (${viewer.getMotifMatchCount()} matches)`;
+        } catch (error) {
+            status.textContent = error.message;
+            console.error(error);
+        }
+    });
+
     syncMaskControls();
+    syncSelectionModeControl();
 }
 
 main().catch((error) => {

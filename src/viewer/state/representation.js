@@ -6,6 +6,7 @@
  * @property {{ colProfileBuffer: GPUBuffer, totalCols: number, totalRows: number }} alignmentState
  * @property {Object|null} columnMetrics
  * @property {Object|null} columnVisibility
+ * @property {{ query: string, visibilitySignature: string, hitsByRow: Array<Array<{ start: number, len: number }>>, matchCount: number }|null} motifSearch
  * @property {Object|null} trackState
  * @property {{ key: string, width: number, height: number, pixels: Uint8ClampedArray }|null} minimapCache
  */
@@ -18,6 +19,7 @@
  *   alignmentState: { colProfileBuffer: GPUBuffer, totalCols: number, totalRows: number },
  *   columnMetrics?: Object|null,
  *   columnVisibility?: Object|null,
+ *   motifSearch?: { query: string, visibilitySignature: string, hitsByRow: Array<Array<{ start: number, len: number }>>, matchCount: number }|null,
  *   trackState?: Object|null,
  *   minimapCache?: { key: string, width: number, height: number, pixels: Uint8ClampedArray }|null,
  * }} params
@@ -30,6 +32,7 @@ export function createRepresentation({
     alignmentState,
     columnMetrics = null,
     columnVisibility = null,
+    motifSearch = null,
     trackState = null,
     minimapCache = null,
 }) {
@@ -40,6 +43,7 @@ export function createRepresentation({
         alignmentState,
         columnMetrics,
         columnVisibility,
+        motifSearch,
         trackState,
         minimapCache,
     };

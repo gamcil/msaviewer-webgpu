@@ -105,9 +105,13 @@ fn sample_glyph_distance(atlas_uv: vec2<f32>) -> f32 {
     return median3(sample.rgb) - 0.5;
 }
 
-fn screen_px_range(atlas_uv: vec2<f32>) -> f32 {
+fn screen_px_range_from_local_uv(local_uv: vec2<f32>) -> f32 {
     let unit_range = vec2<f32>(ATLAS_PX_RANGE, ATLAS_PX_RANGE) / ATLAS_SIZE;
-    let screen_tex_size = vec2<f32>(1.0, 1.0) / max(fwidth(atlas_uv), vec2<f32>(1e-6, 1e-6));
+    let atlas_uv_derivative = max(
+        fwidth(local_uv) * (GLYPH_SIZE / ATLAS_SIZE),
+        vec2<f32>(1e-6, 1e-6)
+    );
+    let screen_tex_size = vec2<f32>(1.0, 1.0) / atlas_uv_derivative;
     return max(0.5 * dot(unit_range, screen_tex_size), 1.0);
 }
 
@@ -145,6 +149,9 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let col = ui.windowOrigin.x + local_cell.x;
     let row = ui.windowOrigin.y + local_cell.y;
     let base_background = default_scheme_color();
+    let local = window_pixel % ui.gridSize;
+    let local_uv = (vec2<f32>(local) + vec2<f32>(0.5, 0.5)) / vec2<f32>(ui.gridSize);
+    let glyph_screen_px_range = screen_px_range_from_local_uv(local_uv);
 
     if (pixel.x >= ui.canvasSize.x || pixel.y >= ui.canvasSize.y) {
         return base_background;
@@ -160,11 +167,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let residue = read_residue(local_cell.y, column_map.rawWindowCol);
     let mask = colProfile[column_map.rawCol];
     let color = resolve_scheme_color(residue, mask);
-    let local = window_pixel % ui.gridSize;
-    let local_uv = (vec2<f32>(local) + vec2<f32>(0.5, 0.5)) / vec2<f32>(ui.gridSize);
     let atlas_uv = glyph_atlas_uv(residue, local_uv);
     let glyph_distance = sample_glyph_distance(atlas_uv);
-    let glyph_screen_px_range = screen_px_range(atlas_uv);
     let glyph_mask = clamp(glyph_distance * glyph_screen_px_range + 0.5, 0.0, 1.0);
     let background = color.rgb;
     let text_color = contrast_text_color(background);

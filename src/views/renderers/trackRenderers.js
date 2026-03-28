@@ -3,35 +3,68 @@ LOGO_MEASURE_CANVAS.width = 256;
 LOGO_MEASURE_CANVAS.height = 256;
 const LOGO_MEASURE_CONTEXT = LOGO_MEASURE_CANVAS.getContext("2d", { willReadFrequently: true });
 const LOGO_GLYPH_METRIC_CACHE = new Map();
+const LOGO_GLYPH_ALPHA_CACHE = new Map();
+const LOGO_GLYPH_RASTER_CACHE = new Map();
 const COLOR_PARSE_CANVAS = document.createElement("canvas");
 COLOR_PARSE_CANVAS.width = 1;
 COLOR_PARSE_CANVAS.height = 1;
-const COLOR_PARSE_CONTEXT = COLOR_PARSE_CANVAS.getContext("2d");
+const COLOR_PARSE_CONTEXT = COLOR_PARSE_CANVAS.getContext("2d", { willReadFrequently: true });
+const COLOR_PARSE_CACHE = new Map();
 
 function clamp01(value) {
     return Math.max(0, Math.min(1, value));
 }
 
 function parseCssColor(color) {
+    if (COLOR_PARSE_CACHE.has(color)) {
+        return COLOR_PARSE_CACHE.get(color);
+    }
     if (!COLOR_PARSE_CONTEXT) {
-        return [0, 0, 0, 255];
+        const fallback = [0, 0, 0, 255];
+        COLOR_PARSE_CACHE.set(color, fallback);
+        return fallback;
     }
     COLOR_PARSE_CONTEXT.clearRect(0, 0, 1, 1);
     COLOR_PARSE_CONTEXT.fillStyle = "#000";
     COLOR_PARSE_CONTEXT.fillStyle = color;
     COLOR_PARSE_CONTEXT.fillRect(0, 0, 1, 1);
-    return COLOR_PARSE_CONTEXT.getImageData(0, 0, 1, 1).data;
+    const parsed = Array.from(COLOR_PARSE_CONTEXT.getImageData(0, 0, 1, 1).data);
+    COLOR_PARSE_CACHE.set(color, parsed);
+    return parsed;
+}
+
+function formatRgbaColor([r, g, b, a]) {
+    const alpha = Math.round((a / 255) * 1000) / 1000;
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+export function prepareColorRamp(ramp) {
+    if (!ramp) {
+        return null;
+    }
+    if (ramp.minColor == null || ramp.maxColor == null) {
+        return {
+            ...ramp,
+            parsedMinColor: null,
+            parsedMaxColor: null,
+        };
+    }
+    return {
+        ...ramp,
+        parsedMinColor: parseCssColor(ramp.minColor),
+        parsedMaxColor: parseCssColor(ramp.maxColor),
+    };
 }
 
 export function interpolateColor(minColor, maxColor, t) {
-    const start = parseCssColor(minColor);
-    const end = parseCssColor(maxColor);
+    const start = Array.isArray(minColor) ? minColor : parseCssColor(minColor);
+    const end = Array.isArray(maxColor) ? maxColor : parseCssColor(maxColor);
     const mix = clamp01(t);
     const r = Math.round(start[0] + (end[0] - start[0]) * mix);
     const g = Math.round(start[1] + (end[1] - start[1]) * mix);
     const b = Math.round(start[2] + (end[2] - start[2]) * mix);
-    const a = (start[3] + (end[3] - start[3]) * mix) / 255;
-    return `rgba(${r}, ${g}, ${b}, ${a})`;
+    const a = Math.round(start[3] + (end[3] - start[3]) * mix);
+    return formatRgbaColor([r, g, b, a]);
 }
 
 export function resolveInterpolatedColor(score, {
@@ -39,6 +72,8 @@ export function resolveInterpolatedColor(score, {
     maxScore = 1,
     minColor,
     maxColor,
+    parsedMinColor = null,
+    parsedMaxColor = null,
 } = {}) {
     if (minColor == null || maxColor == null) {
         return null;
@@ -47,7 +82,7 @@ export function resolveInterpolatedColor(score, {
         return maxColor;
     }
     const t = (score - minScore) / (maxScore - minScore);
-    return interpolateColor(minColor, maxColor, t);
+    return interpolateColor(parsedMinColor ?? minColor, parsedMaxColor ?? maxColor, t);
 }
 
 function getLogoGlyphMetrics(font, glyph) {
@@ -93,11 +128,19 @@ function getLogoGlyphMetrics(font, glyph) {
     const fallbackDescent = metrics.actualBoundingBoxDescent || 20;
     const result = bottom >= top
         ? {
+            left,
+            top,
+            right,
+            bottom,
             width: Math.max(1, right - left + 1),
             height: Math.max(1, bottom - top + 1),
             ascent: Math.max(1, baselineY - top),
         }
         : {
+            left: Math.max(0, Math.floor(drawX - (metrics.width / 2))),
+            top: Math.max(0, Math.floor(baselineY - fallbackAscent)),
+            right: Math.min(width - 1, Math.ceil(drawX + (metrics.width / 2))),
+            bottom: Math.min(height - 1, Math.ceil(baselineY + fallbackDescent)),
             width: Math.max(1, metrics.width),
             height: Math.max(1, fallbackAscent + fallbackDescent),
             ascent: Math.max(1, fallbackAscent),
@@ -105,6 +148,73 @@ function getLogoGlyphMetrics(font, glyph) {
 
     LOGO_GLYPH_METRIC_CACHE.set(cacheKey, result);
     return result;
+}
+
+function getLogoGlyphAlpha(font, glyph) {
+    const cacheKey = `${font}::${glyph}`;
+    const cached = LOGO_GLYPH_ALPHA_CACHE.get(cacheKey);
+    if (cached) {
+        return cached;
+    }
+
+    const metrics = getLogoGlyphMetrics(font, glyph);
+    const alphaCanvas = document.createElement("canvas");
+    alphaCanvas.width = Math.max(1, Math.ceil(metrics.width));
+    alphaCanvas.height = Math.max(1, Math.ceil(metrics.height));
+    const alphaContext = alphaCanvas.getContext("2d");
+    if (!alphaContext) {
+        return null;
+    }
+    alphaContext.clearRect(0, 0, alphaCanvas.width, alphaCanvas.height);
+    alphaContext.drawImage(
+        LOGO_MEASURE_CANVAS,
+        metrics.left,
+        metrics.top,
+        metrics.width,
+        metrics.height,
+        0,
+        0,
+        alphaCanvas.width,
+        alphaCanvas.height
+    );
+    LOGO_GLYPH_ALPHA_CACHE.set(cacheKey, alphaCanvas);
+    return alphaCanvas;
+}
+
+function getLogoGlyphRaster(font, glyph, color = "#333") {
+    const cacheKey = `${font}::${glyph}::${color}`;
+    const cached = LOGO_GLYPH_RASTER_CACHE.get(cacheKey);
+    if (cached) {
+        return cached;
+    }
+
+    const alphaCanvas = getLogoGlyphAlpha(font, glyph);
+    if (!alphaCanvas) {
+        return null;
+    }
+
+    const rasterCanvas = document.createElement("canvas");
+    rasterCanvas.width = alphaCanvas.width;
+    rasterCanvas.height = alphaCanvas.height;
+    const rasterContext = rasterCanvas.getContext("2d");
+    if (!rasterContext) {
+        return null;
+    }
+    rasterContext.clearRect(0, 0, rasterCanvas.width, rasterCanvas.height);
+    rasterContext.drawImage(alphaCanvas, 0, 0);
+    rasterContext.globalCompositeOperation = "source-in";
+    rasterContext.fillStyle = color;
+    rasterContext.fillRect(0, 0, rasterCanvas.width, rasterCanvas.height);
+    rasterContext.globalCompositeOperation = "source-over";
+    LOGO_GLYPH_RASTER_CACHE.set(cacheKey, rasterCanvas);
+    return rasterCanvas;
+}
+
+export function warmSequenceLogoGlyphCache(font, glyphColorPairs = []) {
+    for (const { glyph, color } of glyphColorPairs) {
+        if (!glyph) continue;
+        getLogoGlyphRaster(font, glyph, color ?? "#333");
+    }
 }
 
 export function getTrackRenderGeometry(viewport) {
@@ -255,9 +365,6 @@ export function renderSequenceLogo(context, {
     minGlyphPixelHeight = 1,
 }) {
     if (!columns?.length) return;
-    context.font = font;
-    context.textAlign = "center";
-    context.textBaseline = "alphabetic";
 
     for (const { column, stackHeightPx, letters } of columns) {
         const columnX = column * cellWidthPx - localScrollLeftPx;
@@ -266,8 +373,9 @@ export function renderSequenceLogo(context, {
         let stackedOffsetPx = 0;
         const maxGlyphHeightPx = Math.min(plotHeightPx * maxGlyphHeightRatio, cellWidthPx * 2.5);
 
+        const effectiveMinGlyphPixelHeight = Math.max(2, minGlyphPixelHeight);
         const renderableLetters = letters
-            .filter(({ heightPx }) => heightPx >= minGlyphPixelHeight)
+            .filter(({ heightPx }) => heightPx >= effectiveMinGlyphPixelHeight)
             .map((letter) => {
                 const renderedHeightPx = capGlyphHeight
                     ? Math.min(letter.heightPx, maxGlyphHeightPx)
@@ -291,21 +399,39 @@ export function renderSequenceLogo(context, {
             const finalHeightPx = renderedHeightPx;
 
             const glyphMetrics = getLogoGlyphMetrics(font, glyph);
+            const glyphRaster = getLogoGlyphRaster(font, glyph, color ?? "#333");
+            if (!glyphRaster) {
+                stackedOffsetPx += finalHeightPx + interLetterGapPx;
+                continue;
+            }
             const scaleX = Math.min(cellWidthPx / glyphMetrics.width, maxScaleX);
-            const scaleY = finalHeightPx / glyphMetrics.height;
+            const scaledGlyphWidthPx = glyphMetrics.width * scaleX;
+            const glyphTopPx = stackTopPx + stackedOffsetPx;
+            const glyphBottomPx = glyphTopPx + finalHeightPx;
+            const glyphLeftPx = xCenter - (scaledGlyphWidthPx / 2);
+            const needsClip =
+                scaledGlyphWidthPx > cellWidthPx ||
+                glyphLeftPx < columnX ||
+                glyphLeftPx + scaledGlyphWidthPx > columnX + cellWidthPx ||
+                glyphTopPx < 0 ||
+                glyphBottomPx > plotHeightPx;
 
-            context.save();
-            context.beginPath();
-            context.rect(columnX, 0, cellWidthPx, plotHeightPx);
-            context.clip();
-            context.translate(
-                xCenter,
-                stackTopPx + stackedOffsetPx + (glyphMetrics.ascent * scaleY)
+            if (needsClip) {
+                context.save();
+                context.beginPath();
+                context.rect(columnX, 0, cellWidthPx, plotHeightPx);
+                context.clip();
+            }
+            context.drawImage(
+                glyphRaster,
+                glyphLeftPx,
+                glyphTopPx,
+                scaledGlyphWidthPx,
+                finalHeightPx
             );
-            context.scale(scaleX, scaleY);
-            context.fillStyle = color ?? "#333";
-            context.fillText(glyph, 0, 0);
-            context.restore();
+            if (needsClip) {
+                context.restore();
+            }
 
             stackedOffsetPx += finalHeightPx + interLetterGapPx;
         }

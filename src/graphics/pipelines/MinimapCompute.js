@@ -4,8 +4,6 @@
 export class MinimapCompute {
     constructor(device, shaderCode) {
         this.device = device;
-        this.paramsBuffer = null;
-        this.paramsBufferCapacity = 0;
         this.pipeline = device.createComputePipeline({
             layout: 'auto',
             compute: {
@@ -15,7 +13,7 @@ export class MinimapCompute {
         });
     }
 
-    encode(commandEncoder, msaTextureView, colProfileBuffer, themeBuffer, visibleToRawBuffer, auxBuffer, outputBuffer, params) {
+    encode(commandEncoder, msaTextureView, colProfileBuffer, themeBuffer, visibleToRawBuffer, auxBuffer, outputBuffer, paramsBuffer, params) {
         const paramsData = new Uint32Array([
             params.totalRows,
             params.totalCols,
@@ -26,7 +24,6 @@ export class MinimapCompute {
             params.minimapWidth,
             params.minimapHeight,
         ]);
-        const paramsBuffer = this.getOrCreateParamsBuffer(paramsData.byteLength);
         this.device.queue.writeBuffer(paramsBuffer, 0, paramsData);
 
         const bindGroup = this.device.createBindGroup({
@@ -52,7 +49,7 @@ export class MinimapCompute {
         passEncoder.end();
     }
 
-    run(msaTextureView, colProfileBuffer, themeBuffer, visibleToRawBuffer, auxBuffer, outputBuffer, params) {
+    run(msaTextureView, colProfileBuffer, themeBuffer, visibleToRawBuffer, auxBuffer, outputBuffer, paramsBuffer, params) {
         const commandEncoder = this.device.createCommandEncoder();
         this.encode(
             commandEncoder,
@@ -62,21 +59,9 @@ export class MinimapCompute {
             visibleToRawBuffer,
             auxBuffer,
             outputBuffer,
+            paramsBuffer,
             params
         );
         this.device.queue.submit([commandEncoder.finish()]);
-    }
-
-    getOrCreateParamsBuffer(byteLength) {
-        if (this.paramsBuffer && this.paramsBufferCapacity >= byteLength) {
-            return this.paramsBuffer;
-        }
-        this.paramsBuffer?.destroy?.();
-        this.paramsBufferCapacity = byteLength;
-        this.paramsBuffer = this.device.createBuffer({
-            size: byteLength,
-            usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-        });
-        return this.paramsBuffer;
     }
 }

@@ -1,10 +1,31 @@
+import { CachedVisibleWindowCanvas } from "./helpers/CachedVisibleWindowCanvas.js";
+import { SizedCanvas2D } from "./helpers/SizedCanvas2D.js";
+
 export class RulerView {
     constructor({ root, tickInterval = 10, height = 28 }) {
         this.root = root;
-        this.tickInterval = tickInterval;
+        this.tickInterval = Math.max(1, tickInterval);
         this.height = height;
         this.viewport = null;
         this.theme = null;
+        this.prerenderWindow = new CachedVisibleWindowCanvas({
+            getViewport: () => this.viewport,
+            getCacheKey: ({ dpr, cellWidthPx, heightPx }) => this.getRenderCacheKey({ dpr, cellWidthPx, heightPx }),
+            getOverscanCols: (visibleColCount) => this.getRenderCacheOverscanCols(visibleColCount),
+            renderWindow: (context, {
+                visibleStart,
+                visibleEnd,
+                cellWidthPx,
+                heightPx,
+                dpr,
+            }) => this.renderCachedWindow(context, {
+                visibleStart,
+                visibleEnd,
+                cellWidthPx,
+                heightPx,
+                dpr,
+            }),
+        });
 
         this.canvas = document.createElement("canvas");
         this.root.appendChild(this.canvas);
@@ -22,15 +43,27 @@ export class RulerView {
         });
 
         this.context = this.canvas.getContext("2d");
+        this.sizedCanvas = new SizedCanvas2D({
+            root: this.root,
+            canvas: this.canvas,
+            getCssHeight: () => this.height,
+        });
     }
 
     setTickInterval(tickInterval) {
-        this.tickInterval = Math.max(1, tickInterval);
-        this.render();
+        const nextTickInterval = Math.max(1, tickInterval);
+        if (nextTickInterval === this.tickInterval) return;
+        this.tickInterval = nextTickInterval;
+        this.refreshRendering();
     }
 
     setTheme(theme) {
+        const nextDarkMode = !!theme?.darkMode;
+        const prevDarkMode = !!this.theme?.darkMode;
         this.theme = theme;
+        if (nextDarkMode !== prevDarkMode) {
+            this.invalidateRenderCache();
+        }
         this.render();
     }
 
@@ -39,17 +72,13 @@ export class RulerView {
         this.render();
     }
 
-    ensureCanvasSize() {
-        const dpr = window.devicePixelRatio || 1;
-        const cssWidth = this.root.getBoundingClientRect().width;
-        this.canvas.style.height = `${this.height}px`;
-        const width = Math.max(1, Math.round(cssWidth * dpr));
-        const height = Math.max(1, Math.round(this.height * dpr));
-        if (this.canvas.width !== width || this.canvas.height !== height) {
-            this.canvas.width = width;
-            this.canvas.height = height;
-        }
-        return { dpr, width, height };
+    invalidateRenderCache() {
+        this.prerenderWindow.invalidate();
+    }
+
+    refreshRendering() {
+        this.invalidateRenderCache();
+        this.render();
     }
 
     getStrokeStyle() {
@@ -60,74 +89,107 @@ export class RulerView {
         return this.theme?.darkMode ? "#e6e6e6" : "#333";
     }
 
-    render() {
-        if (!this.context) return;
-        const { dpr, width, height } = this.ensureCanvasSize();
-        this.context.clearRect(0, 0, width, height);
-        if (!this.viewport) return;
+    getRenderCacheOverscanCols(visibleColCount) {
+        return Math.max(32, visibleColCount);
+    }
 
-        const {
-            scrollLeft,
-            cellWidth,
-            colStart,
-            colEnd,
-            visibleRawColumns,
-        } = this.viewport;
+    getRenderCacheKey({ dpr, cellWidthPx, heightPx }) {
+        return [
+            dpr,
+            cellWidthPx,
+            heightPx,
+            this.tickInterval,
+            this.theme?.darkMode ? "dark" : "light",
+            this.viewport?.totalCols ?? 0,
+            this.viewport?.columnVisibility?.signature ?? "unmasked",
+        ].join("|");
+    }
 
-        const cellWidthPx = Math.max(1, cellWidth * dpr);
-        const scrollLeftPx = scrollLeft * dpr;
-        const columnOffsetPx = scrollLeftPx - (colStart * cellWidthPx);
-        const axisY = Math.max(1, height - Math.round(5 * dpr));
+    renderCachedWindow(context, {
+        visibleStart,
+        visibleEnd,
+        cellWidthPx,
+        heightPx,
+        dpr,
+    }) {
+        const axisY = Math.max(1, heightPx - Math.round(5 * dpr));
         const longTickHeight = Math.max(6, Math.round(7 * dpr));
         const shortTickHeight = Math.max(4, Math.round(4 * dpr));
         const fontSize = Math.max(10, Math.round(11 * dpr));
         const labelTop = Math.max(1, Math.round(1 * dpr));
+        const windowWidth = Math.max(1, (visibleEnd - visibleStart) * cellWidthPx);
 
-        this.context.strokeStyle = this.getStrokeStyle();
-        this.context.lineWidth = Math.max(1, Math.round(dpr));
-        this.context.beginPath();
-        this.context.moveTo(0, axisY);
-        this.context.lineTo(width, axisY);
-        this.context.stroke();
+        context.clearRect(0, 0, windowWidth, heightPx);
+        context.strokeStyle = this.getStrokeStyle();
+        context.lineWidth = Math.max(1, Math.round(dpr));
+        context.beginPath();
+        context.moveTo(0, axisY);
+        context.lineTo(windowWidth, axisY);
+        context.stroke();
 
-        this.context.fillStyle = this.getTextStyle();
-        this.context.font = `${fontSize}px "IBM Plex Mono", monospace`;
-        this.context.textAlign = "center";
-        this.context.textBaseline = "top";
+        context.fillStyle = this.getTextStyle();
+        context.font = `${fontSize}px "IBM Plex Mono", monospace`;
+        context.textAlign = "center";
+        context.textBaseline = "top";
 
-        for (let i = 0; i < (colEnd - colStart); i += 1) {
-            const position = colStart + i + 1;
+        for (let visibleCol = visibleStart; visibleCol < visibleEnd; visibleCol += 1) {
+            const position = visibleCol + 1;
             if (position % this.tickInterval !== 0) {
                 continue;
             }
-            const x = (i * cellWidthPx) - columnOffsetPx + (cellWidthPx / 2);
-            this.context.beginPath();
-            this.context.moveTo(x, axisY);
-            this.context.lineTo(x, axisY - longTickHeight);
-            this.context.stroke();
-            this.context.fillText(String(position), x, labelTop);
+            const x = ((visibleCol - visibleStart) * cellWidthPx) + (cellWidthPx / 2);
+            context.beginPath();
+            context.moveTo(x, axisY);
+            context.lineTo(x, axisY - longTickHeight);
+            context.stroke();
+            context.fillText(String(position), x, labelTop);
         }
 
         const minorStep = Math.max(1, Math.floor(this.tickInterval / 2));
         if (minorStep >= 2) {
-            for (let i = 0; i < (colEnd - colStart); i += 1) {
-                const position = colStart + i + 1;
+            for (let visibleCol = visibleStart; visibleCol < visibleEnd; visibleCol += 1) {
+                const position = visibleCol + 1;
                 if (position % this.tickInterval === 0 || position % minorStep !== 0) {
                     continue;
                 }
-                const x = (i * cellWidthPx) - columnOffsetPx + (cellWidthPx / 2);
-                this.context.beginPath();
-                this.context.moveTo(x, axisY);
-                this.context.lineTo(x, axisY - shortTickHeight);
-                this.context.stroke();
+                const x = ((visibleCol - visibleStart) * cellWidthPx) + (cellWidthPx / 2);
+                context.beginPath();
+                context.moveTo(x, axisY);
+                context.lineTo(x, axisY - shortTickHeight);
+                context.stroke();
             }
         }
     }
 
+    render() {
+        if (!this.context) return;
+        this.root.style.height = `${this.height}px`;
+        const { dpr, width, height } = this.sizedCanvas.ensureSize();
+        this.context.clearRect(0, 0, width, height);
+        if (!this.viewport) return;
+
+        const cellWidthPx = Math.max(1, Math.round(this.viewport.cellWidth * dpr));
+        const localScrollLeft = this.viewport.scrollLeft - this.viewport.colStart * this.viewport.cellWidth;
+        const localScrollLeftPx = Math.round(localScrollLeft * dpr);
+        this.prerenderWindow.drawTo(this.context, {
+            dpr,
+            cellWidthPx,
+            heightPx: height,
+            localScrollLeftPx,
+        });
+    }
+
     clear() {
         this.viewport = null;
+        this.prerenderWindow.invalidate();
         if (this.context) {
             this.context.clearRect(0, 0, this.canvas.width, this.canvas.height);
         }
+    }
+
+    destroy() {
+        this.sizedCanvas.destroy();
+        this.prerenderWindow.invalidate();
+        this.root.replaceChildren();
     }
 }

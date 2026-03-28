@@ -1,4 +1,4 @@
-import { getTileIndicesForWindow, materializeWindowFromTiles } from "../alignment/tiledStorage.js";
+import { materializeProjectedWindow } from "../projectedWindow.js";
 
 export class VisibleWindowController {
     constructor({
@@ -12,80 +12,17 @@ export class VisibleWindowController {
         this.state = null;
     }
 
-    buildVisibleColumnMap(colStart, colCount, columnVisibility) {
-        const rawCols = columnVisibility.visibleToRaw.subarray(colStart, colStart + colCount);
-        if (rawCols.length === 0) {
-            return {
-                columnMap: new Uint32Array(0),
-                minRawCol: 0,
-                rawColCount: 0,
-            };
-        }
-
-        let minRawCol = rawCols[0];
-        let maxRawCol = rawCols[0];
-        for (let i = 1; i < rawCols.length; i += 1) {
-            const rawCol = rawCols[i];
-            if (rawCol < minRawCol) minRawCol = rawCol;
-            if (rawCol > maxRawCol) maxRawCol = rawCol;
-        }
-
-        const rawColCount = maxRawCol - minRawCol + 1;
-        const columnMap = new Uint32Array(rawCols.length * 2);
-        for (let i = 0; i < rawCols.length; i += 1) {
-            const rawCol = rawCols[i];
-            const mapOffset = i * 2;
-            columnMap[mapOffset] = rawCol;
-            columnMap[mapOffset + 1] = rawCol - minRawCol;
-        }
-
-        return {
-            columnMap,
-            minRawCol,
-            rawColCount,
-        };
-    }
-
     async materializeVisibleWindow(alignmentStore, rowStart, rowCount, colStart, colCount, columnVisibility) {
-        if (!columnVisibility) {
-            const data = await materializeWindowFromTiles(
-                alignmentStore,
-                rowStart,
-                rowCount,
-                colStart,
-                colCount,
-                this.decodedTileCache
-            );
-            const columnMap = new Uint32Array(colCount * 2);
-            for (let i = 0; i < colCount; i += 1) {
-                const mapOffset = i * 2;
-                columnMap[mapOffset] = colStart + i;
-                columnMap[mapOffset + 1] = i;
-            }
-            const retainedTiles = getTileIndicesForWindow(alignmentStore, rowStart, rowCount, colStart, colCount);
-            return { data, columnMap, rawTextureCols: colCount, retainedTiles };
-        }
-
-        const { columnMap, minRawCol, rawColCount } = this.buildVisibleColumnMap(
-            colStart,
-            colCount,
-            columnVisibility
-        );
-        if (columnMap.length === 0) {
-            return { data: new Uint8Array(0), columnMap, rawTextureCols: 0, retainedTiles: [] };
-        }
-
-        const rawWindow = await materializeWindowFromTiles(
+        return materializeProjectedWindow({
             alignmentStore,
             rowStart,
             rowCount,
-            minRawCol,
-            rawColCount,
-            this.decodedTileCache
-        );
-
-        const retainedTiles = getTileIndicesForWindow(alignmentStore, rowStart, rowCount, minRawCol, rawColCount);
-        return { data: rawWindow, columnMap, rawTextureCols: rawColCount, retainedTiles };
+            colStart,
+            colCount,
+            columnVisibility,
+            decodedTileCache: this.decodedTileCache,
+            includeRetainedTiles: true,
+        });
     }
 
     async update({

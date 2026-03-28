@@ -2,6 +2,9 @@
 Base class for sequence score tracks
 */
 
+import { CachedVisibleWindowCanvas } from "../helpers/CachedVisibleWindowCanvas.js";
+import { SizedCanvas2D } from "../helpers/SizedCanvas2D.js";
+
 export class BaseTrackView {
     constructor({
         root,
@@ -9,7 +12,6 @@ export class BaseTrackView {
         id,
         label,
         sublabel = null,
-        metric = null,
         valueRange = null,
         tooltip = null,
     }) {
@@ -18,7 +20,6 @@ export class BaseTrackView {
         this.height = height;
         this.label = label;
         this.sublabel = sublabel;
-        this.metric = metric ?? id;
         this.tooltip = tooltip;
         this.valueRange = valueRange ? {
             min: valueRange.min ?? 0,
@@ -29,6 +30,27 @@ export class BaseTrackView {
         this.data = null;
         this.trackState = null;
         this.theme = null;
+        this.prerenderWindow = new CachedVisibleWindowCanvas({
+            getViewport: () => this.viewport,
+            getCacheKey: ({ dpr, cellWidthPx, heightPx }) => this.getRenderCacheKey({ dpr, cellWidthPx, heightPx }),
+            getOverscanCols: (visibleColCount) => this.getRenderCacheOverscanCols(visibleColCount),
+            renderWindow: (context, {
+                visibleStart,
+                visibleEnd,
+                cellWidthPx,
+                heightPx,
+                dpr,
+                viewport,
+            }) => this.renderCachedWindow(context, {
+                visibleStart,
+                visibleEnd,
+                cellWidthPx,
+                localScrollLeftPx: 0,
+                dpr,
+                heightPx,
+                columnVisibility: viewport?.columnVisibility ?? null,
+            }),
+        });
         
         this.root.classList.add("msa-track-row");
 
@@ -56,14 +78,24 @@ export class BaseTrackView {
         this.root.appendChild(this.bodyEl);
 
         this.context = this.canvas.getContext("2d");
+        this.root.style.height = `${this.height}px`;
+        this.bodyEl.style.height = `${this.height}px`;
+        this.bodyEl.style.width = "100%";
+        this.sizedCanvas = new SizedCanvas2D({
+            root: this.bodyEl,
+            canvas: this.canvas,
+            getCssHeight: () => this.height,
+        });
     }
 
     setViewport(viewport) {
         this.viewport = viewport;
+        this.sizedCanvas.markDirty();
     }
 
     setData(data) {
         this.data = data;
+        this.invalidateRenderCache();
     }
 
     setTrackState(trackState) {
@@ -72,6 +104,7 @@ export class BaseTrackView {
 
     setTheme(theme) {
         this.theme = theme;
+        this.invalidateRenderCache();
     }
 
     setSublabel(sublabel) {
@@ -85,10 +118,6 @@ export class BaseTrackView {
         } else {
             this.sublabelEl.hidden = true;
         }
-    }
-
-    getMetricData(trackState = this.trackState) {
-        return trackState?.metrics?.[this.metric] ?? null;
     }
 
     formatTooltipValue(value) {
@@ -143,36 +172,51 @@ export class BaseTrackView {
         const t = (value - min) / (max - min);
         return Math.max(0, Math.min(1, t));
     }
-    
-    ensureCanvasSize() {
-        const dpr = window.devicePixelRatio || 1;
-        const cssWidth = this.bodyEl.getBoundingClientRect().width;
-        this.root.style.height = `${this.height}px`;
-        this.bodyEl.style.height = `${this.height}px`;
-        this.bodyEl.style.width = "100%";
-        this.canvas.style.width = `${cssWidth}px`;
-        this.canvas.style.height = `${this.height}px`;
 
-        const width = Math.max(1, Math.round(cssWidth * dpr));
-        const height = Math.max(1, Math.floor(this.height * dpr));
-
-        if (this.canvas.width !== width || this.canvas.height !== height) {
-            this.canvas.width = width;
-            this.canvas.height = height;
-        }
+    invalidateRenderCache() {
+        this.prerenderWindow.invalidate();
     }
-    
-    clear() {
-        this.ensureCanvasSize();
-        this.context.clearRect(0, 0, this.canvas.width, this.canvas.height);
+
+    getRenderCacheOverscanCols(visibleColCount) {
+        return Math.max(32, visibleColCount);
+    }
+
+    getRenderCacheKey({ dpr, cellWidthPx, heightPx }) {
+        return [
+            dpr,
+            cellWidthPx,
+            heightPx,
+            this.viewport?.totalCols ?? 0,
+            this.viewport?.columnVisibility?.signature ?? "unmasked",
+        ].join("|");
+    }
+
+    renderCachedWindow() {
+        // overwrite in subclasses
     }
 
     render() {
-        // overwrite this in inherited classes
-        this.clear();
+        this.sizedCanvas.ensureSize();
+        this.sizedCanvas.clear(this.context);
+        if (!this.viewport || !this.context) return;
+        const totalCols = this.viewport.totalCols ?? 0;
+        if (totalCols <= 0) return;
+        const dpr = window.devicePixelRatio || 1;
+        const cellWidthPx = Math.max(1, Math.round(this.viewport.cellWidth * dpr));
+        const localScrollLeft = this.viewport.scrollLeft - this.viewport.colStart * this.viewport.cellWidth;
+        const localScrollLeftPx = Math.round(localScrollLeft * dpr);
+        const heightPx = this.canvas.height;
+        this.prerenderWindow.drawTo(this.context, {
+            dpr,
+            cellWidthPx,
+            heightPx,
+            localScrollLeftPx,
+        });
     }
     
     destroy() {
+        this.sizedCanvas.destroy();
+        this.prerenderWindow.invalidate();
         this.root.replaceChildren();
     }
 }

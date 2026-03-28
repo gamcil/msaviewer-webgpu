@@ -412,22 +412,24 @@ fn resolve_scheme_color(raw_res: u32, mask: u32) -> vec4<f32> {
     if (is_lowercase_residue(raw_res)) {
         return base_background;
     }
+    var color = base_background;
     switch (theme.colorScheme) {
-        case 0u: { return apply_clustalx_rules(raw_res, mask); }
-        case 1u: { return apply_pid_rules(raw_res, mask); }
-        case 2u: { return apply_blosum_rules(raw_res, mask); }
-        case 3u: { return apply_hydrophobicity_rules(raw_res); }
-        case 4u: { return apply_zappo_rules(raw_res); }
-        case 5u: { return apply_taylor_rules(raw_res); }
-        case 6u: { return apply_gecos_blossom_rules(raw_res); }
-        case 7u: { return apply_gecos_sunset_rules(raw_res); }
-        case 8u: { return apply_gecos_ocean_rules(raw_res); }
-        case 9u: { return apply_helix_propensity_rules(raw_res); }
-        case 10u: { return apply_strand_propensity_rules(raw_res); }
-        case 11u: { return apply_turn_propensity_rules(raw_res); }
-        case 12u: { return apply_buried_index_rules(raw_res); }
-        case 13u: { return apply_3di_rules(raw_res); }
-        default: { return base_background; }
+        case 0u: { color = apply_clustalx_rules(raw_res, mask); }
+        case 1u: { color = apply_pid_rules(raw_res, mask); }
+        case 2u: { color = apply_blosum_rules(raw_res, mask); }
+        case 3u: { color = apply_hydrophobicity_rules(raw_res); }
+        case 4u: { color = apply_zappo_rules(raw_res); }
+        case 5u: { color = apply_taylor_rules(raw_res); }
+        case 6u: { color = apply_gecos_blossom_rules(raw_res); }
+        case 7u: { color = apply_gecos_sunset_rules(raw_res); }
+        case 8u: { color = apply_gecos_ocean_rules(raw_res); }
+        case 9u: { color = apply_helix_propensity_rules(raw_res); }
+        case 10u: { color = apply_strand_propensity_rules(raw_res); }
+        case 11u: { color = apply_turn_propensity_rules(raw_res); }
+        case 12u: { color = apply_buried_index_rules(raw_res); }
+        case 13u: { color = apply_3di_rules(raw_res); }
+        default: { color = base_background; }
     }
+    return color;
 }`.trim();
 }

@@ -1,24 +1,12 @@
-import { materializeWindowFromTiles } from "../alignment/tiledStorage.js";
+import { getProjectedChunkColCount, materializeProjectedWindow } from "../projectedWindow.js";
 
-function accumulateMinimapChunk(minimapSums, minimapWeights, chunkResult, width, height) {
-    const pixelCount = width * height;
-    for (let i = 0; i < pixelCount; i += 1) {
-        const srcOffset = i * 4;
-        const dstOffset = i * 3;
-        minimapSums[dstOffset + 0] += chunkResult[srcOffset + 0];
-        minimapSums[dstOffset + 1] += chunkResult[srcOffset + 1];
-        minimapSums[dstOffset + 2] += chunkResult[srcOffset + 2];
-        minimapWeights[i] += chunkResult[srcOffset + 3];
-    }
-}
-
-function finalizeMinimapPixels(outPixels, minimapSums, minimapWeights, darkMode) {
-    const pixelCount = minimapWeights.length;
+function finalizeMinimapPixels(outPixels, readback, darkMode) {
+    const pixelCount = outPixels.length / 4;
     const bg = darkMode ? [20, 20, 23] : [255, 255, 255];
     for (let i = 0; i < pixelCount; i += 1) {
-        const weight = minimapWeights[i];
-        const srcOffset = i * 3;
+        const srcOffset = i * 4;
         const dstOffset = i * 4;
+        const weight = readback[srcOffset + 3];
         if (weight === 0) {
             outPixels[dstOffset + 0] = bg[0];
             outPixels[dstOffset + 1] = bg[1];
@@ -26,9 +14,9 @@ function finalizeMinimapPixels(outPixels, minimapSums, minimapWeights, darkMode)
             outPixels[dstOffset + 3] = 255;
             continue;
         }
-        outPixels[dstOffset + 0] = Math.round(minimapSums[srcOffset + 0] / weight);
-        outPixels[dstOffset + 1] = Math.round(minimapSums[srcOffset + 1] / weight);
-        outPixels[dstOffset + 2] = Math.round(minimapSums[srcOffset + 2] / weight);
+        outPixels[dstOffset + 0] = Math.round(readback[srcOffset + 0] / weight);
+        outPixels[dstOffset + 1] = Math.round(readback[srcOffset + 1] / weight);
+        outPixels[dstOffset + 2] = Math.round(readback[srcOffset + 2] / weight);
         outPixels[dstOffset + 3] = 255;
     }
 }
@@ -46,6 +34,7 @@ export class MinimapController {
         this.pipelineRegistry = pipelineRegistry;
         this.minimapView = minimapView;
         this.decodedTileCache = decodedTileCache;
+        this.chunkResources = [];
     }
 
     getCacheKey(width, height, { schemeKey, darkMode }) {
@@ -57,102 +46,21 @@ export class MinimapController {
         ].join(":");
     }
 
-    buildVisibleColumnMap(colStart, colCount, columnVisibility) {
-        const rawCols = columnVisibility.visibleToRaw.subarray(colStart, colStart + colCount);
-        if (rawCols.length === 0) {
-            return {
-                columnMap: new Uint32Array(0),
-                minRawCol: 0,
-                rawColCount: 0,
-            };
-        }
-
-        let minRawCol = rawCols[0];
-        let maxRawCol = rawCols[0];
-        for (let i = 1; i < rawCols.length; i += 1) {
-            const rawCol = rawCols[i];
-            if (rawCol < minRawCol) minRawCol = rawCol;
-            if (rawCol > maxRawCol) maxRawCol = rawCol;
-        }
-
-        const rawColCount = maxRawCol - minRawCol + 1;
-        const columnMap = new Uint32Array(rawCols.length * 2);
-        for (let i = 0; i < rawCols.length; i += 1) {
-            const rawCol = rawCols[i];
-            const mapOffset = i * 2;
-            columnMap[mapOffset] = rawCol;
-            columnMap[mapOffset + 1] = rawCol - minRawCol;
-        }
-
-        return {
-            columnMap,
-            minRawCol,
-            rawColCount,
-        };
-    }
-
     getChunkColCount(totalCols, colStart, maxVisibleChunkCols, maxTextureDim, columnVisibility) {
-        const remainingCols = totalCols - colStart;
-        if (remainingCols <= 0) return 0;
-        const maxCols = Math.min(maxVisibleChunkCols, remainingCols);
-        if (!columnVisibility) return maxCols;
-        const visibleToRaw = columnVisibility.visibleToRaw;
-        const firstRawCol = visibleToRaw[colStart];
-        let low = colStart + 1;
-        let high = colStart + maxCols;
-        let bestEndExclusive = colStart + 1;
-        while (low <= high) {
-            const mid = Math.floor((low + high) / 2);
-            const lastRawCol = visibleToRaw[mid - 1];
-            const rawSpan = lastRawCol - firstRawCol + 1;
-            if (rawSpan <= maxTextureDim) {
-                bestEndExclusive = mid;
-                low = mid + 1;
-            } else {
-                high = mid - 1;
-            }
-        }
-        return Math.max(1, bestEndExclusive - colStart);
+        return getProjectedChunkColCount(totalCols, colStart, maxVisibleChunkCols, maxTextureDim, columnVisibility);
     }
 
     async materializeVisibleChunk(alignmentStore, rowStart, rowCount, colStart, colCount, columnVisibility) {
-        if (!columnVisibility) {
-            const chunkData = await materializeWindowFromTiles(
-                alignmentStore,
-                rowStart,
-                rowCount,
-                colStart,
-                colCount,
-                this.decodedTileCache
-            );
-            const columnMap = new Uint32Array(colCount * 2);
-            for (let i = 0; i < colCount; i += 1) {
-                const mapOffset = i * 2;
-                columnMap[mapOffset] = colStart + i;
-                columnMap[mapOffset + 1] = i;
-            }
-            return { chunkData, columnMap, rawTextureCols: colCount };
-        }
-
-        const { columnMap, minRawCol, rawColCount } = this.buildVisibleColumnMap(
-            colStart,
-            colCount,
-            columnVisibility
-        );
-        if (columnMap.length === 0) {
-            return { chunkData: new Uint8Array(0), columnMap, rawTextureCols: 0 };
-        }
-
-        const chunkData = await materializeWindowFromTiles(
+        const { data, columnMap, rawTextureCols } = await materializeProjectedWindow({
             alignmentStore,
             rowStart,
             rowCount,
-            minRawCol,
-            rawColCount,
-            this.decodedTileCache
-        );
-
-        return { chunkData, columnMap, rawTextureCols: rawColCount };
+            colStart,
+            colCount,
+            columnVisibility,
+            decodedTileCache: this.decodedTileCache,
+        });
+        return { chunkData: data, columnMap, rawTextureCols };
     }
 
     async readChunkBuffer(outputBuffer, minimapWidth, minimapHeight) {
@@ -168,6 +76,46 @@ export class MinimapController {
         const copy = new Uint32Array(readbackBuffer.getMappedRange()).slice();
         readbackBuffer.unmap();
         return copy;
+    }
+
+    getOrCreateChunkResources(slot, { rawTextureCols, rowsInChunk, colsInChunk, paramsByteLength }) {
+        const existing = this.chunkResources[slot];
+        const needsNewTexture = !existing ||
+            existing.textureWidth < rawTextureCols ||
+            existing.textureHeight < rowsInChunk;
+        const needsNewColumnMapBuffer = !existing ||
+            existing.columnMapBufferSize < Math.max(1, colsInChunk * 2) * Uint32Array.BYTES_PER_ELEMENT;
+        const needsNewParamsBuffer = !existing || existing.paramsBufferSize < paramsByteLength;
+
+        const next = existing ?? {};
+        if (needsNewTexture) {
+            next.texture?.destroy?.();
+            next.texture = this.device.createTexture({
+                size: [Math.max(1, rawTextureCols), Math.max(1, rowsInChunk), 1],
+                format: "r8uint",
+                usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+            });
+            next.textureWidth = rawTextureCols;
+            next.textureHeight = rowsInChunk;
+        }
+        if (needsNewColumnMapBuffer) {
+            next.visibleColumnMapBuffer?.destroy?.();
+            next.visibleColumnMapBuffer = this.device.createBuffer({
+                size: Math.max(1, colsInChunk * 2) * Uint32Array.BYTES_PER_ELEMENT,
+                usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+            });
+            next.columnMapBufferSize = Math.max(1, colsInChunk * 2) * Uint32Array.BYTES_PER_ELEMENT;
+        }
+        if (needsNewParamsBuffer) {
+            next.paramsBuffer?.destroy?.();
+            next.paramsBuffer = this.device.createBuffer({
+                size: paramsByteLength,
+                usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+            });
+            next.paramsBufferSize = paramsByteLength;
+        }
+        this.chunkResources[slot] = next;
+        return next;
     }
 
     async computePixels({
@@ -187,9 +135,7 @@ export class MinimapController {
         const maxVisibleChunkCols = Math.min(totalCols, maxTextureDim);
         const chunkRows = Math.min(totalRows, maxTextureDim);
 
-        const minimapSums = new Uint32Array(minimapWidth * minimapHeight * 3);
         const minimapPixels = new Uint8ClampedArray(minimapWidth * minimapHeight * 4);
-        const minimapWeights = new Uint32Array(minimapWidth * minimapHeight);
 
         const minimapPipeline = this.pipelineRegistry.getMinimapPipeline(alphabet);
         const auxBuffer = this.pipelineRegistry.getSchemeAuxBuffer(schemeKey, alphabet);
@@ -199,9 +145,12 @@ export class MinimapController {
         });
         const zeroBuffer = new Uint32Array(minimapWidth * minimapHeight * 4);
         this.device.queue.writeBuffer(outputBuffer, 0, zeroBuffer);
+        const paramsByteLength = Uint32Array.BYTES_PER_ELEMENT * 8;
 
         for (let rowStart = 0; rowStart < totalRows; rowStart += chunkRows) {
             const rowsInChunk = Math.min(chunkRows, totalRows - rowStart);
+            const chunkEntries = [];
+            let slot = 0;
             for (let colStart = 0; colStart < totalCols;) {
                 const colsInChunk = this.getChunkColCount(
                     totalCols,
@@ -218,24 +167,22 @@ export class MinimapController {
                     colsInChunk,
                     columnVisibility
                 );
-                const chunkTexture = this.gpuResources.getOrCreateGrowableTexture("minimapChunkTexture", {
-                    width: rawTextureCols,
-                    height: rowsInChunk,
-                    format: "r8uint",
-                    usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+                const resources = this.getOrCreateChunkResources(slot, {
+                    rawTextureCols,
+                    rowsInChunk,
+                    colsInChunk,
+                    paramsByteLength,
                 });
                 this.device.queue.writeTexture(
-                    { texture: chunkTexture },
+                    { texture: resources.texture },
                     chunkData,
                     { offset: 0, bytesPerRow: rawTextureCols, rowsPerImage: rowsInChunk },
                     [rawTextureCols, rowsInChunk, 1]
                 );
-                const visibleColumnMapBuffer = this.gpuResources.getOrCreateGrowableBuffer("minimapVisibleColumnMapBuffer", {
-                    minSize: Math.max(1, colsInChunk * 2) * Uint32Array.BYTES_PER_ELEMENT,
-                    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-                });
-                this.device.queue.writeBuffer(visibleColumnMapBuffer, 0, columnMap);
-                const params = {
+                this.device.queue.writeBuffer(resources.visibleColumnMapBuffer, 0, columnMap);
+                chunkEntries.push({
+                    resources,
+                    params: {
                     totalRows,
                     totalCols,
                     chunkRowStart: rowStart,
@@ -244,28 +191,32 @@ export class MinimapController {
                     chunkCols: colsInChunk,
                     minimapWidth,
                     minimapHeight,
-                };
-                const encoder = this.device.createCommandEncoder();
+                    },
+                });
+                colStart += colsInChunk;
+                slot += 1;
+            }
+            if (chunkEntries.length === 0) continue;
+            const encoder = this.device.createCommandEncoder();
+            for (const chunk of chunkEntries) {
                 minimapPipeline.encode(
                     encoder,
-                    chunkTexture.createView(),
+                    chunk.resources.texture.createView(),
                     alignmentState.colProfileBuffer,
                     themeBuffer,
-                    visibleColumnMapBuffer,
+                    chunk.resources.visibleColumnMapBuffer,
                     auxBuffer,
                     outputBuffer,
-                    params
+                    chunk.resources.paramsBuffer,
+                    chunk.params
                 );
-                this.device.queue.submit([encoder.finish()]);
-                colStart += colsInChunk;
             }
+            this.device.queue.submit([encoder.finish()]);
         }
 
         await this.device.queue.onSubmittedWorkDone();
         const readback = await this.readChunkBuffer(outputBuffer, minimapWidth, minimapHeight);
-        accumulateMinimapChunk(minimapSums, minimapWeights, readback, minimapWidth, minimapHeight);
-
-        finalizeMinimapPixels(minimapPixels, minimapSums, minimapWeights, darkMode);
+        finalizeMinimapPixels(minimapPixels, readback, darkMode);
         return minimapPixels;
     }
 
@@ -281,8 +232,7 @@ export class MinimapController {
     }) {
         if (!representation || !alignmentState || !this.minimapView || !this.device) return;
 
-        const minimapWidth = this.minimapView.getWidth();
-        const minimapHeight = this.minimapView.getHeight();
+        const { width: minimapWidth, height: minimapHeight } = this.minimapView.getViewportPixelSize();
         if (minimapWidth <= 0 || minimapHeight <= 0) return;
 
         const visibilityKey = columnVisibility
@@ -336,8 +286,7 @@ export class MinimapController {
 
         const contentWidth = (visibleColCount ?? alignmentStore.totalCols) * cellWidth;
         const contentHeight = alignmentStore.totalRows * cellHeight;
-        const minimapWidth = this.minimapView.getWidth();
-        const minimapHeight = this.minimapView.getHeight();
+        const { width: minimapWidth, height: minimapHeight } = this.minimapView.getViewportPixelSize();
         const x = scrollLeft / contentWidth * minimapWidth;
         const y = scrollTop / contentHeight * minimapHeight;
         const width = Math.max(1, viewportWidth / contentWidth * minimapWidth);

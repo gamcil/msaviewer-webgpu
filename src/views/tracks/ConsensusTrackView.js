@@ -3,13 +3,17 @@
 */
 
 import { BaseTrackView } from "./BaseTrackView.js";
+import { renderBars, renderGlyphs, renderSequenceLogo, warmSequenceLogoGlyphCache } from "../renderers/trackRenderers.js";
+import { createConsensusTrackStyle } from "../trackStyles.js";
 import {
-    getTrackRenderGeometry,
-    renderBars,
-    renderGlyphs,
-    renderSequenceLogo,
-} from "./renderers/trackRenderers.js";
-import { createConsensusTrackStyle } from "./trackStyles.js";
+    buildConsensusGlyphs,
+    buildConsensusHistogramBars,
+    buildConsensusLogoColumns,
+    buildConsensusRenderColumns,
+    buildVisibleConsensusColumns,
+    collectConsensusLogoGlyphPairs,
+    resolveConsensusPalette,
+} from "../models/consensusRenderModel.js";
 
 export class ConsensusTrackView extends BaseTrackView {
     constructor({
@@ -98,28 +102,38 @@ export class ConsensusTrackView extends BaseTrackView {
             },
         };
         this.logoConfig = normalizedStyle.logo;
+        this.renderColumns = null;
+        this.dataRevision = 0;
+        this.styleRevision = 0;
+        this.themeRevision = 0;
+    }
+
+    refreshRendering({ warmLogo = true, rerender = true } = {}) {
+        if (warmLogo) {
+            this.warmLogoGlyphCache();
+        }
+        this.invalidateRenderCache();
+        if (rerender) {
+            this.render();
+        }
     }
 
     setTheme({ darkMode }) {
         if (darkMode == null || darkMode === this.darkMode) return;
         this.darkMode = darkMode;
-        this.render();
-    }
-
-    getResolvedColors() {
-        const palette = this.darkMode ? this.colors.dark : this.colors.light;
-        return {
-            histogramFillStyle: palette.histogramFillStyle,
-            histogramStrokeStyle: palette.histogramStrokeStyle,
-            consensusFillStyle: palette.consensusFillStyle,
-        };
+        this.themeRevision += 1;
+        this.refreshRendering();
     }
 
     setOptions(options = {}) {
+        let styleChanged = false;
         if (options.includeGaps != null) this.includeGaps = options.includeGaps;
         if (options.showHistogram != null) this.showHistogram = options.showHistogram;
         if (options.showConsensus != null) this.showConsensus = options.showConsensus;
-        if (options.darkMode != null) this.darkMode = options.darkMode;
+        if (options.darkMode != null && options.darkMode !== this.darkMode) {
+            this.darkMode = options.darkMode;
+            this.themeRevision += 1;
+        }
         if (
             options.histogramFillStyle !== undefined ||
             options.histogramStrokeStyle !== undefined ||
@@ -139,6 +153,7 @@ export class ConsensusTrackView extends BaseTrackView {
                     ...(options.consensusFillStyle !== undefined ? { consensusFillStyle: options.consensusFillStyle } : {}),
                 },
             };
+            styleChanged = true;
         }
         if (options.themeColors != null) {
             this.colors = {
@@ -150,18 +165,21 @@ export class ConsensusTrackView extends BaseTrackView {
                     ? { dark: { ...this.colors.dark, ...options.themeColors.dark } }
                     : {}),
             };
+            styleChanged = true;
         }
         if (options.style != null) {
             this.style = createConsensusTrackStyle({
                 ...this.style,
                 ...options.style,
             });
+            styleChanged = true;
         }
         if (options.logoConfig != null) {
             this.logoConfig = {
                 ...this.logoConfig,
                 ...options.logoConfig,
             };
+            styleChanged = true;
         }
         if (options.histogramStyle != null) {
             this.style = createConsensusTrackStyle({
@@ -171,6 +189,7 @@ export class ConsensusTrackView extends BaseTrackView {
                     ...options.histogramStyle,
                 },
             });
+            styleChanged = true;
         }
         if (options.consensusStyle != null) {
             this.style = createConsensusTrackStyle({
@@ -180,8 +199,12 @@ export class ConsensusTrackView extends BaseTrackView {
                     ...options.consensusStyle,
                 },
             });
+            styleChanged = true;
         }
-        this.render();
+        if (styleChanged) {
+            this.styleRevision += 1;
+        }
+        this.refreshRendering();
     }
 
     setTrackState(trackState) {
@@ -191,7 +214,28 @@ export class ConsensusTrackView extends BaseTrackView {
 
     setData(data) {
         this.data = data;
+        this.rebuildRenderColumns();
         this.render();
+    }
+
+    rebuildRenderColumns() {
+        const sourceColumns = this.data?.columns;
+        if (!sourceColumns?.length) {
+            this.renderColumns = null;
+            this.refreshRendering({ warmLogo: false, rerender: false });
+            return;
+        }
+        this.renderColumns = buildConsensusRenderColumns(sourceColumns);
+        this.dataRevision += 1;
+        this.refreshRendering({ rerender: false });
+    }
+
+    warmLogoGlyphCache() {
+        if (!this.renderColumns?.length || !this.logoConfig?.showLogo) {
+            return;
+        }
+        const glyphColorPairs = collectConsensusLogoGlyphPairs(this.renderColumns);
+        warmSequenceLogoGlyphCache(this.logoConfig.logoFont, glyphColorPairs);
     }
 
     getTooltipData(rawColumn) {
@@ -229,40 +273,47 @@ export class ConsensusTrackView extends BaseTrackView {
         this.trackLineWidth = Math.max(1, Math.round(dpr));
     }
 
-    render() {
-        this.clear();
-        if (!this.data?.columns || !this.viewport || !this.context) return;
+    getRenderCacheKey({ dpr, cellWidthPx, heightPx }) {
+        return [
+            super.getRenderCacheKey({ dpr, cellWidthPx, heightPx }),
+            this.includeGaps,
+            this.showHistogram,
+            this.showConsensus,
+            this.dataRevision,
+            this.styleRevision,
+            this.themeRevision,
+        ].join("|");
+    }
 
-        const { colStart, colEnd } = this.viewport;
-        const visibleRawColumns = this.viewport.visibleRawColumns ?? null;
-        const { dpr, cellWidthPx, localScrollLeftPx } = getTrackRenderGeometry(this.viewport);
+    renderCachedWindow(context, {
+        visibleStart,
+        visibleEnd,
+        cellWidthPx,
+        localScrollLeftPx,
+        dpr,
+        heightPx,
+        columnVisibility,
+    }) {
+        if (!this.renderColumns) {
+            return;
+        }
         this.updateRenderStyles(dpr);
-
-        const heightPx = this.canvas.height;
+        const columns = buildVisibleConsensusColumns(this.renderColumns, visibleStart, visibleEnd, columnVisibility);
+        if (!columns.length) {
+            return;
+        }
         const consensusFontPx = this.consensusFontPx;
         const consensusLanePx = this.showConsensus ? consensusFontPx + Math.max(2, Math.round(4 * dpr)) : 0;
         const plotHeightPx = Math.max(1, heightPx - consensusLanePx);
-        const columns = [];
-        for (let i = 0; i < (colEnd - colStart); i += 1) {
-            const rawCol = visibleRawColumns?.[i] ?? (colStart + i);
-            const columnData = this.data.columns[rawCol];
-            if (columnData) {
-                columns.push(columnData);
-            }
-        }
-        const { histogramFillStyle, histogramStrokeStyle, consensusFillStyle } = this.getResolvedColors();
+        const { histogramFillStyle, histogramStrokeStyle, consensusFillStyle } = resolveConsensusPalette(this.darkMode, this.colors);
         const histogramLineWidth = this.style.histogram.lineWidth ?? this.trackLineWidth;
 
         if (this.showHistogram) {
-            const bars = columns.map((columnData, index) => ({
-                column: index,
-                fraction: this.includeGaps
-                    ? columnData.modalFractionNonGap * columnData.occupancy
-                    : columnData.modalFractionNonGap,
-                baseY: plotHeightPx,
-                plotHeight: plotHeightPx,
-            }));
-            renderBars(this.context, {
+            const bars = buildConsensusHistogramBars(columns, {
+                includeGaps: this.includeGaps,
+                plotHeightPx,
+            });
+            renderBars(context, {
                 bars,
                 cellWidthPx,
                 localScrollLeftPx,
@@ -274,27 +325,12 @@ export class ConsensusTrackView extends BaseTrackView {
         }
 
         if (this.logoConfig.showLogo && cellWidthPx >= this.logoConfig.minLogoCellWidth) {
-            const logoColumns = columns.map((columnData, index) => {
-                const modalFraction = this.includeGaps
-                    ? columnData.modalFractionNonGap * columnData.occupancy
-                    : columnData.modalFractionNonGap;
-                let stackHeightPx = plotHeightPx * modalFraction;
-                if (this.logoConfig.logoHeightMode === "full") {
-                    stackHeightPx = plotHeightPx;
-                } else if (this.logoConfig.logoHeightMode === "information") {
-                    const informationContent = this.includeGaps
-                        ? columnData.informationContentRaw * columnData.occupancy
-                        : columnData.informationContentRaw;
-                    stackHeightPx = plotHeightPx * informationContent;
-                }
-                const letters = columnData.letters.map((letter) => ({
-                    glyph: letter.glyph,
-                    color: letter.color,
-                    heightPx: stackHeightPx * letter.logoFraction,
-                }));
-                return { column: index, stackHeightPx, letters };
+            const logoColumns = buildConsensusLogoColumns(columns, {
+                includeGaps: this.includeGaps,
+                plotHeightPx,
+                logoHeightMode: this.logoConfig.logoHeightMode,
             });
-            renderSequenceLogo(this.context, {
+            renderSequenceLogo(context, {
                 columns: logoColumns,
                 cellWidthPx,
                 localScrollLeftPx,
@@ -308,18 +344,11 @@ export class ConsensusTrackView extends BaseTrackView {
         }
 
         if (this.showConsensus) {
-            const glyphs = [];
-            for (let i = 0; i < columns.length; i += 1) {
-                const consensusGlyph = columns[i].consensusGlyph;
-                if (!consensusGlyph) continue;
-                glyphs.push({
-                    column: i,
-                    glyph: consensusGlyph,
-                    color: consensusFillStyle,
-                    y: heightPx,
-                });
-            }
-            renderGlyphs(this.context, {
+            const glyphs = buildConsensusGlyphs(columns, {
+                consensusFillStyle,
+                heightPx,
+            });
+            renderGlyphs(context, {
                 glyphs,
                 cellWidthPx,
                 localScrollLeftPx,

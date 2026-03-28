@@ -33,6 +33,8 @@ export class ViewportController {
         this.onSetScrolling = onSetScrolling;
         this.resizeObserver = null;
         this.resizeFrameHandle = 0;
+        this.scrollSyncFrameHandle = 0;
+        this.scrollEndTimeoutHandle = 0;
         this.lastObservedWidth = -1;
         this.lastObservedHeight = -1;
     }
@@ -42,6 +44,13 @@ export class ViewportController {
 
         this.onScroll = () => {
             this.onSetScrolling?.(true);
+            if (this.scrollEndTimeoutHandle) {
+                window.clearTimeout(this.scrollEndTimeoutHandle);
+            }
+            this.scrollEndTimeoutHandle = window.setTimeout(() => {
+                this.scrollEndTimeoutHandle = 0;
+                this.onSetScrolling?.(false);
+            }, 120);
             this.onHoverReset?.();
             this.state.setViewportScroll(
                 this.alignmentView.scroller.scrollLeft,
@@ -51,12 +60,14 @@ export class ViewportController {
                 void this.uploadVisibleWindow?.();
             }
             this.requestRender?.();
-            this.syncMinimapViewportRect();
-            this.syncRulerViewport();
-            this.syncTracksViewport();
+            this.scheduleScrollSync();
         };
 
         this.onScrollEnd = () => {
+            if (this.scrollEndTimeoutHandle) {
+                window.clearTimeout(this.scrollEndTimeoutHandle);
+                this.scrollEndTimeoutHandle = 0;
+            }
             this.onSetScrolling?.(false);
         };
 
@@ -87,10 +98,10 @@ export class ViewportController {
             if (!alignmentStore) return;
             const viewportWidth = this.alignmentView.scroller.clientWidth;
             const viewportHeight = this.alignmentView.scroller.clientHeight;
-            const snapshot = this.state.getSnapshot();
+            const { cellWidth, cellHeight } = this.state.getCellSize();
             const visibleCount = this.getColumnVisibility?.()?.visibleCount ?? alignmentStore.totalCols;
-            const contentWidth = visibleCount * snapshot.viewport.cellWidth;
-            const contentHeight = alignmentStore.totalRows * snapshot.viewport.cellHeight;
+            const contentWidth = visibleCount * cellWidth;
+            const contentHeight = alignmentStore.totalRows * cellHeight;
             const maxScrollLeft = Math.max(0, contentWidth - viewportWidth);
             const maxScrollTop = Math.max(0, contentHeight - viewportHeight);
             if (request.type === "drag") {
@@ -118,9 +129,20 @@ export class ViewportController {
         });
     }
 
+    scheduleScrollSync() {
+        if (this.scrollSyncFrameHandle) return;
+        this.scrollSyncFrameHandle = window.requestAnimationFrame(() => {
+            this.scrollSyncFrameHandle = 0;
+            this.alignmentView.renderOverlays?.();
+            this.syncMinimapViewportRect();
+            this.syncRulerViewport();
+            this.syncTracksViewport();
+        });
+    }
+
     refreshLayout() {
         if (!this.alignmentView) return;
-        this.alignmentView.ensureCanvasSize();
+        this.alignmentView.syncSurfaceSize();
         this.headerView?.setViewportHeight(this.alignmentView.scroller.clientHeight);
         this.state.setCanvasSize(this.alignmentView.canvas.width, this.alignmentView.canvas.height);
         if (this.getAlignmentStore()) {
@@ -150,6 +172,14 @@ export class ViewportController {
             window.cancelAnimationFrame(this.resizeFrameHandle);
             this.resizeFrameHandle = 0;
         }
+        if (this.scrollSyncFrameHandle) {
+            window.cancelAnimationFrame(this.scrollSyncFrameHandle);
+            this.scrollSyncFrameHandle = 0;
+        }
+        if (this.scrollEndTimeoutHandle) {
+            window.clearTimeout(this.scrollEndTimeoutHandle);
+            this.scrollEndTimeoutHandle = 0;
+        }
         if (this.minimapView?.onViewportRequest) {
             this.minimapView.onViewportRequest = null;
         }
@@ -157,6 +187,31 @@ export class ViewportController {
 
     syncHeaderScroll(scrollTop) {
         this.headerView?.syncScroll(scrollTop);
+    }
+
+    buildHorizontalViewport({ overscanCols = 0 } = {}) {
+        const alignmentStore = this.getAlignmentStore();
+        if (!alignmentStore || !this.alignmentView) return null;
+        const columnVisibility = this.getColumnVisibility?.() ?? null;
+        const scrollLeft = this.alignmentView.scroller.scrollLeft;
+        const viewportWidth = this.alignmentView.scroller.clientWidth;
+        const cellWidth = this.alignmentView.getRenderedCellWidthCss();
+        const totalCols = columnVisibility?.visibleCount ?? alignmentStore.totalCols;
+        const colStart = Math.max(0, Math.floor(scrollLeft / cellWidth) - overscanCols);
+        const colEnd = Math.min(
+            totalCols,
+            Math.ceil((scrollLeft + viewportWidth) / cellWidth) + overscanCols
+        );
+        return {
+            scrollLeft,
+            viewportWidth,
+            cellWidth,
+            totalCols,
+            colStart,
+            colEnd,
+            columnVisibility,
+            visibleRawColumns: columnVisibility?.visibleToRaw?.subarray(colStart, colEnd) ?? null,
+        };
     }
 
     getVisibleWindowBounds() {
@@ -184,59 +239,18 @@ export class ViewportController {
     syncTracksViewport() {
         const trackStackViews = this.getTrackStackViews?.() ?? [];
         if (trackStackViews.length === 0) return;
-        const alignmentStore = this.getAlignmentStore();
-        if (!alignmentStore) return;
-        const columnVisibility = this.getColumnVisibility?.() ?? null;
-        const scrollLeft = this.alignmentView.scroller.scrollLeft;
-        const viewportWidth = this.alignmentView.scroller.clientWidth;
-        const cellWidth = this.alignmentView.getRenderedCellWidthCss();
-        const totalCols = columnVisibility?.visibleCount ?? alignmentStore.totalCols;
-        const trackOverscanCols = 2;
-        const colStart = Math.max(0, Math.floor(scrollLeft / cellWidth) - trackOverscanCols);
-        const colEnd = Math.min(
-            totalCols,
-            Math.ceil((scrollLeft + viewportWidth) / cellWidth) + trackOverscanCols
-        );
-        const visibleRawColumns = columnVisibility?.visibleToRaw?.subarray(colStart, colEnd) ?? null;
+        const horizontalViewport = this.buildHorizontalViewport({ overscanCols: 2 });
+        if (!horizontalViewport) return;
         for (const trackStackView of trackStackViews) {
-            trackStackView.setViewport({
-                scrollLeft,
-                viewportWidth,
-                cellWidth,
-                totalCols,
-                colStart,
-                colEnd,
-                columnVisibility,
-                visibleRawColumns,
-            });
+            trackStackView.setViewport(horizontalViewport);
         }
     }
 
     syncRulerViewport() {
         if (!this.rulerView) return;
-        const alignmentStore = this.getAlignmentStore();
-        if (!alignmentStore) return;
-        const columnVisibility = this.getColumnVisibility?.() ?? null;
-        const scrollLeft = this.alignmentView.scroller.scrollLeft;
-        const viewportWidth = this.alignmentView.scroller.clientWidth;
-        const cellWidth = this.alignmentView.getRenderedCellWidthCss();
-        const totalCols = columnVisibility?.visibleCount ?? alignmentStore.totalCols;
-        const colStart = Math.max(0, Math.floor(scrollLeft / cellWidth));
-        const colEnd = Math.min(
-            totalCols,
-            Math.ceil((scrollLeft + viewportWidth) / cellWidth)
-        );
-        const visibleRawColumns = columnVisibility?.visibleToRaw?.subarray(colStart, colEnd) ?? null;
-        this.rulerView.setViewport({
-            scrollLeft,
-            viewportWidth,
-            cellWidth,
-            totalCols,
-            colStart,
-            colEnd,
-            columnVisibility,
-            visibleRawColumns,
-        });
+        const horizontalViewport = this.buildHorizontalViewport();
+        if (!horizontalViewport) return;
+        this.rulerView.setViewport(horizontalViewport);
     }
 
     syncMinimapViewportRect() {
@@ -248,8 +262,7 @@ export class ViewportController {
             scrollTop: this.alignmentView.scroller.scrollTop,
             viewportWidth: this.alignmentView.scroller.clientWidth,
             viewportHeight: this.alignmentView.scroller.clientHeight,
-            cellWidth: this.state.getSnapshot().viewport.cellWidth,
-            cellHeight: this.state.getSnapshot().viewport.cellHeight,
+            ...this.state.getCellSize(),
             visibleColCount: this.getColumnVisibility?.()?.visibleCount ?? null,
         });
     }

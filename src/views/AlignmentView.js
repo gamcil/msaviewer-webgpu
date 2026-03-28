@@ -2,6 +2,8 @@
 View for the alignment itself
 */
 
+import { AlignmentOverlayPainter } from "./helpers/AlignmentOverlayPainter.js";
+
 function writeRenderUniformBuffer(
     device,
     buffer,
@@ -64,6 +66,10 @@ export class AlignmentView {
         this.canvas.className = "msa-alignment-canvas";
         this.context = this.canvas.getContext("webgpu");
         this.context.configure({ device: this.device, format: this.format });
+
+        this.motifOverlay = document.createElement("canvas");
+        this.motifOverlay.className = "msa-alignment-motif-canvas";
+        this.motifContext = this.motifOverlay.getContext("2d");
         
         this.overlay = document.createElement("canvas");
         this.overlay.className = "msa-alignment-overlay-canvas";
@@ -73,12 +79,15 @@ export class AlignmentView {
         this.scroller.appendChild(this.spacer);
         this.root.appendChild(this.scroller);
         this.root.appendChild(this.canvas);
+        this.root.appendChild(this.motifOverlay);
         this.root.appendChild(this.overlay);
-        
-        // Hover state
-        this.hoveredColumn = null;
-        this.selectedColumns = new Set();
-        this.columnVisibility = null;
+        this.overlayPainter = new AlignmentOverlayPainter({
+            root: this.root,
+            motifOverlay: this.motifOverlay,
+            motifContext: this.motifContext,
+            overlay: this.overlay,
+            overlayContext: this.overlayContext,
+        });
     }
     getRenderedCellWidthCss() {
         const dpr = window.devicePixelRatio || 1;
@@ -91,7 +100,7 @@ export class AlignmentView {
     setBindGroup(bindGroup) {
         this.renderBindGroup = bindGroup;
     }
-    syncUniforms({ totalCols, totalRows, windowColStart = 0, windowRowStart = 0, windowCols = 0, windowRows = 0 }) {
+    syncRenderState({ totalCols, totalRows, windowColStart = 0, windowRowStart = 0, windowCols = 0, windowRows = 0 }) {
         const dpr = window.devicePixelRatio || 1;
         const cellWidthCss = this.getRenderedCellWidthCss();
         const cellHeightCss = this.getRenderedCellHeightCss();
@@ -125,67 +134,84 @@ export class AlignmentView {
         return [colStart, colEnd];
     }
     setOverlayState({
-        hoveredColumn = null,
-        selectedColumns = this.selectedColumns,
-        columnVisibility = this.columnVisibility,
+        hoveredCell = null,
+        selectionMode = "column",
+        selectionRanges = [],
+        previewRange = null,
+        columnVisibility = undefined,
     }) {
-        this.hoveredColumn = hoveredColumn;
-        this.selectedColumns = selectedColumns;
-        this.columnVisibility = columnVisibility;
-        this.drawOverlay(); 
+        this.overlayPainter.setSelectionState({
+            hoveredCell,
+            selectionMode,
+            selectionRanges,
+            previewRange,
+            columnVisibility,
+        });
+        this.renderOverlays();
     }
-    drawOverlay() {
-        if (!this.overlayContext) return;
-
+    getVisibleRowRange() {
+        const scrollTop = this.scroller.scrollTop;
+        const viewportHeight = this.scroller.clientHeight;
+        const cellHeight = this.getRenderedCellHeightCss();
+        const rowStart = Math.floor(scrollTop / cellHeight);
+        const rowEnd = Math.min(this.totalRows, Math.ceil((scrollTop + viewportHeight) / cellHeight));
+        return [rowStart, rowEnd];
+    }
+    setMotifState({ motifHitsByRow = null } = {}) {
+        this.overlayPainter.setMotifState({ motifHitsByRow });
+        this.renderOverlays();
+    }
+    renderMotifOverlay() {
         const dpr = window.devicePixelRatio || 1;
         const cellWidthCss = this.getRenderedCellWidthCss();
         const cellHeightCss = this.getRenderedCellHeightCss();
-        const cellWidthPx = Math.max(1, Math.round(cellWidthCss * dpr));
-        
-        this.clearOverlay();
-
-        const [colStart, colEnd] = this.getVisibleColumnRange(); 
-        const localScrollLeft = this.scroller.scrollLeft - colStart * cellWidthCss;
-        const localScrollLeftPx = Math.round(localScrollLeft * dpr);
-        const numRows = Math.min(this.totalRows, Math.ceil(this.scroller.clientHeight / cellHeightCss));
-        const heightPx = numRows * Math.max(1, Math.round(cellHeightCss * dpr));
-
-        for (const rawCol of this.selectedColumns) {
-            const visibleCol = this.columnVisibility?.rawToVisible?.[rawCol] ?? rawCol;
-            if (visibleCol < 0 || visibleCol < colStart || visibleCol >= colEnd) continue;
-            const x = (visibleCol - colStart) * cellWidthPx - localScrollLeftPx;
-            this.overlayContext.strokeStyle = "rgb(0, 122, 178)";
-            this.overlayContext.fillStyle = "rgba(89, 211, 255, 0.25)"; 
-            this.overlayContext.lineWidth = Math.max(1, Math.round(dpr));
-            this.overlayContext.beginPath();
-            this.overlayContext.rect(x, 0, cellWidthPx, heightPx);
-            this.overlayContext.fill();
-            this.overlayContext.stroke();
-        }
-        
-        const hoveredVisibleCol = this.hoveredColumn == null
-            ? -1
-            : (this.columnVisibility?.rawToVisible?.[this.hoveredColumn] ?? this.hoveredColumn);
-        if (hoveredVisibleCol >= colStart && hoveredVisibleCol < colEnd) {
-            const x = (hoveredVisibleCol - colStart) * cellWidthPx - localScrollLeftPx;
-            this.overlayContext.strokeStyle = "rgb(0, 122, 178)";
-            this.overlayContext.lineWidth = Math.max(1, Math.round(dpr));
-            this.overlayContext.strokeRect(x + 0.5, 0.5, Math.max(0, cellWidthPx - 1), Math.max(0, heightPx - 1));
-        }
+        const [colStart, colEnd] = this.getVisibleColumnRange();
+        const [rowStart, rowEnd] = this.getVisibleRowRange();
+        this.overlayPainter.drawMotifOverlay({
+            dpr,
+            cellWidthCss,
+            cellHeightCss,
+            colStart,
+            colEnd,
+            rowStart,
+            rowEnd,
+            scrollLeft: this.scroller.scrollLeft,
+            scrollTop: this.scroller.scrollTop,
+        });
     }
-    clearOverlay() {
-        if (!this.overlayContext) return;
-        this.overlayContext.clearRect(0, 0, this.overlay.width, this.overlay.height);
+    renderSelectionOverlay() {
+        const dpr = window.devicePixelRatio || 1;
+        const cellWidthCss = this.getRenderedCellWidthCss();
+        const cellHeightCss = this.getRenderedCellHeightCss();
+        const [colStart, colEnd] = this.getVisibleColumnRange();
+        const [rowStart, rowEnd] = this.getVisibleRowRange();
+        this.overlayPainter.drawOverlay({
+            dpr,
+            cellWidthCss,
+            cellHeightCss,
+            colStart,
+            colEnd,
+            rowStart,
+            rowEnd,
+            scrollLeft: this.scroller.scrollLeft,
+            scrollTop: this.scroller.scrollTop,
+        });
     }
-    render() {
+    renderOverlays() {
+        this.renderMotifOverlay();
+        this.renderSelectionOverlay();
+    }
+    renderSurface() {
         if (!this.renderBindGroup) return;
         this.renderer.render(this.context, this.renderBindGroup);
     }
-    ensureCanvasSize() {
+    syncSurfaceSize() {
         const viewportWidth = Math.max(1, this.scroller.clientWidth);
         const viewportHeight = Math.max(1, this.scroller.clientHeight);
         this.canvas.style.width = `${viewportWidth}px`;
         this.canvas.style.height = `${viewportHeight}px`;
+        this.motifOverlay.style.width = `${viewportWidth}px`;
+        this.motifOverlay.style.height = `${viewportHeight}px`;
         this.overlay.style.width = `${viewportWidth}px`;
         this.overlay.style.height = `${viewportHeight}px`;
 
@@ -194,15 +220,17 @@ export class AlignmentView {
         if (this.canvas.width !== width || this.canvas.height !== height) {
             this.canvas.width = width;
             this.canvas.height = height;
+            this.motifOverlay.width = width;
+            this.motifOverlay.height = height;
             this.overlay.width = width;
             this.overlay.height = height;
         }
-        this.drawOverlay();
+        this.renderOverlays();
     }
     setAlignmentSize(totalCols, totalRows, columnVisibility = null) {
         this.totalCols = columnVisibility?.visibleCount ?? totalCols;
         this.totalRows = totalRows;
-        this.columnVisibility = columnVisibility;
+        this.overlayPainter.setColumnVisibility(columnVisibility);
         const width = this.totalCols * this.getRenderedCellWidthCss();
         const height = totalRows * this.getRenderedCellHeightCss();
         this.spacer.style.width = `${width}px`;

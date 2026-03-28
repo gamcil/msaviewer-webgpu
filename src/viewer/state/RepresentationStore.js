@@ -74,6 +74,14 @@ export class RepresentationStore {
         const representation = this.get(id);
         if (!representation) return null;
         representation.columnVisibility = columnVisibility;
+        representation.motifSearch = null;
+        return representation;
+    }
+
+    setMotifSearch(id, motifSearch) {
+        const representation = this.get(id);
+        if (!representation) return null;
+        representation.motifSearch = motifSearch;
         return representation;
     }
 
@@ -95,6 +103,7 @@ export class RepresentationStore {
         const representation = this.get(id);
         if (!representation) return null;
         representation.columnVisibility = null;
+        representation.motifSearch = null;
         representation.trackState = null;
         representation.minimapCache = null;
         return representation;

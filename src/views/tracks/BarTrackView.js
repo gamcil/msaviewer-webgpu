@@ -1,21 +1,9 @@
-import { BaseTrackView } from "./BaseTrackView.js";
-import {
-    getTrackRenderGeometry,
-    renderBars,
-    renderGlyphs,
-    resolveInterpolatedColor,
-} from "./renderers/trackRenderers.js";
-import { createBarTrackStyle, createColorRamp, createGlyphTrackStyle } from "./trackStyles.js";
+import { MetricTrackView } from "./MetricTrackView.js";
+import { renderBars, renderGlyphs, prepareColorRamp } from "../renderers/trackRenderers.js";
+import { createBarTrackStyle, createGlyphTrackStyle } from "../trackStyles.js";
+import { buildBarRenderColumns, buildBarVisibleSlice, createBarColorRamps } from "../models/barRenderModel.js";
 
-function createBarColorRamps(colorRamps = {}) {
-    return {
-        fill: colorRamps.fill ? createColorRamp(colorRamps.fill) : null,
-        stroke: colorRamps.stroke ? createColorRamp(colorRamps.stroke) : null,
-        glyph: colorRamps.glyph ? createColorRamp(colorRamps.glyph) : null,
-    };
-}
-
-export class BarTrackView extends BaseTrackView {
+export class BarTrackView extends MetricTrackView {
     constructor({
         root,
         height,
@@ -32,10 +20,11 @@ export class BarTrackView extends BaseTrackView {
     }) {
         super({ root, height, id, label, sublabel, metric, valueRange, tooltip });
         this.style = createBarTrackStyle(style);
-        this.colorRamps = colorRamps ? createBarColorRamps(colorRamps) : { fill: null, stroke: null, glyph: null };
+        this.colorRamps = colorRamps ? createBarColorRamps(colorRamps, prepareColorRamp) : { fill: null, stroke: null, glyph: null };
         this.glyph = glyph;
         this.glyphStyle = createGlyphTrackStyle(glyphStyle);
         this.renderStyleDpr = null;
+        this.renderColumns = null;
     }
 
     setOptions({ style, colorRamps, valueRange, glyph, glyphStyle } = {}) {
@@ -46,17 +35,14 @@ export class BarTrackView extends BaseTrackView {
             });
         }
         if (valueRange !== undefined) {
-            this.valueRange = valueRange ? {
-                min: valueRange.min ?? 0,
-                max: valueRange.max ?? 1,
-            } : null;
+            this.setValueRange(valueRange);
         }
         if (colorRamps !== undefined) {
             this.colorRamps = colorRamps ? createBarColorRamps({
                 fill: colorRamps.fill ? { ...this.colorRamps?.fill, ...colorRamps.fill } : this.colorRamps?.fill,
                 stroke: colorRamps.stroke ? { ...this.colorRamps?.stroke, ...colorRamps.stroke } : this.colorRamps?.stroke,
                 glyph: colorRamps.glyph ? { ...this.colorRamps?.glyph, ...colorRamps.glyph } : this.colorRamps?.glyph,
-            }) : { fill: null, stroke: null, glyph: null };
+            }, prepareColorRamp) : { fill: null, stroke: null, glyph: null };
         }
         if (glyph !== undefined) {
             this.glyph = glyph;
@@ -67,12 +53,21 @@ export class BarTrackView extends BaseTrackView {
                 ...glyphStyle,
             });
         }
+        this.rebuildRenderColumns();
+        this.invalidateRenderCache();
     }
 
-    setTrackState(trackState) {
-        super.setTrackState(trackState);
-        const nextData = this.getMetricData(trackState);
-        this.setData(nextData);
+    setData(data) {
+        super.setData(data);
+        this.rebuildRenderColumns();
+    }
+
+    setTheme(theme) {
+        const prevDarkMode = this.theme?.darkMode;
+        super.setTheme(theme);
+        if (prevDarkMode !== theme?.darkMode) {
+            this.rebuildRenderColumns();
+        }
     }
 
     updateRenderStyles(dpr) {
@@ -105,57 +100,47 @@ export class BarTrackView extends BaseTrackView {
         return this.theme?.darkMode ? "#e6e6e6" : "#333";
     }
 
-    render() {
-        this.clear();
-        if (!this.data || !this.viewport || !this.context) return;
+    rebuildRenderColumns() {
+        this.renderColumns = buildBarRenderColumns(this.data, {
+            normalizeValue: (value) => this.normalizeValue(value),
+            colorRamps: this.colorRamps,
+            defaultFillStyle: this.style.fillStyle,
+            defaultStrokeStyle: this.style.strokeStyle,
+            defaultGlyphFillStyle: this.getResolvedGlyphFillStyle(),
+        });
+    }
 
-        const { colStart, colEnd } = this.viewport;
-        const visibleRawColumns = this.viewport.visibleRawColumns ?? null;
-        const { dpr, cellWidthPx, localScrollLeftPx } = getTrackRenderGeometry(this.viewport);
+    renderCachedWindow(context, {
+        visibleStart,
+        visibleEnd,
+        cellWidthPx,
+        localScrollLeftPx,
+        dpr,
+        heightPx,
+        columnVisibility,
+    }) {
+        if (!this.renderColumns) return;
         this.updateRenderStyles(dpr);
-        const heightPx = this.canvas.height;
         const showGlyphLane = this.glyphStyle.showGlyphs && cellWidthPx >= this.glyphStyle.minCellWidth;
         const glyphLanePx = showGlyphLane ? this.glyphFontPx + Math.max(2, Math.round(4 * dpr)) : 0;
         const plotHeightPx = Math.max(1, heightPx - glyphLanePx);
-        const bars = [];
-        const glyphs = [];
         const lineWidth = this.style.lineWidth ?? this.trackLineWidth;
-        for (let i = 0; i < (colEnd - colStart); i += 1) {
-            const rawCol = visibleRawColumns?.[i] ?? (colStart + i);
-            const score = this.data[rawCol] ?? 0;
-            const fraction = this.normalizeValue(score);
-            const fillColor = this.colorRamps.fill
-                ? resolveInterpolatedColor(score, this.colorRamps.fill)
-                : null;
-            const strokeColor = this.colorRamps.stroke
-                ? resolveInterpolatedColor(score, this.colorRamps.stroke)
-                : null;
-            bars.push({
-                column: i,
-                fraction,
-                baseY: plotHeightPx,
-                plotHeight: plotHeightPx,
-                fillStyle: fillColor ?? this.style.fillStyle,
-                strokeStyle: strokeColor ?? this.style.strokeStyle,
-                lineWidth,
-            });
-
-            if (showGlyphLane) {
-                const glyphSpec = this.getGlyphSpec(rawCol, score, fraction);
-                if (glyphSpec?.glyph) {
-                    const glyphColor = this.colorRamps.glyph
-                        ? (resolveInterpolatedColor(score, this.colorRamps.glyph) ?? glyphSpec.color ?? this.getResolvedGlyphFillStyle())
-                        : (glyphSpec.color ?? this.getResolvedGlyphFillStyle());
-                    glyphs.push({
-                        column: i,
-                        glyph: glyphSpec.glyph,
-                        color: glyphColor,
-                        y: glyphSpec.y ?? heightPx,
-                    });
+        const { bars, glyphs } = buildBarVisibleSlice(this.renderColumns, {
+            visibleStart,
+            visibleEnd,
+            columnVisibility,
+            plotHeightPx,
+            lineWidth,
+            getGlyphSpec: showGlyphLane
+                ? (rawCol, score, fraction) => {
+                    const glyphSpec = this.getGlyphSpec(rawCol, score, fraction);
+                    return glyphSpec?.glyph
+                        ? { ...glyphSpec, y: glyphSpec.y ?? heightPx }
+                        : null;
                 }
-            }
-        }
-        renderBars(this.context, {
+                : null,
+        });
+        renderBars(context, {
             bars,
             cellWidthPx,
             localScrollLeftPx,
@@ -165,11 +150,11 @@ export class BarTrackView extends BaseTrackView {
             lineWidth,
         });
         if (glyphs.length > 0) {
-            renderGlyphs(this.context, {
+            renderGlyphs(context, {
                 glyphs,
                 cellWidthPx,
                 localScrollLeftPx,
-                canvasHeight: this.canvas.height,
+                canvasHeight: heightPx,
                 font: this.glyphFont,
                 fillStyle: this.getResolvedGlyphFillStyle(),
                 textAlign: "center",
