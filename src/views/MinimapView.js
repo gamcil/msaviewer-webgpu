@@ -34,6 +34,7 @@ export class MinimapView {
         this.minimapOverlay.style.display = "block";
         
         this.onViewportRequest = null;
+        this.resizeFrameHandle = null;
         
         this.track.appendChild(this.minimap);
         this.track.appendChild(this.minimapOverlay);
@@ -41,15 +42,24 @@ export class MinimapView {
 
         this.minimapContext = this.minimap.getContext("2d");
         this.overlayContext = this.minimapOverlay.getContext("2d");
+        const scheduleResizeRedraw = () => {
+            if (this.resizeFrameHandle != null) return;
+            this.resizeFrameHandle = requestAnimationFrame(() => {
+                this.resizeFrameHandle = null;
+                this.refreshRendering();
+            });
+        };
         this.minimapSizedCanvas = new SizedCanvas2D({
             root: this.track,
             canvas: this.minimap,
             getCssHeight: () => this.track.clientHeight || 0,
+            onResize: scheduleResizeRedraw,
         });
         this.overlaySizedCanvas = new SizedCanvas2D({
             root: this.track,
             canvas: this.minimapOverlay,
             getCssHeight: () => this.track.clientHeight || 0,
+            onResize: scheduleResizeRedraw,
         });
         this.interactionController = new MinimapInteractionController({
             element: this.minimapOverlay,
@@ -70,9 +80,11 @@ export class MinimapView {
     }
 
     getViewportPixelSize() {
+        const baseSize = this.minimapSizedCanvas.ensureSize();
+        this.overlaySizedCanvas.ensureSize();
         return {
-            width: this.minimap.width,
-            height: this.minimap.height,
+            width: baseSize.width,
+            height: baseSize.height,
         };
     }
      
@@ -137,6 +149,9 @@ export class MinimapView {
     }
 
     destroy() {
+        if (this.resizeFrameHandle != null) {
+            cancelAnimationFrame(this.resizeFrameHandle);
+        }
         this.interactionController.destroy();
         this.minimapSizedCanvas.destroy();
         this.overlaySizedCanvas.destroy();

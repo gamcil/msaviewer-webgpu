@@ -3,11 +3,14 @@ export class SizedCanvas2D {
         root,
         canvas,
         getCssHeight,
+        onResize = null,
     }) {
         this.root = root;
         this.canvas = canvas;
         this.getCssHeight = getCssHeight;
+        this.onResize = onResize;
         this.cachedCssWidth = 0;
+        this.cachedCssHeight = 0;
         this.cachedDpr = 0;
         this.sizeDirty = true;
         this.resizeObserver = null;
@@ -21,9 +24,12 @@ export class SizedCanvas2D {
         this.resizeObserver = new ResizeObserver((entries) => {
             const entry = entries[0];
             const width = entry?.contentRect?.width ?? this.root.clientWidth ?? 0;
-            if (width !== this.cachedCssWidth) {
+            const height = entry?.contentRect?.height ?? this.getCssHeight() ?? 0;
+            if (width !== this.cachedCssWidth || height !== this.cachedCssHeight) {
                 this.cachedCssWidth = width;
+                this.cachedCssHeight = height;
                 this.sizeDirty = true;
+                this.onResize?.();
             }
         });
         this.resizeObserver.observe(this.root);
@@ -36,7 +42,7 @@ export class SizedCanvas2D {
     ensureSize() {
         const dpr = window.devicePixelRatio || 1;
         const cssWidth = this.cachedCssWidth || this.root.clientWidth || this.root.getBoundingClientRect().width;
-        const cssHeight = this.getCssHeight();
+        const cssHeight = this.cachedCssHeight || this.getCssHeight();
         const width = Math.max(1, Math.round(cssWidth * dpr));
         const height = Math.max(1, Math.round(cssHeight * dpr));
         if (
@@ -49,6 +55,7 @@ export class SizedCanvas2D {
         }
 
         this.cachedCssWidth = cssWidth;
+        this.cachedCssHeight = cssHeight;
         this.cachedDpr = dpr;
         this.sizeDirty = false;
         this.canvas.style.width = `${cssWidth}px`;
