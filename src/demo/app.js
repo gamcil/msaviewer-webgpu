@@ -52,6 +52,37 @@ function syncSchemeOptions({ schemeSelect, schemeCatalog, alphabet, selectedSche
     }
 }
 
+function formatRepresentationLabel(representation, alphabetRegistry) {
+    const alphabetLabel = alphabetRegistry.get(representation.alphabetId)?.label ?? representation.alphabetId;
+    return `${representation.label} (${alphabetLabel})`;
+}
+
+function setStatus(statusEl, message) {
+    statusEl.textContent = message;
+}
+
+function syncSelectionButton(clearButton, selectionCount) {
+    if (selectionCount > 0) {
+        clearButton.innerHTML = `Clear ${selectionCount}<br>selection${selectionCount === 1 ? "" : "s"}`;
+        clearButton.disabled = false;
+        return;
+    }
+    clearButton.innerHTML = "Clear<br>selection";
+    clearButton.disabled = true;
+}
+
+function populateRepresentationOptions(representationSelect, representations, alphabetRegistry) {
+    representationSelect.replaceChildren();
+    for (const representation of representations) {
+        const option = document.createElement("option");
+        option.value = representation.id;
+        option.textContent = formatRepresentationLabel(representation, alphabetRegistry);
+        representationSelect.appendChild(option);
+    }
+    representationSelect.disabled = representations.length === 0;
+    representationSelect.value = representations[0]?.id ?? "";
+}
+
 async function main() {
     const root = document.getElementById("viewer");
     const fileInput = document.getElementById("file-input");
@@ -92,6 +123,18 @@ async function main() {
             alphabet,
             selectedSchemeKey,
         });
+    };
+
+    const syncLoadedControls = () => {
+        const hasActiveRepresentation = representationSelect.disabled !== true && representationSelect.value !== "";
+        motifSearchButton.disabled = !hasActiveRepresentation;
+    };
+
+    const syncControls = () => {
+        refreshSchemeSelect();
+        syncMaskControls();
+        syncSelectionModeControl();
+        syncLoadedControls();
     };
 
     const syncMaskControls = () => {
@@ -160,7 +203,7 @@ async function main() {
         if (pendingFilesPanel.contains(event.target) || uploadButton.contains(event.target)) return;
         pendingFiles = [];
         renderPendingFiles();
-        status.textContent = "Load an alignment to begin.";
+        setStatus(status, "Load an alignment to begin.");
     });
     schemeSelect.addEventListener("change", async (event) => {
         await viewer.setScheme(event.target.value);
@@ -175,18 +218,16 @@ async function main() {
         if (!event.target.value) return;
         try {
             await viewer.setActiveRepresentation(event.target.value);
-            refreshSchemeSelect();
-            syncMaskControls();
-            syncSelectionModeControl();
-            status.textContent = `Switched to ${event.target.selectedOptions[0].textContent}`;
+            syncControls();
+            setStatus(status, `Switched to ${event.target.selectedOptions[0].textContent}`);
         } catch (error) {
-            status.textContent = error.message;
+            setStatus(status, error.message);
             console.error(error);
         }
     });
     selectionModeSelect.addEventListener("change", (event) => {
         viewer.setSelectionMode(event.target.value);
-        status.textContent = `Selection mode: ${event.target.selectedOptions[0].textContent}`;
+        setStatus(status, `Selection mode: ${event.target.selectedOptions[0].textContent}`);
     });
     fileInput.addEventListener("change", async (event) => {
         const files = Array.from(event.target.files ?? []);
@@ -197,14 +238,14 @@ async function main() {
             alphabetId: inferAlphabetId(file.name),
         }));
         renderPendingFiles();
-        status.textContent = `Selected ${files.length} file${files.length === 1 ? "" : "s"}. Confirm alphabets, then load.`;
+        setStatus(status, `Selected ${files.length} file${files.length === 1 ? "" : "s"}. Confirm alphabets, then load.`);
         fileInput.value = "";
     });
 
     loadFilesButton.addEventListener("click", async () => {
         if (pendingFiles.length === 0) return;
         try {
-            status.textContent = `Loading ${pendingFiles.length} alignment file${pendingFiles.length === 1 ? "" : "s"}...`;
+            setStatus(status, `Loading ${pendingFiles.length} alignment file${pendingFiles.length === 1 ? "" : "s"}...`);
             const representations = await Promise.all(pendingFiles.map(async (pendingFile) => {
                 const format = pendingFile.file.name.toLowerCase().endsWith(".a3m") ? "a3m" : "fasta";
                 const store = format === "a3m"
@@ -219,39 +260,23 @@ async function main() {
             }));
 
             await viewer.loadRepresentations(representations, { activeId: representations[0].id });
-            refreshSchemeSelect();
-            syncMaskControls();
-
-            representationSelect.replaceChildren();
-            for (const representation of representations) {
-                const option = document.createElement("option");
-                option.value = representation.id;
-                option.textContent = representation.label;
-                representationSelect.appendChild(option);
-            }
-            representationSelect.disabled = false;
-            representationSelect.value = representations[0].id;
+            populateRepresentationOptions(representationSelect, representations, defaultAlphabetRegistry);
+            syncControls();
 
             pendingFiles = [];
             renderPendingFiles();
 
             const { totalRows, totalCols } = representations[0].store;
-            status.textContent = `Loaded ${representations.length} representations. Active: ${representations[0].label} (${totalRows} sequences x ${totalCols} columns)`;
+            setStatus(status, `Loaded ${representations.length} representations. Active: ${representations[0].label} (${totalRows} sequences x ${totalCols} columns)`);
         } catch (error) {
-            status.textContent = error.message;
+            setStatus(status, error.message);
             console.error(error);
         }
     });
     
-    const unsubscribe = viewer.onSelectionChange((selection) => {
+    viewer.onSelectionChange((selection) => {
         const selectionCount = selection?.componentCount ?? 0;
-        if (selectionCount > 0) {
-            clearButton.textContent = `Clear ${selectionCount} selection${selectionCount === 1 ? "" : "s"}`;
-            clearButton.disabled = false;
-        } else {
-            clearButton.textContent = "Clear selection";
-            clearButton.disabled = true;
-        }
+        syncSelectionButton(clearButton, selectionCount);
     });
 
     clearButton.onclick = () => {
@@ -266,19 +291,19 @@ async function main() {
         try {
             if (!trimmedQuery) {
                 await viewer.clearMotifQuery();
-                status.textContent = "Motif search cleared.";
+                setStatus(status, "Motif search cleared.");
                 return;
             }
             await viewer.setMotifQuery(trimmedQuery);
-            status.textContent = `Motif search: ${trimmedQuery} (${viewer.getMotifMatchCount()} matches)`;
+            setStatus(status, `Motif search: ${trimmedQuery} (${viewer.getMotifMatchCount()} matches)`);
         } catch (error) {
-            status.textContent = error.message;
+            setStatus(status, error.message);
             console.error(error);
         }
     });
 
-    syncMaskControls();
-    syncSelectionModeControl();
+    syncSelectionButton(clearButton, 0);
+    syncControls();
 }
 
 main().catch((error) => {

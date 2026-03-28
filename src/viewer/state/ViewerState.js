@@ -351,7 +351,7 @@ export class ViewerState {
         if (!["column", "row", "cell"].includes(mode)) return;
         if (this.state.selection.mode === mode) return;
         this.state.selection.mode = mode;
-        this.state.selection.componentCount = countSelectionComponents(this.state.selection.ranges, mode);
+        this.state.selection.componentCount = countNormalizedSelectionComponents(this.state.selection.ranges, mode);
         this.emitSelection();
         this.emit();
     }
