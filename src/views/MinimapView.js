@@ -3,11 +3,13 @@ Minimap
 */
 import { SizedCanvas2D } from "./helpers/SizedCanvas2D.js";
 import { MinimapInteractionController } from "./helpers/MinimapInteractionController.js";
+import { drawSelectionUnion } from "./renderers/selectionUnionRenderer.js";
 
 export class MinimapView {
     constructor({ root }) {
         this.root = root;
         this.viewportRect = null;
+        this.selectionGeometry = { rowIntervals: new Map(), totalRows: 0, totalCols: 0 };
         this.imageData = null;
         
         this.offscreen = document.createElement("canvas");
@@ -100,6 +102,11 @@ export class MinimapView {
         this.drawOverlay();
     }
 
+    setSelectionBands(selectionGeometry = { rowIntervals: new Map(), totalRows: 0, totalCols: 0 }) {
+        this.selectionGeometry = selectionGeometry ?? { rowIntervals: new Map(), totalRows: 0, totalCols: 0 };
+        this.drawOverlay();
+    }
+
     refreshRendering() {
         this.drawBase();
         this.drawOverlay();
@@ -108,10 +115,33 @@ export class MinimapView {
     clear() {
         this.imageData = null;
         this.viewportRect = null;
+        this.selectionGeometry = { rowIntervals: new Map(), totalRows: 0, totalCols: 0 };
         this.minimap.width = 0;
         this.minimap.height = 0;
         this.minimapOverlay.width = 0;
         this.minimapOverlay.height = 0;
+    }
+
+    drawSelectionUnion(width, height) {
+        const { rowIntervals, totalRows, totalCols } = this.selectionGeometry ?? {};
+        if (!(rowIntervals instanceof Map) || rowIntervals.size === 0 || totalRows <= 0 || totalCols <= 0) {
+            return;
+        }
+
+        const rowHeightPx = height / totalRows;
+        drawSelectionUnion({
+            context: this.overlayContext,
+            rowIntervals,
+            getRowY: (row) => row * rowHeightPx,
+            getRowHeight: () => rowHeightPx,
+            getIntervalX: (interval) => (interval.colStart / totalCols) * width,
+            getIntervalWidth: (interval) => ((interval.colEnd - interval.colStart) / totalCols) * width,
+            washFillStyle: "rgba(255, 255, 255, 0.35)",
+            fillStyle: "rgba(89, 211, 255, 0.22)",
+            strokeStyle: "rgba(0, 122, 178, 0.7)",
+            lineWidth: 1,
+            lineDash: [],
+        });
     }
 
     drawBase() {
@@ -137,6 +167,10 @@ export class MinimapView {
             return;
         }
         this.overlayContext.clearRect(0, 0, width, height);
+        if (!this.viewportRect) {
+            // continue so selection bands can render independently
+        }
+        this.drawSelectionUnion(width, height);
         if (!this.viewportRect) {
             return;
         }

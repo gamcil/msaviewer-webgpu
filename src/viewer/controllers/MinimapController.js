@@ -1,4 +1,5 @@
 import { getProjectedChunkColCount, materializeProjectedWindow } from "../projectedWindow.js";
+import { projectSelectionRowIntervals } from "../../views/models/alignmentOverlayGeometry.js";
 
 function finalizeMinimapPixels(outPixels, readback, darkMode) {
     const pixelCount = outPixels.length / 4;
@@ -19,6 +20,24 @@ function finalizeMinimapPixels(outPixels, readback, darkMode) {
         outPixels[dstOffset + 2] = Math.round(readback[srcOffset + 2] / weight);
         outPixels[dstOffset + 3] = 255;
     }
+}
+
+function buildSelectionBands({ selection, totalRows, totalCols, columnVisibility = null }) {
+    if (!selection?.ranges?.length || totalRows <= 0 || totalCols <= 0) {
+        return { rowIntervals: new Map(), totalRows, totalCols };
+    }
+    return {
+        rowIntervals: projectSelectionRowIntervals(
+            selection.ranges,
+            columnVisibility,
+            0,
+            totalCols,
+            0,
+            totalRows
+        ),
+        totalRows,
+        totalCols,
+    };
 }
 
 export class MinimapController {
@@ -292,5 +311,23 @@ export class MinimapController {
         const width = Math.max(1, viewportWidth / contentWidth * minimapWidth);
         const height = Math.max(1, viewportHeight / contentHeight * minimapHeight);
         this.minimapView.setViewportRect({ x, y, width, height });
+    }
+
+    syncSelectionBands({
+        selection,
+        alignmentStore,
+        columnVisibility = null,
+    }) {
+        if (!this.minimapView) return;
+        const totalRows = alignmentStore?.totalRows ?? 0;
+        const totalCols = columnVisibility?.visibleCount ?? alignmentStore?.totalCols ?? 0;
+        this.minimapView.setSelectionBands(
+            buildSelectionBands({
+                selection,
+                totalRows,
+                totalCols,
+                columnVisibility,
+            })
+        );
     }
 }

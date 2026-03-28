@@ -1,7 +1,7 @@
 import {
     buildOverlayGeometry,
-    getIntervalDifference,
 } from "../models/alignmentOverlayGeometry.js";
+import { drawSelectionUnion } from "../renderers/selectionUnionRenderer.js";
 
 export class AlignmentOverlayPainter {
     constructor({
@@ -200,59 +200,19 @@ export class AlignmentOverlayPainter {
         if (rowIntervals.size === 0) return;
 
         const lineWidth = dashed ? Math.max(1.2, Math.round(1.2 * dpr)) : Math.max(1, Math.round(dpr));
-        this.overlayContext.fillStyle = this.getSelectionWashFillStyle();
-        for (const [row, intervals] of rowIntervals.entries()) {
-            const y = (row - rowStart) * cellHeightPx - localScrollTopPx;
-            for (const interval of intervals) {
-                const x = (interval.colStart - colStart) * cellWidthPx - localScrollLeftPx;
-                const widthPx = (interval.colEnd - interval.colStart) * cellWidthPx;
-                this.overlayContext.fillRect(x, y, widthPx, cellHeightPx);
-            }
-        }
-        this.overlayContext.fillStyle = fillStyle;
-        for (const [row, intervals] of rowIntervals.entries()) {
-            const y = (row - rowStart) * cellHeightPx - localScrollTopPx;
-            for (const interval of intervals) {
-                const x = (interval.colStart - colStart) * cellWidthPx - localScrollLeftPx;
-                const widthPx = (interval.colEnd - interval.colStart) * cellWidthPx;
-                this.overlayContext.fillRect(x, y, widthPx, cellHeightPx);
-            }
-        }
-
-        this.overlayContext.strokeStyle = strokeStyle;
-        this.overlayContext.lineWidth = lineWidth;
-        this.overlayContext.setLineDash(dashed ? [Math.max(4, Math.round(4 * dpr)), Math.max(3, Math.round(3 * dpr))] : []);
-        this.overlayContext.beginPath();
-        for (const [row, intervals] of rowIntervals.entries()) {
-            const y = (row - rowStart) * cellHeightPx - localScrollTopPx;
-            const prevIntervals = rowIntervals.get(row - 1) ?? [];
-            const nextIntervals = rowIntervals.get(row + 1) ?? [];
-
-            for (const interval of intervals) {
-                const x = (interval.colStart - colStart) * cellWidthPx - localScrollLeftPx;
-                const widthPx = (interval.colEnd - interval.colStart) * cellWidthPx;
-                this.overlayContext.moveTo(x + 0.5, y);
-                this.overlayContext.lineTo(x + 0.5, y + cellHeightPx);
-                this.overlayContext.moveTo(x + widthPx - 0.5, y);
-                this.overlayContext.lineTo(x + widthPx - 0.5, y + cellHeightPx);
-            }
-
-            for (const span of getIntervalDifference(intervals, prevIntervals)) {
-                const x = (span.colStart - colStart) * cellWidthPx - localScrollLeftPx;
-                const widthPx = (span.colEnd - span.colStart) * cellWidthPx;
-                this.overlayContext.moveTo(x, y + 0.5);
-                this.overlayContext.lineTo(x + widthPx, y + 0.5);
-            }
-
-            for (const span of getIntervalDifference(intervals, nextIntervals)) {
-                const x = (span.colStart - colStart) * cellWidthPx - localScrollLeftPx;
-                const widthPx = (span.colEnd - span.colStart) * cellWidthPx;
-                this.overlayContext.moveTo(x, y + cellHeightPx - 0.5);
-                this.overlayContext.lineTo(x + widthPx, y + cellHeightPx - 0.5);
-            }
-        }
-        this.overlayContext.stroke();
-        this.overlayContext.setLineDash([]);
+        drawSelectionUnion({
+            context: this.overlayContext,
+            rowIntervals,
+            getRowY: (row) => (row - rowStart) * cellHeightPx - localScrollTopPx,
+            getRowHeight: () => cellHeightPx,
+            getIntervalX: (interval) => (interval.colStart - colStart) * cellWidthPx - localScrollLeftPx,
+            getIntervalWidth: (interval) => (interval.colEnd - interval.colStart) * cellWidthPx,
+            washFillStyle: this.getSelectionWashFillStyle(),
+            fillStyle,
+            strokeStyle,
+            lineWidth,
+            lineDash: dashed ? [Math.max(4, Math.round(4 * dpr)), Math.max(3, Math.round(3 * dpr))] : [],
+        });
     }
 
     getSelectionWashFillStyle() {

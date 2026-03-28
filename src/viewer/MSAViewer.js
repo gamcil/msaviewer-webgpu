@@ -894,6 +894,16 @@ export class MSAViewer {
         this.selectionController?.syncOverlay(selection);
     }
 
+    syncMinimapSelectionBands(selection = this.state.getSelectionSnapshot()) {
+        const alignmentStore = this.getActiveAlignmentStore();
+        const activeRepresentation = this.getActiveRepresentation();
+        this.minimapController?.syncSelectionBands({
+            selection,
+            alignmentStore,
+            columnVisibility: activeRepresentation?.columnVisibility ?? null,
+        });
+    }
+
     // Expose selected columns to outer app
     getSelectedColumns() {
         return this.state.getSelectedColumns();
@@ -1055,6 +1065,7 @@ export class MSAViewer {
             if (selection === prevSelection) return;
             prevSelection = selection;
             this.syncAlignmentOverlay(selection);
+            this.syncMinimapSelectionBands(selection);
         })
 
         this.viewportController?.bind();
@@ -1157,6 +1168,7 @@ export class MSAViewer {
         this.headerView?.renderRecords(records);
         this.headerView?.syncScroll(this.alignmentView.scroller.scrollTop);
         this.selectionController?.syncOverlay(this.state.getSelectionSnapshot());
+        this.syncMinimapSelectionBands();
         this.requestRender();
     }
 
@@ -1164,6 +1176,7 @@ export class MSAViewer {
         await this.performVisibleWindowUpload();
         await this.rebuildMinimap();
         this.viewportController?.syncMinimapViewportRect();
+        this.syncMinimapSelectionBands();
         this.syncAlignmentOverlay();
         await this.motifController?.refreshActiveRepresentation();
         this.ensureTracks();
@@ -1301,6 +1314,7 @@ export class MSAViewer {
             activeRepresentation.store.totalRows,
             columnVisibility
         );
+        this.syncMinimapSelectionBands();
         this.viewportController?.refreshLayout();
         this.scheduleVisibleWindowUpload();
         this.scheduleMinimapRebuild();
