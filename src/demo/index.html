@@ -76,7 +76,7 @@
         }
         .toolbar-group {
             display: inline-flex;
-            align-items: center;
+            align-items: flex-end;
             gap: 8px;
             flex: 0 0 auto;
             min-width: 0;
@@ -94,6 +94,11 @@
         .loader-anchor {
             position: relative;
             flex: 0 0 auto;
+        }
+        .toolbar-action {
+            display: inline-flex;
+            align-items: flex-end;
+            min-height: 100%;
         }
         .toolbar-field {
             display: grid;
@@ -173,6 +178,27 @@
         .mask-toggle input[type="checkbox"] {
             margin: 0;
         }
+        .toolbar-checklist {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, max-content));
+            align-items: center;
+            column-gap: 10px;
+            row-gap: 4px;
+        }
+        .toolbar-check {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            font-size: 12px;
+            font-weight: 500;
+            white-space: nowrap;
+        }
+        .toolbar-check input[type="checkbox"] {
+            margin: 0;
+        }
+        #track-toggle-list {
+            min-width: 0;
+        }
         .mask-input {
             width: 64px;
             min-width: 0;
@@ -229,7 +255,7 @@
         }
         .pending-modal {
             position: absolute;
-            top: 100%;
+            top: calc(100% + 6px);
             left: 0;
             z-index: 20;
             width: min(360px, calc(100vw - 32px));
@@ -299,22 +325,21 @@
 <body>
     <div class="toolbar">
         <div class="toolbar-row controls" role="toolbar" aria-label="MSA demo controls">
-            <div class="toolbar-group">
-                <div class="loader-anchor">
-                    <button id="upload-button" type="button">Open<br>Files</button>
-                </div>
-            </div>
-            <div class="pending-modal" id="pending-files-panel" hidden>
-                <div class="pending-modal-card" role="dialog" aria-labelledby="pending-modal-title">
-                    <div class="pending-modal-title">
-                        <p>Choose alphabets for alignments, then load.</p>
+                <div class="toolbar-group">
+                    <div class="loader-anchor toolbar-action">
+                        <button id="upload-button" type="button">Open<br>Files</button>
+                        <div class="pending-modal" id="pending-files-panel" hidden>
+                            <div class="pending-modal-card" role="dialog" aria-labelledby="pending-modal-title">
+                                <div class="pending-modal-title">
+                                    <p>Choose alphabets for alignments, then load.</p>
+                                </div>
+                                <div class="pending-file-list" id="pending-file-list"></div>
+                                <button id="load-files-button" type="button" disabled>Load files</button>
+                            </div>
+                        </div>
                     </div>
-                    <div class="pending-file-list" id="pending-file-list"></div>
-                    <button id="load-files-button" type="button" disabled>Load files</button>
                 </div>
-            </div>
             <div class="toolbar-strip">
-                <div class="toolbar-separator" aria-hidden="true"></div>
                 <div class="toolbar-group">
                     <div class="toolbar-field">
                         <label for="representation-select">Representation</label>
@@ -384,13 +409,20 @@
                 </div>
                 <div class="toolbar-separator" aria-hidden="true"></div>
                 <div class="toolbar-group">
-                    <div class="column-selection-info">
+                    <div class="toolbar-action">
                         <button disabled id="clear-selection-button">Clear<br>Selection</button>
                     </div>                           
                 </div>
                 <div class="toolbar-separator" aria-hidden="true"></div>
                 <div class="toolbar-group">
-                    <div class="column-selection-info">
+                    <div class="toolbar-field">
+                        <label>Tracks</label>
+                        <div class="toolbar-checklist" id="track-toggle-list"></div>
+                    </div>
+                </div>
+                <div class="toolbar-separator" aria-hidden="true"></div>
+                <div class="toolbar-group">
+                    <div class="toolbar-action">
                         <button id="motif-search-button" type="button">Motif<br>Search</button>
                     </div>
                 </div>

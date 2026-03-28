@@ -19,7 +19,6 @@ import { GpuResourceManager } from "../graphics/GpuResourceManager.js";
 import { PipelineRegistry } from "../graphics/PipelineRegistry.js";
 import { TrackStackView } from "../views/TrackStackView.js";
 import { BarTrackView } from "../views/tracks/BarTrackView.js";
-import { LineTrackView } from "../views/tracks/LineTrackView.js";
 import { ConsensusTrackView } from "../views/tracks/ConsensusTrackView.js";
 import { TrackStateBuilder } from "./TrackStateBuilder.js";
 import { MinimapController } from "./controllers/MinimapController.js";
@@ -295,6 +294,7 @@ export class MSAViewer {
         this.decodedTileCache = new TileCache(64 * 1024 * 1024);
         this.viewportOverscanRows = 8;
         this.viewportOverscanCols = 32;
+        this.enabledTrackIds = ["consensus", "quality", "conservation", "occupancy"];
         
         this.isScrolling = false;
         
@@ -696,111 +696,164 @@ export class MSAViewer {
         };
     }
 
-    createDefaultTracksForStack() {
-        const qualityTrackRoot = document.createElement("div");
-        qualityTrackRoot.className = "msa-track";
-        const qualityTrackView = new BarTrackView({
-            root: qualityTrackRoot,
-            id: "quality",
-            label: "Quality",
-            height: 60,
-            style: {
-                strokeStyle: "#063306",
-            },
-            colorRamps: {
-                fill: {
-                    minScore: 0,
-                    maxScore: 1,
-                    minColor: "#063306",
-                    maxColor: "#77ca8f",
-                },
-            },
-        });
-
-        const occupancyTrackRoot = document.createElement("div");
-        occupancyTrackRoot.className = "msa-track";
-        const occupancyTrackView = new BarTrackView({
-            root: occupancyTrackRoot,
-            id: "occupancy",
-            label: "Occupancy",
-            height: 60,
-            style: {
-                strokeStyle: "#3e2709",
-            },
-            colorRamps: {
-                fill: {
-                    minScore: 0,
-                    maxScore: 1,
-                    minColor: "#3e2709",
-                    maxColor: "#d4b080",
-                },
-            },
-        });
-
-        const entropyTrackRoot = document.createElement("div");
-        entropyTrackRoot.className = "msa-track";
-        const entropyTrackView = new LineTrackView({
-            root: entropyTrackRoot,
-            id: "entropy",
-            label: "Entropy",
-            height: 60,
-        });
-        
-        const conservationTrackRoot = document.createElement("div");
-        conservationTrackRoot.className = "msa-track";
-        const conservationTrackView = new BarTrackView({
-            root: conservationTrackRoot,
-            id: "conservation",
-            label: "Conservation",
-            metric: "conservationScore",
-            valueRange: { min: 0, max: 11 },
-            tooltip: (context) => this.buildConservationTooltip(context),
-            height: 80,
-            style: {
-                strokeStyle: "#080947",
-            },
-            colorRamps: {
-                fill: { minScore: 0, maxScore: 11, minColor: "#080947", maxColor: "#87a7f3", },
-                glyph: { minScore: 0, maxScore: 11, minColor: "#080947", maxColor: "#87a7f3", },
-            },
-            glyph: ({ value }) => {
-                if (value === 11) return { glyph: "*" };
-                if (value === 10) return { glyph: "+" };
-                return { glyph: value };
-            },
-            glyphStyle: {
-                showGlyphs: true
-            }
-        });
-
-        const consensusTrackRoot = document.createElement("div");
-        consensusTrackRoot.className = "msa-track";
-        const consensusTrackView = new ConsensusTrackView({
-            root: consensusTrackRoot,
-            id: "consensus",
-            label: "Consensus",
-            height: 80,
-            darkMode: this.state.getResolvedDarkMode(),
-        });
-
+    getDefaultTrackDefinitions() {
         return [
-            consensusTrackView,
-            qualityTrackView,
-            // entropyTrackView,
-            conservationTrackView,
-            occupancyTrackView,
+            {
+                id: "consensus",
+                label: "Consensus",
+                create: () => {
+                    const root = document.createElement("div");
+                    root.className = "msa-track";
+                    return new ConsensusTrackView({
+                        root,
+                        id: "consensus",
+                        label: "Consensus",
+                        height: 80,
+                        darkMode: this.state.getResolvedDarkMode(),
+                    });
+                },
+            },
+            {
+                id: "quality",
+                label: "Quality",
+                create: () => {
+                    const root = document.createElement("div");
+                    root.className = "msa-track";
+                    return new BarTrackView({
+                        root,
+                        id: "quality",
+                        label: "Quality",
+                        height: 60,
+                        style: { strokeStyle: "#063306" },
+                        colorRamps: {
+                            fill: {
+                                minScore: 0,
+                                maxScore: 1,
+                                minColor: "#063306",
+                                maxColor: "#77ca8f",
+                            },
+                        },
+                    });
+                },
+            },
+            {
+                id: "conservation",
+                label: "Conservation",
+                create: () => {
+                    const root = document.createElement("div");
+                    root.className = "msa-track";
+                    return new BarTrackView({
+                        root,
+                        id: "conservation",
+                        label: "Conservation",
+                        metric: "conservationScore",
+                        valueRange: { min: 0, max: 11 },
+                        tooltip: (context) => this.buildConservationTooltip(context),
+                        height: 80,
+                        style: { strokeStyle: "#080947" },
+                        colorRamps: {
+                            fill: { minScore: 0, maxScore: 11, minColor: "#080947", maxColor: "#87a7f3" },
+                            glyph: { minScore: 0, maxScore: 11, minColor: "#080947", maxColor: "#87a7f3" },
+                        },
+                        glyph: ({ value }) => {
+                            if (value === 11) return { glyph: "*" };
+                            if (value === 10) return { glyph: "+" };
+                            return { glyph: value };
+                        },
+                        glyphStyle: { showGlyphs: true },
+                    });
+                },
+            },
+            {
+                id: "occupancy",
+                label: "Occupancy",
+                create: () => {
+                    const root = document.createElement("div");
+                    root.className = "msa-track";
+                    return new BarTrackView({
+                        root,
+                        id: "occupancy",
+                        label: "Occupancy",
+                        height: 60,
+                        style: { strokeStyle: "#3e2709" },
+                        colorRamps: {
+                            fill: {
+                                minScore: 0,
+                                maxScore: 1,
+                                minColor: "#3e2709",
+                                maxColor: "#d4b080",
+                            },
+                        },
+                    });
+                },
+            },
         ];
+    }
+
+    createTrackById(trackId) {
+        const definition = this.getDefaultTrackDefinitions().find((track) => track.id === trackId);
+        return definition?.create?.() ?? null;
+    }
+
+    getAvailableTracks() {
+        return this.getDefaultTrackDefinitions().map(({ id, label }) => ({ id, label }));
+    }
+
+    getEnabledTrackIds() {
+        return [...this.enabledTrackIds];
+    }
+
+    syncTrackVisibility() {
+        if (this.trackStackViews.length === 0) return;
+        const trackDefinitions = this.getDefaultTrackDefinitions();
+        const enabledTrackIds = this.enabledTrackIds.filter((id) => trackDefinitions.some((track) => track.id === id));
+
+        for (const trackStackView of this.trackStackViews) {
+            for (const track of [...trackStackView.tracks]) {
+                if (!enabledTrackIds.includes(track.id)) {
+                    trackStackView.removeTrack(track.id);
+                }
+            }
+            enabledTrackIds.forEach((trackId, index) => {
+                if (trackStackView.hasTrack(trackId)) return;
+                const track = this.createTrackById(trackId);
+                if (!track) return;
+                trackStackView.addTrackAt(track, index);
+            });
+            trackStackView.setTheme({ darkMode: this.state.getResolvedDarkMode() });
+            if (this.getActiveRepresentation()?.trackState) {
+                trackStackView.setTrackState(this.getActiveRepresentation().trackState);
+            }
+            this.viewportController?.syncTracksViewport();
+        }
+    }
+
+    setEnabledTrackIds(trackIds) {
+        const availableTrackIds = new Set(this.getAvailableTracks().map((track) => track.id));
+        this.enabledTrackIds = Array.from(trackIds ?? []).filter((id) => availableTrackIds.has(id));
+        this.syncTrackVisibility();
+    }
+
+    toggleTrack(trackId, enabled = null) {
+        const availableTrackIds = new Set(this.getAvailableTracks().map((track) => track.id));
+        if (!availableTrackIds.has(trackId)) return;
+        const next = new Set(this.enabledTrackIds);
+        const shouldEnable = enabled == null ? !next.has(trackId) : enabled === true;
+        if (shouldEnable) {
+            next.add(trackId);
+        } else {
+            next.delete(trackId);
+        }
+        const ordered = this.getAvailableTracks().map((track) => track.id).filter((id) => next.has(id));
+        this.setEnabledTrackIds(ordered);
     }
     
     ensureTracks() {
         if (this.trackStackViews.length === 0) return;
         for (const trackStackView of this.trackStackViews) {
             if (trackStackView.tracks.length > 0) continue;
-            for (const track of this.createDefaultTracksForStack()) {
-                trackStackView.addTrack(track);
-            }
-            trackStackView.setTheme({ darkMode: this.state.getResolvedDarkMode() });
         }
+        this.syncTrackVisibility();
     }
     
     getCoordsFromScrollerPosition({ clientX, clientY }) {

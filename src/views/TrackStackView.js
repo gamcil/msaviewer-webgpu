@@ -46,8 +46,14 @@ export class TrackStackView {
     }
 
     addTrack(track) {
-        this.tracks.push(track);
-        this.root.appendChild(track.root);
+        this.addTrackAt(track, this.tracks.length);
+    }
+
+    addTrackAt(track, index) {
+        const insertIndex = Math.max(0, Math.min(index, this.tracks.length));
+        this.tracks.splice(insertIndex, 0, track);
+        const nextTrack = this.tracks[insertIndex + 1] ?? null;
+        this.root.insertBefore(track.root, nextTrack?.root ?? this.tooltipOverlay);
         if (this.viewport) {
             track.setViewport(this.viewport);
         }
@@ -60,10 +66,20 @@ export class TrackStackView {
         this.updateTooltipBounds();
     }
 
+    hasTrack(trackId) {
+        return this.tracks.some((track) => track.id === trackId);
+    }
+
+    getTrack(trackId) {
+        return this.tracks.find((track) => track.id === trackId) ?? null;
+    }
+
     removeTrack(trackId) {
         const idx = this.tracks.findIndex((track) => track.id === trackId);
         if (idx === -1) return;
-        this.tracks[idx].destroy();
+        const track = this.tracks[idx];
+        track.destroy();
+        track.root.remove();
         this.tracks.splice(idx, 1);
         this.updateTooltipBounds();
     }

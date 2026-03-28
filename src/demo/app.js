@@ -83,6 +83,16 @@ function populateRepresentationOptions(representationSelect, representations, al
     representationSelect.value = representations[0]?.id ?? "";
 }
 
+function closePendingFilesPanel({ pendingFilesPanel, loadFilesButton }) {
+    pendingFilesPanel.hidden = true;
+    loadFilesButton.disabled = true;
+}
+
+function openPendingFilesPanel({ pendingFilesPanel, loadFilesButton, pendingFiles }) {
+    pendingFilesPanel.hidden = false;
+    loadFilesButton.disabled = pendingFiles.length === 0;
+}
+
 async function main() {
     const root = document.getElementById("viewer");
     const fileInput = document.getElementById("file-input");
@@ -95,6 +105,7 @@ async function main() {
     const selectionModeSelect = document.getElementById("selection-mode-select");
     const hideInsertionsCheckbox = document.getElementById("hide-insertions-checkbox");
     const gapThresholdInput = document.getElementById("gap-threshold-input");
+    const trackToggleList = document.getElementById("track-toggle-list");
     const pendingFilesPanel = document.getElementById("pending-files-panel");
     const pendingFileList = document.getElementById("pending-file-list");
     const status = document.getElementById("status");
@@ -130,6 +141,30 @@ async function main() {
         motifSearchButton.disabled = !hasActiveRepresentation;
     };
 
+    const renderTrackToggles = () => {
+        if (!trackToggleList) return;
+        const enabledTrackIds = new Set(viewer.getEnabledTrackIds());
+        trackToggleList.replaceChildren();
+        for (const track of viewer.getAvailableTracks()) {
+            const label = document.createElement("label");
+            label.className = "toolbar-check";
+
+            const input = document.createElement("input");
+            input.type = "checkbox";
+            input.checked = enabledTrackIds.has(track.id);
+            input.addEventListener("change", () => {
+                viewer.toggleTrack(track.id, input.checked);
+                setStatus(status, `${input.checked ? "Enabled" : "Disabled"} track: ${track.label}`);
+            });
+
+            const text = document.createElement("span");
+            text.textContent = track.label;
+
+            label.append(input, text);
+            trackToggleList.appendChild(label);
+        }
+    };
+
     const syncControls = () => {
         refreshSchemeSelect();
         syncMaskControls();
@@ -159,13 +194,11 @@ async function main() {
     const renderPendingFiles = () => {
         pendingFileList.replaceChildren();
         if (pendingFiles.length === 0) {
-            pendingFilesPanel.hidden = true;
-            loadFilesButton.disabled = true;
+            closePendingFilesPanel({ pendingFilesPanel, loadFilesButton });
             return;
         }
 
-        pendingFilesPanel.hidden = false;
-        loadFilesButton.disabled = false;
+        openPendingFilesPanel({ pendingFilesPanel, loadFilesButton, pendingFiles });
         for (const pendingFile of pendingFiles) {
             const row = document.createElement("div");
             row.className = "pending-file-row";
@@ -304,6 +337,8 @@ async function main() {
 
     syncSelectionButton(clearButton, 0);
     syncControls();
+    renderTrackToggles();
+    closePendingFilesPanel({ pendingFilesPanel, loadFilesButton });
 }
 
 main().catch((error) => {

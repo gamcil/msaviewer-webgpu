@@ -11,9 +11,12 @@ export class MinimapView {
         this.viewportRect = null;
         this.selectionGeometry = { rowIntervals: new Map(), totalRows: 0, totalCols: 0 };
         this.imageData = null;
+        this.selectionOverlayDirty = true;
         
         this.offscreen = document.createElement("canvas");
         this.offscreenContext = this.offscreen.getContext("2d", { alpha: false });
+        this.selectionOverlay = document.createElement("canvas");
+        this.selectionOverlayContext = this.selectionOverlay.getContext("2d");
 
         this.track = document.createElement("div");
         this.track.className = "msa-minimap";
@@ -48,6 +51,7 @@ export class MinimapView {
             if (this.resizeFrameHandle != null) return;
             this.resizeFrameHandle = requestAnimationFrame(() => {
                 this.resizeFrameHandle = null;
+                this.selectionOverlayDirty = true;
                 this.refreshRendering();
             });
         };
@@ -104,6 +108,7 @@ export class MinimapView {
 
     setSelectionBands(selectionGeometry = { rowIntervals: new Map(), totalRows: 0, totalCols: 0 }) {
         this.selectionGeometry = selectionGeometry ?? { rowIntervals: new Map(), totalRows: 0, totalCols: 0 };
+        this.selectionOverlayDirty = true;
         this.drawOverlay();
     }
 
@@ -116,13 +121,16 @@ export class MinimapView {
         this.imageData = null;
         this.viewportRect = null;
         this.selectionGeometry = { rowIntervals: new Map(), totalRows: 0, totalCols: 0 };
+        this.selectionOverlayDirty = true;
         this.minimap.width = 0;
         this.minimap.height = 0;
         this.minimapOverlay.width = 0;
         this.minimapOverlay.height = 0;
+        this.selectionOverlay.width = 0;
+        this.selectionOverlay.height = 0;
     }
 
-    drawSelectionUnion(width, height) {
+    drawSelectionUnion(context, width, height) {
         const { rowIntervals, totalRows, totalCols } = this.selectionGeometry ?? {};
         if (!(rowIntervals instanceof Map) || rowIntervals.size === 0 || totalRows <= 0 || totalCols <= 0) {
             return;
@@ -130,7 +138,7 @@ export class MinimapView {
 
         const rowHeightPx = height / totalRows;
         drawSelectionUnion({
-            context: this.overlayContext,
+            context,
             rowIntervals,
             getRowY: (row) => row * rowHeightPx,
             getRowHeight: () => rowHeightPx,
@@ -142,6 +150,17 @@ export class MinimapView {
             lineWidth: 1,
             lineDash: [],
         });
+    }
+
+    redrawSelectionOverlay(width, height) {
+        if (!this.selectionOverlayContext) return;
+        if (this.selectionOverlay.width !== width || this.selectionOverlay.height !== height) {
+            this.selectionOverlay.width = width;
+            this.selectionOverlay.height = height;
+        }
+        this.selectionOverlayContext.clearRect(0, 0, width, height);
+        this.drawSelectionUnion(this.selectionOverlayContext, width, height);
+        this.selectionOverlayDirty = false;
     }
 
     drawBase() {
@@ -167,10 +186,12 @@ export class MinimapView {
             return;
         }
         this.overlayContext.clearRect(0, 0, width, height);
-        if (!this.viewportRect) {
-            // continue so selection bands can render independently
+        if (this.selectionOverlayDirty || this.selectionOverlay.width !== width || this.selectionOverlay.height !== height) {
+            this.redrawSelectionOverlay(width, height);
         }
-        this.drawSelectionUnion(width, height);
+        if (this.selectionOverlay.width > 0 && this.selectionOverlay.height > 0) {
+            this.overlayContext.drawImage(this.selectionOverlay, 0, 0);
+        }
         if (!this.viewportRect) {
             return;
         }
