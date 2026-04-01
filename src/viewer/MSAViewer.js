@@ -55,6 +55,12 @@ function getSchemeGroupLabel(type) {
     return "Schemes";
 }
 
+function getSchemeGroupOrder(type) {
+    if (type === "columnStatistic") return 0;
+    if (type === "residueProperty") return 1;
+    return 2;
+}
+
 function inferAlignmentFormat(name = "") {
     return name.toLowerCase().endsWith(".a3m") ? "a3m" : "fasta";
 }
@@ -202,6 +208,22 @@ function choosePreferredRepresentationId(representations = []) {
         ?? null;
 }
 
+function createRenderSources({ activeRepresentation, schemeRepresentation = activeRepresentation }) {
+    return {
+        activeRepresentation,
+        schemeRepresentation,
+        activeAlignmentStore: activeRepresentation?.store ?? null,
+        activeAlignmentState: activeRepresentation?.alignmentState ?? null,
+        schemeAlignmentStore: schemeRepresentation?.store ?? null,
+        schemeAlignmentState: schemeRepresentation?.alignmentState ?? null,
+        usesSeparateColorSource: Boolean(
+            activeRepresentation
+            && schemeRepresentation
+            && activeRepresentation.id !== schemeRepresentation.id
+        ),
+    };
+}
+
 function areRepresentationListsEquivalent(nextRepresentations = [], previousRepresentations = []) {
     if (nextRepresentations === previousRepresentations) return true;
     if (!Array.isArray(nextRepresentations) || !Array.isArray(previousRepresentations)) return false;
@@ -216,6 +238,16 @@ function areRepresentationListsEquivalent(nextRepresentations = [], previousRepr
         if ((next.label ?? null) !== (previous.label ?? null)) return false;
     }
     return true;
+}
+
+function normalizeSchemeSourceRepresentationId(options) {
+    const schemeSourceRepresentationId = options?.rendering?.schemeSourceRepresentationId ?? null;
+    if (!schemeSourceRepresentationId) {
+        return null;
+    }
+    return (options?.data?.representations ?? []).some((representation) => representation.id === schemeSourceRepresentationId)
+        ? schemeSourceRepresentationId
+        : null;
 }
 
 const AUTO_LAYOUT_CSS = `
@@ -475,10 +507,13 @@ export class MSAViewer {
         this.columnMetricService = null;
         this.columnProfileService = null;
         this.visibleWindowController = null;
+        this.schemeVisibleWindowController = null;
         this.schemePolicy = new SchemePolicy({
             getActiveAlphabet: () => this.getActiveAlphabet(),
         });
         this.visibleWindowState = null;
+        this.schemeVisibleWindowState = null;
+        this.lastRenderSchemeSourceRepresentationId = null;
         this.decodedTileCache = new TileCache(64 * 1024 * 1024);
         this.viewportOverscanRows = 8;
         this.viewportOverscanCols = 32;
@@ -533,21 +568,96 @@ export class MSAViewer {
         });
     }
 
-    getCompatibleSchemes(representationId = this.getActiveRepresentation()?.id ?? null) {
-        const representation = representationId
-            ? this.representationStore?.get(representationId) ?? this.options.data.representations.find((item) => item.id === representationId) ?? null
-            : this.getActiveRepresentation();
-        const alphabet = representation
-            ? this.alphabetRegistry.get(representation.alphabetId)
-            : this.getActiveAlphabet();
-        return Object.entries(SCHEMES)
-            .filter(([schemeKey]) => this.schemePolicy.isSupported(schemeKey, alphabet))
-            .map(([key, scheme]) => ({
-                key,
-                label: scheme.label ?? formatSchemeLabel(key),
-                group: getSchemeGroupLabel(scheme.type),
+    getAvailableSchemeOptions() {
+        const representations = this.getRepresentations();
+        const schemeMap = new Map();
+        const schemeSuffixByRepresentationId = this.getRepresentationVariantSuffixes(representations);
+        const getSchemeOptionsForRepresentation = (representation = null) => {
+            const alphabet = representation
+                ? this.alphabetRegistry.get(representation.alphabetId)
+                : this.getActiveAlphabet();
+            return Object.entries(SCHEMES)
+                .filter(([schemeKey]) => this.schemePolicy.isSupported(schemeKey, alphabet))
+                .map(([key, scheme]) => ({
+                    key,
+                    label: scheme.label ?? formatSchemeLabel(key),
+                    group: getSchemeGroupLabel(scheme.type),
+                    type: scheme.type,
+                }));
+        };
+        const addVariant = (scheme, variant) => {
+            const existing = schemeMap.get(scheme.key);
+            if (existing) {
+                existing.variants.push(variant);
+                return;
+            }
+            schemeMap.set(scheme.key, {
+                key: scheme.key,
+                label: scheme.label,
+                group: scheme.group,
                 type: scheme.type,
-            }));
+                variants: [variant],
+            });
+        };
+
+        if (representations.length === 0) {
+            for (const scheme of getSchemeOptionsForRepresentation(null)) {
+                addVariant(scheme, {
+                    representationId: null,
+                    alphabetId: this.getActiveAlphabet()?.id ?? null,
+                    alphabetShortLabel: this.getActiveAlphabet()?.shortLabel ?? this.getActiveAlphabet()?.label ?? null,
+                    displayLabel: scheme.label,
+                });
+            }
+        } else {
+            const hasMultipleRepresentations = representations.length > 1;
+            for (const representation of representations) {
+                for (const scheme of getSchemeOptionsForRepresentation(representation)) {
+                    addVariant(scheme, {
+                        representationId: representation.id,
+                        alphabetId: representation.alphabetId,
+                        alphabetShortLabel: representation.alphabetShortLabel,
+                        displayLabel: hasMultipleRepresentations
+                            ? `${scheme.label} (${schemeSuffixByRepresentationId[representation.id] ?? representation.alphabetShortLabel})`
+                            : scheme.label,
+                    });
+                }
+            }
+        }
+
+        return [...schemeMap.values()].sort((a, b) =>
+            getSchemeGroupOrder(a.type) - getSchemeGroupOrder(b.type)
+            || a.label.localeCompare(b.label)
+        );
+    }
+
+    getSchemeSourceRepresentation() {
+        const representationId = this.options.rendering.schemeSourceRepresentationId ?? null;
+        if (representationId) {
+            return this.representationStore?.get(representationId)
+                ?? this.options.data.representations.find((representation) => representation.id === representationId)
+                ?? null;
+        }
+        return this.getActiveRepresentation()
+            ?? (
+                this.options.data.activeRepresentationId
+                    ? this.options.data.representations.find((representation) => representation.id === this.options.data.activeRepresentationId) ?? null
+                    : null
+            );
+    }
+
+    getSchemeSourceAlphabet() {
+        const representation = this.getSchemeSourceRepresentation();
+        if (representation) {
+            return this.alphabetRegistry.get(representation.alphabetId);
+        }
+        return this.getActiveAlphabet();
+    }
+
+    getRenderSources() {
+        const activeRepresentation = this.getActiveRepresentation();
+        const schemeRepresentation = this.getSchemeSourceRepresentation() ?? activeRepresentation;
+        return createRenderSources({ activeRepresentation, schemeRepresentation });
     }
 
     resolveConcreteTrackBinding(binding) {
@@ -586,7 +696,7 @@ export class MSAViewer {
         };
     }
 
-    getRepresentationTrackVariantSuffixes(representations = this.getRepresentations()) {
+    getRepresentationVariantSuffixes(representations = this.getRepresentations()) {
         const alphabetCounts = new Map();
         for (const representation of representations) {
             alphabetCounts.set(representation.alphabetShortLabel, (alphabetCounts.get(representation.alphabetShortLabel) ?? 0) + 1);
@@ -606,7 +716,7 @@ export class MSAViewer {
         if (representations.length === 0) {
             return [];
         }
-        const suffixByRepresentationId = this.getRepresentationTrackVariantSuffixes();
+        const suffixByRepresentationId = this.getRepresentationVariantSuffixes();
         return this.trackDefinitions.map((definition) => {
             const rawVariants = getTrackVariants(definition, representations);
             const variants = rawVariants.map((variant) => ({
@@ -631,6 +741,19 @@ export class MSAViewer {
         });
     }
 
+    getFlattenedAvailableTrackVariants() {
+        return this.getAvailableTrackOptions().flatMap((track) =>
+            track.variants.map((variant) => ({
+                id: buildTrackBindingId(variant),
+                trackId: track.id,
+                label: variant.label ? `${track.label} (${variant.label})` : track.label,
+                representation: variant.representation,
+                source: this.trackDefinitions.find((definition) => definition.id === track.id)?.source ?? null,
+                enabled: variant.enabled === true,
+            }))
+        );
+    }
+
     resolveTrackBinding(binding) {
         const definition = this.trackDefinitions.find((track) => track.id === binding.trackId);
         if (!definition) return null;
@@ -649,7 +772,7 @@ export class MSAViewer {
         ) {
             return null;
         }
-        const suffixByRepresentationId = this.getRepresentationTrackVariantSuffixes();
+        const suffixByRepresentationId = this.getRepresentationVariantSuffixes();
         const resolved = cloneTrackDefinition(definition);
         resolved.id = buildTrackBindingId({
             trackId: definition.id,
@@ -774,13 +897,18 @@ export class MSAViewer {
 
     async applyRenderingOptions(nextOptions, previousOptions, changed) {
         if (!changed) return;
-        if (nextOptions.rendering.scheme !== this.state.getSchemeKey()) {
+        if (
+            nextOptions.rendering.scheme !== previousOptions.rendering.scheme
+            || nextOptions.rendering.schemeSourceRepresentationId !== previousOptions.rendering.schemeSourceRepresentationId
+        ) {
             await this.applySchemeOption(nextOptions.rendering.scheme);
+            this.scheduleVisibleWindowUpload();
         }
     }
 
     async setOptions(partialOptions = {}) {
         const nextOptions = normalizeViewerOptions(mergeViewerOptions(this.options, partialOptions));
+        nextOptions.rendering.schemeSourceRepresentationId = normalizeSchemeSourceRepresentationId(nextOptions);
         const previousOptions = this.options;
 
         this.options = nextOptions;
@@ -795,7 +923,7 @@ export class MSAViewer {
                 selectionMode: partialOptions.behavior?.selectionMode != null,
             },
             data: partialOptions.data != null,
-            rendering: partialOptions.rendering?.scheme != null,
+            rendering: partialOptions.rendering?.scheme != null || partialOptions.rendering?.schemeSourceRepresentationId !== undefined,
         };
 
         this.applyAppearanceOptions(changed);
@@ -1227,18 +1355,6 @@ export class MSAViewer {
         });
     }
 
-    getAvailableTracks() {
-        return this.getAvailableTrackOptions().flatMap((track) =>
-            track.variants.map((variant) => ({
-                id: buildTrackBindingId(variant),
-                trackId: track.id,
-                label: variant.label ? `${track.label} (${variant.label})` : track.label,
-                representation: variant.representation,
-                source: this.trackDefinitions.find((definition) => definition.id === track.id)?.source ?? null,
-            }))
-        );
-    }
-
     getTrackContext() {
         const activeRepresentation = this.getActiveRepresentation();
         return {
@@ -1251,26 +1367,58 @@ export class MSAViewer {
     }
 
     getEnabledTrackIds() {
-        return dedupeTrackBindings(
-            this.enabledTrackBindings.map((binding) => {
-                if (binding.alphabetId) {
-                    return this.resolveConcreteTrackBinding(binding);
-                }
-                return binding;
-            }).filter(Boolean)
-        ).map(buildTrackBindingId);
+        return this.getConcreteEnabledTrackBindings().map(buildTrackBindingId);
     }
 
     getEnabledTrackBindings() {
         return this.enabledTrackBindings.map((binding) => ({ ...binding }));
     }
 
-    getTrackDefaults() {
-        return this.options.tracks.defaults;
+    getConcreteEnabledTrackBindings() {
+        return dedupeTrackBindings(
+            this.enabledTrackBindings.map((binding) =>
+                binding.alphabetId ? this.resolveConcreteTrackBinding(binding) : binding
+            ).filter(Boolean)
+        );
     }
 
     getTrackDisplayMode() {
         return this.options.tracks.defaults;
+    }
+
+    normalizeTrackVariantBinding(track) {
+        return typeof track === "string"
+            ? { trackId: track, representation: "active" }
+            : { trackId: track.trackId, representation: track.representation ?? "active" };
+    }
+
+    withTrackVariantOverride(binding, enabled) {
+        const nextVariants = [...(this.options.tracks.variants ?? [])];
+        const existingIndex = nextVariants.findIndex((variant) =>
+            variant.trackId === binding.trackId
+            && (variant.representation ?? "active") === binding.representation
+            && (variant.alphabetId ?? null) == null
+        );
+        const nextVariant = {
+            trackId: binding.trackId,
+            representation: binding.representation,
+            enabled: enabled === true,
+        };
+        if (existingIndex >= 0) {
+            nextVariants[existingIndex] = nextVariant;
+        } else {
+            nextVariants.push(nextVariant);
+        }
+        return nextVariants;
+    }
+
+    async applyTrackVariantOverride(binding, enabled, defaults = this.options.tracks.defaults) {
+        await this.setOptions({
+            tracks: {
+                defaults,
+                variants: this.withTrackVariantOverride(binding, enabled),
+            },
+        });
     }
 
     async setTrackDisplayMode(mode, { clearVariants = false } = {}) {
@@ -1284,9 +1432,8 @@ export class MSAViewer {
 
     syncTrackVisibility() {
         if (this.trackStackViews.length === 0) return;
-        const enabledTrackBindings = this.enabledTrackBindings
-            .map((binding) => this.resolveConcreteTrackBinding(binding))
-            .filter((binding) => binding && this.resolveTrackBinding(binding));
+        const enabledTrackBindings = this.getConcreteEnabledTrackBindings()
+            .filter((binding) => this.resolveTrackBinding(binding));
         const enabledTrackInstanceIds = enabledTrackBindings.map(buildTrackBindingId);
 
         for (const trackStackView of this.trackStackViews) {
@@ -1309,42 +1456,17 @@ export class MSAViewer {
     }
 
     async toggleTrack(track, enabled = null) {
-        const binding = typeof track === "string"
-            ? { trackId: track, representation: "active" }
-            : { trackId: track.trackId, representation: track.representation ?? "active" };
-        const availableTrackIds = new Set(this.getAvailableTracks().map((item) => item.id));
+        const binding = this.normalizeTrackVariantBinding(track);
+        const availableTrackIds = new Set(this.getFlattenedAvailableTrackVariants().map((item) => item.id));
         const bindingId = buildTrackBindingId(binding);
         if (!availableTrackIds.has(bindingId)) return;
         const enabledTrackIds = new Set(this.getEnabledTrackIds());
         const shouldEnable = enabled == null ? !enabledTrackIds.has(bindingId) : enabled === true;
-        const nextVariants = [...(this.options.tracks.variants ?? [])];
-        const existingIndex = nextVariants.findIndex((variant) =>
-            variant.trackId === binding.trackId
-            && (variant.representation ?? "active") === binding.representation
-            && (variant.alphabetId ?? null) == null
-        );
-        const nextVariant = {
-            trackId: binding.trackId,
-            representation: binding.representation,
-            enabled: shouldEnable,
-        };
-        if (existingIndex >= 0) {
-            nextVariants[existingIndex] = nextVariant;
-        } else {
-            nextVariants.push(nextVariant);
-        }
-        await this.setOptions({
-            tracks: {
-                defaults: this.options.tracks.defaults,
-                variants: nextVariants,
-            },
-        });
+        await this.applyTrackVariantOverride(binding, shouldEnable);
     }
 
     async setTrackVariantEnabled(track, enabled) {
-        const binding = typeof track === "string"
-            ? { trackId: track, representation: "active" }
-            : { trackId: track.trackId, representation: track.representation ?? "active" };
+        const binding = this.normalizeTrackVariantBinding(track);
         const activeRepresentationId = this.getActiveRepresentation()?.id ?? null;
         const selectingNonActiveVariant = enabled === true
             && this.getTrackDisplayMode() === "active-only"
@@ -1372,7 +1494,7 @@ export class MSAViewer {
             return;
         }
 
-        await this.toggleTrack(binding, enabled);
+        await this.applyTrackVariantOverride(binding, enabled);
     }
     
     ensureTracks() {
@@ -1423,14 +1545,19 @@ export class MSAViewer {
     }
     
     async rebuildMinimap({ shouldApply = null } = {}) {
-        const alignmentStore = this.getActiveAlignmentStore();
-        const alignmentState = this.getActiveAlignmentState();
-        const activeRepresentation = this.getActiveRepresentation();
-        if (!alignmentStore || !alignmentState || !activeRepresentation || !this.minimapController) return;
-        this.applyCompatibleSchemeForAlphabet();
+        const {
+            activeRepresentation,
+            schemeRepresentation,
+            schemeAlignmentStore,
+            schemeAlignmentState,
+        } = this.getRenderSources();
+        if (!activeRepresentation || !schemeRepresentation || !schemeAlignmentStore || !schemeAlignmentState || !this.minimapController) return;
+        this.applyCompatibleSchemeForAlphabet(this.getSchemeSourceAlphabet());
         await this.minimapController.rebuildForRepresentation(activeRepresentation, {
-            alignmentState,
-            alphabet: this.getActiveAlphabet(),
+            alignmentState: schemeAlignmentState,
+            alignmentStore: schemeAlignmentStore,
+            alphabet: this.getSchemeSourceAlphabet(),
+            cacheToken: `${this.state.getSchemeKey()}:${schemeRepresentation.id}`,
             schemeKey: this.state.getSchemeKey(),
             darkMode: this.state.getResolvedDarkMode(),
             themeBuffer: this.themeBuffer,
@@ -1583,6 +1710,11 @@ export class MSAViewer {
             gpuResources: this.gpuResources,
             decodedTileCache: this.decodedTileCache,
         });
+        this.schemeVisibleWindowController = new VisibleWindowController({
+            device: this.device,
+            gpuResources: this.gpuResources,
+            decodedTileCache: this.decodedTileCache,
+        });
     }
 
     loadStaticAssets() {
@@ -1698,7 +1830,10 @@ export class MSAViewer {
 
         this.decodedTileCache.clear();
         this.visibleWindowController?.clear?.();
+        this.schemeVisibleWindowController?.clear?.();
         this.visibleWindowState = null;
+        this.schemeVisibleWindowState = null;
+        this.lastRenderSchemeSourceRepresentationId = null;
         this.isScrolling = false;
         this.selectionController?.clearHover();
 
@@ -1712,7 +1847,7 @@ export class MSAViewer {
             preserveScroll: !resetView,
         });
         this.setLoadedLayoutVisible(true);
-        this.applyCompatibleSchemeForAlphabet(this.alphabetRegistry.get(alphabetId));
+        this.applyCompatibleSchemeForAlphabet(this.getSchemeSourceAlphabet());
         this.renderer = this.pipelineRegistry.getRenderer(this.getActiveAlphabet());
         this.alignmentView.renderer = this.renderer;
     }
@@ -1981,11 +2116,23 @@ export class MSAViewer {
     
     async applySchemeOption(schemeKey) {
         const snapshot = this.state.getSnapshot();
-        const alphabet = this.getActiveAlphabet();
+        const alphabet = this.getSchemeSourceAlphabet();
         if (!this.schemePolicy.isSupported(schemeKey, alphabet)) {
             throw new Error(`Scheme '${schemeKey}' is not supported for alphabet '${alphabet.id}'.`);
         }
-        if (snapshot.scheme.key === schemeKey) return;
+        if (
+            snapshot.scheme.key === schemeKey
+            && this.renderBindGroup
+        ) {
+            if (this.schemePolicy.requiresColumnProfile(schemeKey)) {
+                await this.recomputeColumnProfile();
+            }
+            this.representationStore?.setMinimapCache(this.getActiveRepresentation()?.id, null);
+            this.scheduleVisibleWindowUpload();
+            this.scheduleMinimapRebuild();
+            this.requestRender();
+            return;
+        }
 
         const alignmentState = this.getActiveAlignmentState();
         this.state.setScheme(schemeKey);
@@ -2001,10 +2148,11 @@ export class MSAViewer {
 
             this.state.setGpuResources({
                 msaTexture: this.visibleWindowState.texture,
-                colProfileBuffer: alignmentState.colProfileBuffer,
+                colProfileBuffer: this.getSchemeSourceRepresentation()?.alignmentState?.colProfileBuffer ?? alignmentState.colProfileBuffer,
                 renderBindGroup: this.renderBindGroup,
             });
         }
+        this.representationStore?.setMinimapCache(this.getActiveRepresentation()?.id, null);
         this.scheduleMinimapRebuild();
         this.requestRender();
     }
@@ -2128,14 +2276,17 @@ export class MSAViewer {
     }
     
     async recomputeColumnProfile() {
-        const alignmentStore = this.getActiveAlignmentStore();
-        const alignmentState = this.getActiveAlignmentState();
-        if (!alignmentStore || !alignmentState) return;
+        const { schemeRepresentation, schemeAlignmentStore, schemeAlignmentState } = this.getRenderSources();
+        const schemeKey = this.state.getSchemeKey();
+        if (!schemeAlignmentStore || !schemeAlignmentState || !schemeRepresentation) return;
+        if (!this.schemePolicy.requiresColumnProfile(schemeKey)) return;
+        if (schemeAlignmentState.profileSchemeKey === schemeKey) return;
         await this.columnProfileService.compute({
-            alignmentStore,
-            alignmentState,
-            schemeKey: this.state.getSchemeKey(),
+            alignmentStore: schemeAlignmentStore,
+            alignmentState: schemeAlignmentState,
+            schemeKey,
         });
+        this.representationStore?.setProfileSchemeKey(schemeRepresentation.id, schemeKey);
     }
 
     scheduleVisibleWindowUpload() {
@@ -2166,54 +2317,82 @@ export class MSAViewer {
     }
 
     async performVisibleWindowUpload() {
-        const alignmentStore = this.getActiveAlignmentStore();
-        const alignmentState = this.getActiveAlignmentState();
-        if (!alignmentStore || !alignmentState) {
+        const {
+            activeRepresentation,
+            schemeRepresentation,
+            activeAlignmentStore,
+            activeAlignmentState,
+            schemeAlignmentStore,
+            schemeAlignmentState,
+            usesSeparateColorSource,
+        } = this.getRenderSources();
+        if (!activeAlignmentStore || !activeAlignmentState || !schemeRepresentation || !schemeAlignmentStore || !schemeAlignmentState) {
             return;
         }
-        this.applyCompatibleSchemeForAlphabet();
+        this.applyCompatibleSchemeForAlphabet(this.getSchemeSourceAlphabet());
 
         const nextVisibleWindowState = await this.visibleWindowController.update({
-            alignmentStore,
+            alignmentStore: activeAlignmentStore,
             bounds: this.viewportController.getVisibleWindowBounds(),
-            columnVisibility: this.getActiveRepresentation()?.columnVisibility ?? null,
+            columnVisibility: activeRepresentation?.columnVisibility ?? null,
         });
         if (!nextVisibleWindowState) {
             return;
         }
-        if (this.visibleWindowState?.key === nextVisibleWindowState.key) {
+        const nextSchemeVisibleWindowState = !usesSeparateColorSource
+            ? nextVisibleWindowState
+            : await this.schemeVisibleWindowController.update({
+                alignmentStore: schemeAlignmentStore,
+                bounds: this.viewportController.getVisibleWindowBounds(),
+                columnVisibility: activeRepresentation?.columnVisibility ?? null,
+            });
+        if (!nextSchemeVisibleWindowState) {
+            return;
+        }
+        if (
+            this.visibleWindowState?.key === nextVisibleWindowState.key
+            && this.schemeVisibleWindowState?.key === nextSchemeVisibleWindowState.key
+            && this.lastRenderSchemeSourceRepresentationId === schemeRepresentation.id
+        ) {
             return;
         }
         this.visibleWindowState = nextVisibleWindowState;
+        this.schemeVisibleWindowState = nextSchemeVisibleWindowState;
+        this.lastRenderSchemeSourceRepresentationId = schemeRepresentation.id;
         this.renderBindGroup = this.createRenderBindGroup();
         this.alignmentView.setBindGroup(this.renderBindGroup);
         this.state.setGpuResources({
             msaTexture: nextVisibleWindowState.texture,
-            colProfileBuffer: alignmentState.colProfileBuffer,
+            colProfileBuffer: schemeAlignmentState.colProfileBuffer,
             renderBindGroup: this.renderBindGroup,
         });
         this.requestRender();
     }
 
     createRenderBindGroup() {
-        const alignmentState = this.getActiveAlignmentState();
-        const snapshot = this.state.getSnapshot();
+        const {
+            activeAlignmentState,
+            schemeRepresentation,
+            schemeAlignmentState,
+        } = this.getRenderSources();
+        const schemeVisibleWindowState = this.schemeVisibleWindowState ?? this.visibleWindowState;
         return this.device.createBindGroup({
             layout: this.renderer.pipeline.getBindGroupLayout(0),
             entries: [
                 { binding: 0, resource: { buffer: this.uniformBuffer } },
                 { binding: 1, resource: this.visibleWindowState.texture.createView() },
-                { binding: 2, resource: { buffer: alignmentState.colProfileBuffer } },
-                { binding: 3, resource: { buffer: this.themeBuffer } },
-                { binding: 4, resource: this.atlasTexture.createView() },
-                { binding: 5, resource: this.atlasSampler },
-                { binding: 6, resource: { buffer: this.visibleWindowState.visibleColumnMapBuffer } },
+                { binding: 2, resource: schemeVisibleWindowState.texture.createView() },
+                { binding: 3, resource: { buffer: (schemeAlignmentState ?? activeAlignmentState).colProfileBuffer } },
+                { binding: 4, resource: { buffer: this.themeBuffer } },
+                { binding: 5, resource: this.atlasTexture.createView() },
+                { binding: 6, resource: this.atlasSampler },
+                { binding: 7, resource: { buffer: this.visibleWindowState.visibleColumnMapBuffer } },
                 {
-                    binding: 7,
+                    binding: 8,
                     resource: {
                         buffer: this.pipelineRegistry.getSchemeAuxBuffer(
                             this.state.getSchemeKey(),
-                            this.getActiveAlphabet()
+                            this.getSchemeSourceAlphabet()
                         )
                     }
                 },
@@ -2281,6 +2460,7 @@ export class MSAViewer {
         window.removeEventListener("keydown", this.onKeyDown);
         this.themeMedia.removeEventListener("change", this.onThemeChange);
         this.visibleWindowController?.clear?.();
+        this.schemeVisibleWindowController?.clear?.();
         this.representationStore?.destroy?.();
         this.gpuResources?.destroy?.();
     }

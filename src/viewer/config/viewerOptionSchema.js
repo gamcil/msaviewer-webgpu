@@ -147,6 +147,7 @@ export function normalizeViewerOptions(rawOptions = {}) {
 
     const normalizedBehavior = mergeObjects(DEFAULT_VIEWER_OPTIONS.behavior, rawOptions.behavior);
     const normalizedRendering = mergeObjects(DEFAULT_VIEWER_OPTIONS.rendering, rawOptions.rendering);
+    normalizedRendering.schemeSourceRepresentationId = rawOptions.rendering?.schemeSourceRepresentationId ?? normalizedRendering.schemeSourceRepresentationId ?? null;
     const normalizedTracks = mergeObjects(DEFAULT_VIEWER_OPTIONS.tracks, rawOptions.tracks);
     normalizedTracks.definitions = normalizeTrackDefinitions(rawOptions.tracks?.definitions);
     normalizedTracks.defaults = normalizeTrackDefaults(rawOptions.tracks?.defaults ?? normalizedTracks.defaults);

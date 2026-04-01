@@ -46,13 +46,26 @@ export class RepresentationStore {
             });
         }
 
+        const preserveProfileSchemeKey = Boolean(colProfileBuffer && previous?.alignmentState?.totalCols === totalCols);
         const representation = createRepresentation({
             id,
             alphabetId: resolvedAlphabet.id,
             store,
-            alignmentState: { colProfileBuffer, totalCols, totalRows },
+            alignmentState: {
+                colProfileBuffer,
+                totalCols,
+                totalRows,
+                profileSchemeKey: preserveProfileSchemeKey ? (previous?.alignmentState?.profileSchemeKey ?? null) : null,
+            },
         });
         this.representations.set(id, representation);
+        return representation;
+    }
+
+    setProfileSchemeKey(id, schemeKey) {
+        const representation = this.get(id);
+        if (!representation) return null;
+        representation.alignmentState.profileSchemeKey = schemeKey ?? null;
         return representation;
     }
 
@@ -60,6 +73,7 @@ export class RepresentationStore {
         const representation = this.get(id);
         if (!representation) return null;
         representation.alphabetId = alphabetId;
+        representation.alignmentState.profileSchemeKey = null;
         return representation;
     }
 
@@ -106,6 +120,7 @@ export class RepresentationStore {
         representation.motifSearch = null;
         representation.trackState = null;
         representation.minimapCache = null;
+        representation.alignmentState.profileSchemeKey = null;
         return representation;
     }
 

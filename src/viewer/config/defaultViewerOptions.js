@@ -53,5 +53,6 @@ export const DEFAULT_VIEWER_OPTIONS = {
     rendering: {
         backend: "webgpu",
         scheme: "clustalx",
+        schemeSourceRepresentationId: null,
     },
 };

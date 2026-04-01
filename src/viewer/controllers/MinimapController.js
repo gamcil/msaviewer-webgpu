@@ -240,8 +240,10 @@ export class MinimapController {
     }
 
     async rebuildForRepresentation(representation, {
+        alignmentStore = representation?.store ?? null,
         alignmentState,
         alphabet,
+        cacheToken = "",
         schemeKey,
         darkMode,
         themeBuffer,
@@ -249,7 +251,7 @@ export class MinimapController {
         setMinimapCache,
         shouldApply = null,
     }) {
-        if (!representation || !alignmentState || !this.minimapView || !this.device) return;
+        if (!representation || !alignmentStore || !alignmentState || !this.minimapView || !this.device) return;
 
         const { width: minimapWidth, height: minimapHeight } = this.minimapView.getViewportPixelSize();
         if (minimapWidth <= 0 || minimapHeight <= 0) return;
@@ -257,7 +259,7 @@ export class MinimapController {
         const visibilityKey = columnVisibility
             ? `${columnVisibility.mode}:${columnVisibility.visibleCount}:${columnVisibility.signature}`
             : "raw";
-        const cacheKey = `${this.getCacheKey(minimapWidth, minimapHeight, { schemeKey, darkMode })}:${visibilityKey}`;
+        const cacheKey = `${this.getCacheKey(minimapWidth, minimapHeight, { schemeKey, darkMode })}:${visibilityKey}:${cacheToken}`;
         if (representation.minimapCache?.key === cacheKey) {
             if (shouldApply && !shouldApply()) {
                 return;
@@ -268,7 +270,7 @@ export class MinimapController {
         }
 
         const pixels = await this.computePixels({
-            alignmentStore: representation.store,
+            alignmentStore,
             alignmentState,
             alphabet,
             schemeKey,

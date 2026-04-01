@@ -71,7 +71,7 @@ function toRepresentationId(fileName, fallbackIndex) {
     return slug || `representation-${fallbackIndex + 1}`;
 }
 
-function populateSchemeOptions(schemeSelect, schemes, selectedSchemeKey) {
+function populateSchemeOptions(schemeSelect, schemes, selectedSchemeKey, selectedRepresentationId = null) {
     schemeSelect.replaceChildren();
     let currentGroup = null;
     let optgroup = null;
@@ -82,14 +82,23 @@ function populateSchemeOptions(schemeSelect, schemes, selectedSchemeKey) {
             optgroup.label = currentGroup;
             schemeSelect.appendChild(optgroup);
         }
-        const option = document.createElement("option");
-        option.value = scheme.key;
-        option.textContent = scheme.label;
-        optgroup.appendChild(option);
+        for (const variant of scheme.variants) {
+            const option = document.createElement("option");
+            option.value = scheme.key;
+            option.dataset.representationId = variant.representationId ?? "";
+            option.textContent = variant.displayLabel ?? scheme.label;
+            optgroup.appendChild(option);
+        }
     }
     schemeSelect.disabled = schemes.length === 0;
     if (!schemeSelect.disabled) {
-        schemeSelect.value = selectedSchemeKey;
+        const selectedOption = [...schemeSelect.options].find((option) =>
+            option.value === selectedSchemeKey
+            && (option.dataset.representationId || null) === selectedRepresentationId
+        );
+        if (selectedOption) {
+            schemeSelect.selectedIndex = selectedOption.index;
+        }
     }
 }
 
@@ -126,8 +135,9 @@ function syncUI({ viewer, representationSelect, schemeSelect, selectionModeSelec
     representationSelect.value = activeRepresentationId;
     populateSchemeOptions(
         schemeSelect,
-        viewer.getCompatibleSchemes(activeRepresentationId),
-        viewer.state.getSnapshot().scheme.key
+        viewer.getAvailableSchemeOptions(),
+        viewer.state.getSnapshot().scheme.key,
+        viewer.getSchemeSourceRepresentation()?.id ?? null
     );
     const masking = viewer.getColumnMasking();
     hideInsertionsCheckbox.checked = masking.hideInsertionColumns === true;
@@ -320,9 +330,11 @@ async function main() {
         positionTrackMenuPanel();
     });
     schemeSelect.addEventListener("change", async (event) => {
+        const selectedOption = event.target.selectedOptions[0] ?? null;
         await viewer.setOptions({
             rendering: {
                 scheme: event.target.value,
+                schemeSourceRepresentationId: selectedOption?.dataset.representationId || null,
             },
         });
     });

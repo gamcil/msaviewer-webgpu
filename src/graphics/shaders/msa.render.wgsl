@@ -21,12 +21,13 @@ struct VisibleColumnMapEntry {
 
 @group(0) @binding(0) var<uniform> ui: Uniforms;
 @group(0) @binding(1) var msaData: texture_2d<u32>;
-@group(0) @binding(2) var<storage, read> colProfile: array<u32>;
-@group(0) @binding(3) var<uniform> theme: ThemeUniforms;
-@group(0) @binding(4) var fontAtlas: texture_2d<f32>;
-@group(0) @binding(5) var fontSampler: sampler;
-@group(0) @binding(6) var<storage, read> visibleColumnMap: array<VisibleColumnMapEntry>;
-@group(0) @binding(7) var<storage, read> auxData: array<i32>;
+@group(0) @binding(2) var schemeMsaData: texture_2d<u32>;
+@group(0) @binding(3) var<storage, read> colProfile: array<u32>;
+@group(0) @binding(4) var<uniform> theme: ThemeUniforms;
+@group(0) @binding(5) var fontAtlas: texture_2d<f32>;
+@group(0) @binding(6) var fontSampler: sampler;
+@group(0) @binding(7) var<storage, read> visibleColumnMap: array<VisibleColumnMapEntry>;
+@group(0) @binding(8) var<storage, read> auxData: array<i32>;
 
 struct VertexOutput {
     @builtin(position) pos: vec4<f32>,
@@ -119,6 +120,10 @@ fn read_residue(window_row: u32, window_col: u32) -> u32 {
     return textureLoad(msaData, vec2<i32>(i32(window_col), i32(window_row)), 0).x;
 }
 
+fn read_scheme_residue(window_row: u32, window_col: u32) -> u32 {
+    return textureLoad(schemeMsaData, vec2<i32>(i32(window_col), i32(window_row)), 0).x;
+}
+
 __SCHEME_COLOR_WGSL__
 
 fn contrast_text_color(background: vec3<f32>) -> vec3<f32> {
@@ -165,8 +170,9 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
     let column_map = visibleColumnMap[local_cell.x];
     let residue = read_residue(local_cell.y, column_map.rawWindowCol);
+    let scheme_residue = read_scheme_residue(local_cell.y, column_map.rawWindowCol);
     let mask = colProfile[column_map.rawCol];
-    let color = resolve_scheme_color(residue, mask);
+    let color = resolve_scheme_color(scheme_residue, mask);
     let atlas_uv = glyph_atlas_uv(residue, local_uv);
     let glyph_distance = sample_glyph_distance(atlas_uv);
     let glyph_mask = clamp(glyph_distance * glyph_screen_px_range + 0.5, 0.0, 1.0);
