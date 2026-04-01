@@ -64,7 +64,7 @@ export class PipelineRegistry {
     }
 
     getSchemeAuxBuffer(schemeKey, alphabet) {
-        if (schemeKey === "blosum62" && alphabet.supports?.quality) {
+        if (schemeKey === "similarity" && alphabet.supports?.quality) {
             return this.getQualityMatrixBuffer(alphabet);
         }
         return this.getDummyStorageBuffer();

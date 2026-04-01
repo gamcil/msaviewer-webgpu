@@ -14,6 +14,7 @@ export class BaseTrackView {
         sublabel = null,
         valueRange = null,
         tooltip = null,
+        labelWidth = 100,
     }) {
         this.root = root;
         this.id = id;
@@ -21,6 +22,7 @@ export class BaseTrackView {
         this.label = label;
         this.sublabel = sublabel;
         this.tooltip = tooltip;
+        this.labelWidth = labelWidth;
         this.valueRange = valueRange ? {
             min: valueRange.min ?? 0,
             max: valueRange.max ?? 1,
@@ -29,6 +31,7 @@ export class BaseTrackView {
         this.viewport = null;
         this.data = null;
         this.trackState = null;
+        this.trackContext = null;
         this.theme = null;
         this.prerenderWindow = new CachedVisibleWindowCanvas({
             getViewport: () => this.viewport,
@@ -56,6 +59,7 @@ export class BaseTrackView {
 
         this.labelEl = document.createElement("div");
         this.labelEl.className = "msa-track-label";
+        this.labelEl.style.minWidth = `${this.labelWidth}px`;
 
         this.labelTextEl = document.createElement("div");
         this.labelTextEl.className = "msa-track-label-text";
@@ -100,6 +104,11 @@ export class BaseTrackView {
 
     setTrackState(trackState) {
         this.trackState = trackState;
+    }
+
+    setTrackContext(trackContext) {
+        this.trackContext = trackContext;
+        this.trackState = trackContext?.activeTrackState ?? null;
     }
 
     setTheme(theme) {

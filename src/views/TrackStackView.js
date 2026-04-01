@@ -14,6 +14,7 @@ export class TrackStackView {
         this.root.style.position = this.root.style.position || "relative";
         this.tracks = [];
         this.trackState = null;
+        this.trackContext = null;
         this.viewport = null;
         this.theme = null;
         this.renderDirty = false;
@@ -60,6 +61,9 @@ export class TrackStackView {
         if (this.trackState) {
             track.setTrackState?.(this.trackState);
         }
+        if (this.trackContext) {
+            track.setTrackContext?.(this.trackContext);
+        }
         if (this.theme) {
             track.setTheme?.(this.theme);
         }
@@ -97,6 +101,20 @@ export class TrackStackView {
         this.trackState = trackState;
         for (const track of this.tracks) {
             track.setTrackState?.(trackState);
+        }
+        this.updateTooltipBounds();
+        this.requestRender();
+    }
+
+    setTrackContext(trackContext) {
+        this.trackContext = trackContext;
+        this.trackState = trackContext?.activeTrackState ?? null;
+        for (const track of this.tracks) {
+            if (track.setTrackContext) {
+                track.setTrackContext(trackContext);
+            } else {
+                track.setTrackState?.(this.trackState);
+            }
         }
         this.updateTooltipBounds();
         this.requestRender();
@@ -161,7 +179,7 @@ export class TrackStackView {
         const tooltipData = track.getTooltipData?.(rawColumn, {
             visibleColumn,
             viewport: this.viewport,
-            trackState: this.trackState,
+            trackState: track.trackState ?? this.trackState,
         });
         if (!tooltipData) {
             this.hideTooltip();

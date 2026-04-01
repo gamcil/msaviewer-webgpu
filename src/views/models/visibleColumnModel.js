@@ -1,4 +1,4 @@
-export function forEachProjectedVisibleColumn(visibleStart, visibleEnd, columnVisibility, callback) {
+function forEachProjectedVisibleColumn(visibleStart, visibleEnd, columnVisibility, callback) {
     const visibleToRaw = columnVisibility?.visibleToRaw ?? null;
     for (let visibleCol = visibleStart; visibleCol < visibleEnd; visibleCol += 1) {
         const rawCol = visibleToRaw?.[visibleCol] ?? visibleCol;

@@ -18,8 +18,6 @@ import { MinimapView } from "../views/MinimapView.js";
 import { GpuResourceManager } from "../graphics/GpuResourceManager.js";
 import { PipelineRegistry } from "../graphics/PipelineRegistry.js";
 import { TrackStackView } from "../views/TrackStackView.js";
-import { BarTrackView } from "../views/tracks/BarTrackView.js";
-import { ConsensusTrackView } from "../views/tracks/ConsensusTrackView.js";
 import { TrackStateBuilder } from "./TrackStateBuilder.js";
 import { MinimapController } from "./controllers/MinimapController.js";
 import { SchemePolicy } from "./SchemePolicy.js";
@@ -31,16 +29,51 @@ import { ColumnProfileService } from "./ColumnProfileService.js";
 import { VisibleWindowController } from "./controllers/VisibleWindowController.js";
 import { defaultAlphabetRegistry } from "../alphabets/index.js";
 import { buildColumnVisibility } from "./buildColumnVisibility.js";
+import { deriveViewerOptions, mergeViewerOptions, normalizeViewerOptions } from "./config/viewerOptionSchema.js";
+import { normalizeRepresentationInput, normalizeRepresentationInputs } from "./representations/representationInputSchema.js";
+import { createBuiltInTrackDefinitions } from "./tracks/builtInTrackDefinitions.js";
+import { normalizeTrackDefinitions } from "./tracks/trackDefinitionSchema.js";
+import { createTrackFromDefinition } from "./tracks/createTrackFromDefinition.js";
 
 function writeThemeUniformBuffer(device, buffer, darkMode, colorScheme) {
     const data = new Uint32Array([darkMode, colorScheme]);
     device.queue.writeBuffer(buffer, 0, data);
 }
 
+function formatSchemeLabel(key) {
+    if (key === "3di") return "3Di";
+    if (key === "clustalx") return "ClustalX";
+    return key
+        .replace(/([a-z])([A-Z])/g, "$1 $2")
+        .replace(/[-_]+/g, " ")
+        .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function getSchemeGroupLabel(type) {
+    if (type === "columnStatistic") return "Column Statistics";
+    if (type === "residueProperty") return "Residue Properties";
+    return "Schemes";
+}
+
+function inferAlignmentFormat(name = "") {
+    return name.toLowerCase().endsWith(".a3m") ? "a3m" : "fasta";
+}
+
+function toRepresentationId(value = "", fallback = "default") {
+    const id = value
+        .replace(/\.[^.]+$/, "")
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "");
+    return id || fallback;
+}
+
 const AUTO_LAYOUT_CSS = `
 :host {
     display: block;
     color-scheme: light dark;
+    font-family: var(--msa-ui-font-family);
+    font-size: var(--msa-ui-font-size);
     box-sizing: border-box;
     width: 100%;
     height: 100%;
@@ -48,6 +81,10 @@ const AUTO_LAYOUT_CSS = `
     min-height: 0;
     --msa-minimap-height: 120px;
     --msa-ruler-height: 28px;
+    --msa-header-width: 180px;
+    --msa-track-label-width: 100px;
+    --msa-ui-font-family: "IBM Plex Sans", sans-serif;
+    --msa-ui-font-size: 13px;
     --msa-grid-line: rgba(0, 0, 0, 0.05);
     --msa-scroller-bg: #fff;
     --msa-header-bg: #f0f0f0;
@@ -70,6 +107,10 @@ const AUTO_LAYOUT_CSS = `
     color-scheme: light;
 }
 
+:host([data-loaded="false"]) {
+    --msa-header-width: 0px;
+}
+
 *, *::before, *::after {
     box-sizing: border-box;
 }
@@ -80,7 +121,7 @@ const AUTO_LAYOUT_CSS = `
 
 .msa-auto-shell {
     display: grid;
-    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-columns: var(--msa-header-width) minmax(0, 1fr);
     grid-template-rows: auto auto minmax(0, 1fr) auto;
     width: 100%;
     height: 100%;
@@ -198,7 +239,7 @@ const AUTO_LAYOUT_CSS = `
     justify-content: flex-end;
     text-align: right;
     padding: 0 8px;
-    min-width: 100px;
+    min-width: var(--msa-track-label-width);
 }
 
 .msa-track-label-text {
@@ -223,43 +264,40 @@ const AUTO_LAYOUT_CSS = `
 `;
 
 export class MSAViewer {
-    constructor({
-        root,
-        device,
-        format,
-        themeMedia,
-        alphabet = "aa",
-        alphabetRegistry = defaultAlphabetRegistry,
-        layout = {},
-        ruler = {},
-        views = null,
-    }) {
+    constructor(options = {}) {
+        const {
+            root,
+            device,
+            format,
+            themeMedia,
+            alphabetRegistry = defaultAlphabetRegistry,
+            views = null,
+        } = options;
         this.root = root;
         this.device = device;
         this.format = format;
         this.themeMedia = themeMedia ?? window.matchMedia("(prefers-color-scheme: dark)");
         this.alphabetRegistry = alphabetRegistry;
         this.providedViews = views;
-        this.layout = {
-            header: layout.header !== false,
-            ruler: layout.ruler !== false,
-            minimap: layout.minimap !== false,
-            tracks: layout.tracks !== false,
-        };
-        this.rulerOptions = {
-            tickInterval: Math.max(1, ruler.tickInterval ?? 10),
-            height: Math.max(20, ruler.height ?? 28),
-        };
-        const initialAlphabet = typeof alphabet === "string" ? this.alphabetRegistry.get(alphabet) : alphabet;
+        this.options = normalizeViewerOptions(options);
+        this.viewerConfig = deriveViewerOptions(this.options);
+        this.rebuildTrackDefinitionsFromOptions();
+        const initialAlphabet = typeof this.options.alphabet === "string"
+            ? this.alphabetRegistry.get(this.options.alphabet)
+            : this.options.alphabet;
         if (!initialAlphabet) {
-            throw new Error(`Unknown alphabet: ${alphabet}`);
+            throw new Error(`Unknown alphabet: ${this.options.alphabet}`);
         }
         
         this.state = new ViewerState({
-            schemeKey: "clustalx",
-            themeMode: "auto",
+            schemeKey: this.options.rendering.scheme,
+            themeMode: this.options.theme.mode,
             darkMode: this.themeMedia.matches,
             alphabetId: initialAlphabet.id,
+            cellWidth: this.viewerConfig.layout.cell.width,
+            cellHeight: this.viewerConfig.layout.cell.height,
+            hideInsertionColumns: this.options.behavior.masking.hideInsertionColumns,
+            gapThreshold: this.options.behavior.masking.gapThreshold,
         });
 
         this.atlasBitmap = null;
@@ -294,7 +332,6 @@ export class MSAViewer {
         this.decodedTileCache = new TileCache(64 * 1024 * 1024);
         this.viewportOverscanRows = 8;
         this.viewportOverscanCols = 32;
-        this.enabledTrackIds = ["consensus", "quality", "conservation", "occupancy"];
         
         this.isScrolling = false;
         
@@ -307,6 +344,10 @@ export class MSAViewer {
         this.minimapRebuildInFlight = false;
         this.minimapRebuildNeedsRerun = false;
         this.minimapRebuildGeneration = 0;
+
+        if (this.options.behavior.selectionMode !== "column") {
+            this.state.setSelectionMode(this.options.behavior.selectionMode);
+        }
     }
 
     get headerView() { return this.views.header; }
@@ -323,6 +364,156 @@ export class MSAViewer {
 
     get trackStackViews() { return this.views.trackStacks; }
     set trackStackViews(views) { this.views.trackStacks = Array.isArray(views) ? views : []; }
+
+    getOptions() {
+        return this.options;
+    }
+
+    getRepresentations() {
+        return this.options.data.representations.map((representation) => {
+            const alphabet = this.alphabetRegistry.get(representation.alphabetId);
+            return {
+                id: representation.id,
+                label: representation.label ?? representation.id,
+                alphabetId: representation.alphabetId,
+                alphabetLabel: alphabet?.label ?? representation.alphabetId,
+                displayLabel: `${representation.label ?? representation.id} (${alphabet?.label ?? representation.alphabetId})`,
+            };
+        });
+    }
+
+    getCompatibleSchemes(representationId = this.getActiveRepresentation()?.id ?? null) {
+        const representation = representationId
+            ? this.representationStore?.get(representationId) ?? this.options.data.representations.find((item) => item.id === representationId) ?? null
+            : this.getActiveRepresentation();
+        const alphabet = representation
+            ? this.alphabetRegistry.get(representation.alphabetId)
+            : this.getActiveAlphabet();
+        return Object.entries(SCHEMES)
+            .filter(([schemeKey]) => this.schemePolicy.isSupported(schemeKey, alphabet))
+            .map(([key, scheme]) => ({
+                key,
+                label: scheme.label ?? formatSchemeLabel(key),
+                group: getSchemeGroupLabel(scheme.type),
+                type: scheme.type,
+            }));
+    }
+
+    rebuildTrackDefinitionsFromOptions() {
+        const normalizedTracks = normalizeTrackDefinitions({
+            builtInDefinitions: createBuiltInTrackDefinitions({
+                buildConservationTooltip: (context) => this.buildConservationTooltip(context),
+            }),
+            userDefinitions: this.options.tracks.definitions,
+            enabled: this.options.tracks.enabled,
+            order: this.options.tracks.order,
+        });
+        this.trackDefinitions = normalizedTracks.definitions;
+        this.enabledTrackIds = [...normalizedTracks.enabledTrackIds];
+    }
+
+    refreshTrackAppearance() {
+        if (this.headerView) {
+            this.headerView.width = this.viewerConfig.views.header.width;
+            this.headerView.fontFamily = this.viewerConfig.views.header.fontFamily;
+            this.headerView.fontSize = this.viewerConfig.views.header.fontSize;
+            this.headerView.applyStyles();
+            const records = this.getActiveAlignmentStore()?.records;
+            if (records) {
+                this.headerView.renderRecords(records);
+            }
+        }
+        for (const trackStackView of this.trackStackViews) {
+            for (const track of trackStackView.tracks) {
+                track.labelWidth = this.viewerConfig.views.tracks.labelWidth;
+                if (track.labelEl) {
+                    track.labelEl.style.minWidth = `${this.viewerConfig.views.tracks.labelWidth}px`;
+                }
+            }
+        }
+    }
+
+    rebuildTrackViews() {
+        for (const trackStackView of this.trackStackViews) {
+            trackStackView.clear();
+        }
+        this.syncTrackVisibility();
+    }
+
+    applyAppearanceOptions(changed) {
+        if (!changed.theme && !changed.layout) return;
+        this.applyConfiguredAppearance();
+        this.refreshTrackAppearance();
+    }
+
+    applyThemeOptions(nextOptions, previousOptions, changed) {
+        if (!changed) return;
+        if (nextOptions.theme.mode !== previousOptions.theme.mode) {
+            this.state.setThemeMode(nextOptions.theme.mode);
+            this.scheduleMinimapRebuild();
+        }
+    }
+
+    applyLayoutOptions(changed) {
+        if (!changed) return;
+        this.applyRulerOptions();
+    }
+
+    applyTrackOptions(changed) {
+        if (!changed) return;
+        this.rebuildTrackDefinitionsFromOptions();
+        this.rebuildTrackViews();
+    }
+
+    applyBehaviorOptions(nextOptions, changed) {
+        if (changed.masking) {
+            this.applyColumnMasking(nextOptions.behavior.masking);
+        }
+        if (changed.selectionMode && nextOptions.behavior.selectionMode !== this.getSelectionMode()) {
+            this.applySelectionMode(nextOptions.behavior.selectionMode);
+        }
+    }
+
+    async applyRenderingOptions(nextOptions, previousOptions, changed) {
+        if (!changed) return;
+        if (nextOptions.rendering.scheme !== previousOptions.rendering.scheme) {
+            await this.applySchemeOption(nextOptions.rendering.scheme);
+        }
+    }
+
+    async setOptions(partialOptions = {}) {
+        const nextOptions = normalizeViewerOptions(mergeViewerOptions(this.options, partialOptions));
+        const previousOptions = this.options;
+
+        this.options = nextOptions;
+        this.viewerConfig = deriveViewerOptions(nextOptions);
+
+        const changed = {
+            theme: partialOptions.theme != null,
+            layout: partialOptions.layout != null,
+            tracks: partialOptions.tracks != null,
+            behavior: {
+                masking: partialOptions.behavior?.masking != null,
+                selectionMode: partialOptions.behavior?.selectionMode != null,
+            },
+            data: partialOptions.data != null,
+            rendering: partialOptions.rendering?.scheme != null,
+        };
+
+        this.applyAppearanceOptions(changed);
+        this.applyThemeOptions(nextOptions, previousOptions, changed.theme);
+        this.applyLayoutOptions(changed.layout);
+        this.applyTrackOptions(changed.tracks);
+        this.applyBehaviorOptions(nextOptions, changed.behavior);
+        await this.applyRenderingOptions(nextOptions, previousOptions, changed.rendering);
+
+        if (changed.data) {
+            await this.applyDataOptions(nextOptions.data, previousOptions.data);
+        }
+
+        this.viewportController?.refreshLayout();
+        this.requestRender();
+    }
 
     getActiveAlphabet() {
         const activeRepresentation = this.getActiveRepresentation();
@@ -380,9 +571,6 @@ export class MSAViewer {
                 activeAlignmentStore.totalRows,
                 resolvedAlphabet
             );
-            for (const trackStackView of this.trackStackViews) {
-                trackStackView.setTrackState(updatedTrackState);
-            }
             const activeRepresentation = this.getActiveRepresentation();
             if (activeRepresentation) {
                 this.representationStore.setAlphabetId(activeRepresentation.id, resolvedAlphabet.id);
@@ -390,6 +578,9 @@ export class MSAViewer {
                 this.representationStore.setColumnVisibility(activeRepresentation.id, activeRepresentation.columnVisibility);
                 this.representationStore.setTrackState(activeRepresentation.id, updatedTrackState);
                 this.representationStore.setMinimapCache(activeRepresentation.id, null);
+            }
+            for (const trackStackView of this.trackStackViews) {
+                trackStackView.setTrackContext(this.getTrackContext());
             }
         }
     }
@@ -409,10 +600,15 @@ export class MSAViewer {
         this.atlasBitmap = await loadImageBitmap(new URL("../graphics/atlas.png", import.meta.url));
         this.createGpuResources();
         this.createViews();
+        this.applyConfiguredAppearance();
         this.loadStaticAssets();
         this.bindEvents();
         this.syncThemeBuffer();
-        this.requestRender();
+        if (this.options.data.representations.length > 0) {
+            await this.applyDataOptions(this.options.data, { representations: [], activeRepresentationId: null });
+        } else {
+            this.requestRender();
+        }
     }
     
     async ensureGpuContext() {
@@ -438,7 +634,7 @@ export class MSAViewer {
         const mainRowRoot = document.createElement("div");
         mainRowRoot.className = "msa-main-row";
 
-        const headerRoot = this.layout.header ? document.createElement("div") : null;
+        const headerRoot = this.viewerConfig.visibility.header ? document.createElement("div") : null;
         if (headerRoot) {
             headerRoot.className = "msa-headers";
         }
@@ -446,17 +642,17 @@ export class MSAViewer {
         const alignmentRoot = document.createElement("div");
         alignmentRoot.className = "viewer-body";
 
-        const rulerRoot = this.layout.ruler ? document.createElement("div") : null;
+        const rulerRoot = this.viewerConfig.visibility.ruler ? document.createElement("div") : null;
         if (rulerRoot) {
             rulerRoot.className = "msa-ruler-body";
         }
         
-        const minimapRoot = this.layout.minimap ? document.createElement("div") : null;
+        const minimapRoot = this.viewerConfig.visibility.minimap ? document.createElement("div") : null;
         if (minimapRoot) {
             minimapRoot.className = "msa-minimap-body";
         }
         
-        const trackstackRoot = this.layout.tracks ? document.createElement("div") : null;
+        const trackstackRoot = this.viewerConfig.visibility.tracks ? document.createElement("div") : null;
         if (trackstackRoot) {
             trackstackRoot.className = "msa-trackstack-body";
         }
@@ -483,7 +679,7 @@ export class MSAViewer {
         if (!this.shadowRootRef) {
             this.shadowRootRef = this.root.shadowRoot ?? this.root.attachShadow({ mode: "open" });
         }
-        this.root.style.setProperty("--msa-ruler-height", `${this.rulerOptions.height}px`);
+        this.applyConfiguredAppearance();
         if (!this.autoLayoutShell) {
             this.shadowRootRef.replaceChildren();
             const style = document.createElement("style");
@@ -493,6 +689,16 @@ export class MSAViewer {
             this.shadowRootRef.append(style, this.autoLayoutShell);
         }
         return this.autoLayoutShell;
+    }
+
+    applyConfiguredAppearance() {
+        const isLoaded = this.root.dataset.loaded !== "false";
+        for (const [key, value] of Object.entries(this.viewerConfig.cssVariables)) {
+            this.root.style.setProperty(
+                key,
+                key === "--msa-header-width" && !isLoaded ? "0px" : value
+            );
+        }
     }
 
     createAutoViews() {
@@ -507,6 +713,9 @@ export class MSAViewer {
         this.headerView = headerRoot ? new HeaderView({
             root: headerRoot,
             rowHeight: this.state.getCellSize().cellHeight,
+            width: this.viewerConfig.views.header.width,
+            fontFamily: this.viewerConfig.views.header.fontFamily,
+            fontSize: this.viewerConfig.views.header.fontSize,
         }) : null;
         this.minimapView = minimapRoot ? new MinimapView({ root: minimapRoot }) : null;
         this.minimapController = this.minimapView ? new MinimapController({
@@ -518,8 +727,8 @@ export class MSAViewer {
         }) : null;
         this.rulerView = rulerRoot ? new RulerView({
             root: rulerRoot,
-            tickInterval: this.rulerOptions.tickInterval,
-            height: this.rulerOptions.height,
+            tickInterval: this.viewerConfig.views.ruler.tickInterval,
+            height: this.viewerConfig.views.ruler.height,
         }) : null;
         this.trackStackViews = trackstackRoot ? [new TrackStackView({ root: trackstackRoot })] : [];
         this.alignmentView = new AlignmentView({
@@ -696,107 +905,30 @@ export class MSAViewer {
         };
     }
 
-    getDefaultTrackDefinitions() {
-        return [
-            {
-                id: "consensus",
-                label: "Consensus",
-                create: () => {
-                    const root = document.createElement("div");
-                    root.className = "msa-track";
-                    return new ConsensusTrackView({
-                        root,
-                        id: "consensus",
-                        label: "Consensus",
-                        height: 80,
-                        darkMode: this.state.getResolvedDarkMode(),
-                    });
-                },
-            },
-            {
-                id: "quality",
-                label: "Quality",
-                create: () => {
-                    const root = document.createElement("div");
-                    root.className = "msa-track";
-                    return new BarTrackView({
-                        root,
-                        id: "quality",
-                        label: "Quality",
-                        height: 60,
-                        style: { strokeStyle: "#063306" },
-                        colorRamps: {
-                            fill: {
-                                minScore: 0,
-                                maxScore: 1,
-                                minColor: "#063306",
-                                maxColor: "#77ca8f",
-                            },
-                        },
-                    });
-                },
-            },
-            {
-                id: "conservation",
-                label: "Conservation",
-                create: () => {
-                    const root = document.createElement("div");
-                    root.className = "msa-track";
-                    return new BarTrackView({
-                        root,
-                        id: "conservation",
-                        label: "Conservation",
-                        metric: "conservationScore",
-                        valueRange: { min: 0, max: 11 },
-                        tooltip: (context) => this.buildConservationTooltip(context),
-                        height: 80,
-                        style: { strokeStyle: "#080947" },
-                        colorRamps: {
-                            fill: { minScore: 0, maxScore: 11, minColor: "#080947", maxColor: "#87a7f3" },
-                            glyph: { minScore: 0, maxScore: 11, minColor: "#080947", maxColor: "#87a7f3" },
-                        },
-                        glyph: ({ value }) => {
-                            if (value === 11) return { glyph: "*" };
-                            if (value === 10) return { glyph: "+" };
-                            return { glyph: value };
-                        },
-                        glyphStyle: { showGlyphs: true },
-                    });
-                },
-            },
-            {
-                id: "occupancy",
-                label: "Occupancy",
-                create: () => {
-                    const root = document.createElement("div");
-                    root.className = "msa-track";
-                    return new BarTrackView({
-                        root,
-                        id: "occupancy",
-                        label: "Occupancy",
-                        height: 60,
-                        style: { strokeStyle: "#3e2709" },
-                        colorRamps: {
-                            fill: {
-                                minScore: 0,
-                                maxScore: 1,
-                                minColor: "#3e2709",
-                                maxColor: "#d4b080",
-                            },
-                        },
-                    });
-                },
-            },
-        ];
+    getTrackDefinitions() {
+        return this.trackDefinitions;
     }
 
     createTrackById(trackId) {
-        const definition = this.getDefaultTrackDefinitions().find((track) => track.id === trackId);
-        return definition?.create?.() ?? null;
+        const definition = this.getTrackDefinitions().find((track) => track.id === trackId);
+        return createTrackFromDefinition(definition, {
+            labelWidth: this.viewerConfig.views.tracks.labelWidth,
+        });
     }
 
     getAvailableTracks() {
-        return this.getDefaultTrackDefinitions().map(({ id, label }) => ({ id, label }));
+        return this.getTrackDefinitions().map(({ id, label, kind, source }) => ({ id, label, kind, source }));
+    }
+
+    getTrackContext() {
+        const activeRepresentation = this.getActiveRepresentation();
+        return {
+            activeRepresentationId: activeRepresentation?.id ?? null,
+            activeTrackState: activeRepresentation?.trackState ?? null,
+            getRepresentation: (id) => this.representationStore?.get(id) ?? null,
+            getAlphabet: (id) => (id ? this.alphabetRegistry.get(id) ?? null : null),
+            getActiveAlphabet: () => this.getActiveAlphabet(),
+        };
     }
 
     getEnabledTrackIds() {
@@ -805,7 +937,7 @@ export class MSAViewer {
 
     syncTrackVisibility() {
         if (this.trackStackViews.length === 0) return;
-        const trackDefinitions = this.getDefaultTrackDefinitions();
+        const trackDefinitions = this.getTrackDefinitions();
         const enabledTrackIds = this.enabledTrackIds.filter((id) => trackDefinitions.some((track) => track.id === id));
 
         for (const trackStackView of this.trackStackViews) {
@@ -821,20 +953,12 @@ export class MSAViewer {
                 trackStackView.addTrackAt(track, index);
             });
             trackStackView.setTheme({ darkMode: this.state.getResolvedDarkMode() });
-            if (this.getActiveRepresentation()?.trackState) {
-                trackStackView.setTrackState(this.getActiveRepresentation().trackState);
-            }
+            trackStackView.setTrackContext(this.getTrackContext());
             this.viewportController?.syncTracksViewport();
         }
     }
 
-    setEnabledTrackIds(trackIds) {
-        const availableTrackIds = new Set(this.getAvailableTracks().map((track) => track.id));
-        this.enabledTrackIds = Array.from(trackIds ?? []).filter((id) => availableTrackIds.has(id));
-        this.syncTrackVisibility();
-    }
-
-    toggleTrack(trackId, enabled = null) {
+    async toggleTrack(trackId, enabled = null) {
         const availableTrackIds = new Set(this.getAvailableTracks().map((track) => track.id));
         if (!availableTrackIds.has(trackId)) return;
         const next = new Set(this.enabledTrackIds);
@@ -845,7 +969,11 @@ export class MSAViewer {
             next.delete(trackId);
         }
         const ordered = this.getAvailableTracks().map((track) => track.id).filter((id) => next.has(id));
-        this.setEnabledTrackIds(ordered);
+        await this.setOptions({
+            tracks: {
+                enabled: ordered,
+            },
+        });
     }
     
     ensureTracks() {
@@ -880,6 +1008,7 @@ export class MSAViewer {
 
     setLoadedLayoutVisible(loaded) {
         this.root.dataset.loaded = loaded ? "true" : "false";
+        this.applyConfiguredAppearance();
         if (this.headerRoot) {
             this.headerRoot.hidden = !loaded;
         }
@@ -976,9 +1105,10 @@ export class MSAViewer {
     clearSelection() {
         this.selectionController?.clearSelection();
     }
-    setSelectionMode(mode) {
+    applySelectionMode(mode) {
         this.selectionController?.setSelectionMode(mode);
     }
+
     getSelectionMode() {
         return this.state.getSnapshot().selection.mode;
     }
@@ -1060,7 +1190,7 @@ export class MSAViewer {
         this.computeShaderCodes = {
             clustalx: clustalxComputeShaderCode,
             pid: pidComputeShaderCode,
-            blosum62: blosumComputeShaderCode,
+            similarity: blosumComputeShaderCode,
         };
         if (this.pipelineRegistry) {
             this.pipelineRegistry.computeShaderCodes = this.computeShaderCodes;
@@ -1234,11 +1364,39 @@ export class MSAViewer {
         await this.motifController?.refreshActiveRepresentation();
         this.ensureTracks();
         for (const trackStackView of this.trackStackViews) {
-            trackStackView.setTrackState(this.representationStore.get(id).trackState);
+            trackStackView.setTrackContext(this.getTrackContext());
         }
         this.viewportController?.syncTracksViewport();
         this.viewportController?.refreshLayout();
         this.requestRender();
+    }
+
+    async ensureRepresentationTrackState(id) {
+        const representation = this.representationStore?.get(id);
+        if (!representation) return null;
+
+        if (!representation.columnMetrics) {
+            const alphabet = this.alphabetRegistry.get(representation.alphabetId);
+            const columnMetrics = await this.columnMetricService.compute({
+                alignmentStore: representation.store,
+                alphabet,
+            });
+            this.representationStore.setColumnMetrics(id, columnMetrics);
+        }
+
+        if (!representation.trackState) {
+            const alphabet = this.alphabetRegistry.get(representation.alphabetId);
+            this.representationStore.setTrackState(
+                id,
+                this.trackStateBuilder.build(
+                    representation.columnMetrics,
+                    representation.store.totalRows,
+                    alphabet
+                )
+            );
+        }
+
+        return this.representationStore.get(id);
     }
 
     async activateRepresentation(id, { resetView = false } = {}) {
@@ -1254,53 +1412,155 @@ export class MSAViewer {
         await this.finalizeActiveRepresentationActivation(id);
     }
 
-    registerRepresentation(id, store, { alphabetId = id } = {}) {
-        return this.representationStore.register(id, store, { alphabetId });
-    }
+    async applyDataOptions(dataOptions, previousData = null) {
+        const nextRepresentations = dataOptions?.representations ?? [];
+        const previousRepresentations = previousData?.representations ?? [];
+        const representationsChanged = nextRepresentations !== previousRepresentations;
+        const activeIdChanged = dataOptions?.activeRepresentationId !== previousData?.activeRepresentationId;
 
-    async loadRepresentation(id, store, { alphabetId = id } = {}) {
-        this.registerRepresentation(id, store, { alphabetId });
-        await this.activateRepresentation(id, { resetView: true });
-    }
-
-    async loadRepresentations(representations, { activeId = null } = {}) {
-        if (!Array.isArray(representations) || representations.length === 0) {
-            throw new Error("loadRepresentations requires a non-empty array.");
+        if (representationsChanged && nextRepresentations.length > 0) {
+            await this.ingestRepresentations(nextRepresentations, {
+                activeId: dataOptions?.activeRepresentationId,
+                resetView: true,
+            });
+            return;
         }
 
+        if (activeIdChanged && dataOptions?.activeRepresentationId) {
+            await this.activateRepresentation(dataOptions.activeRepresentationId, { resetView: false });
+        }
+    }
+
+    async ingestRepresentations(representations, { activeId = null, resetView = true } = {}) {
+        const normalizedRepresentations = normalizeRepresentationInputs(representations);
         let nextActiveId = activeId;
-        for (const representation of representations) {
-            const { id, store, alphabetId = id } = representation;
-            if (!id || !store) {
-                throw new Error("Each representation must include an id and store.");
-            }
-            this.registerRepresentation(id, store, { alphabetId });
-
+        for (const representation of normalizedRepresentations) {
+            this.representationStore.register(representation.id, representation.store, {
+                alphabetId: representation.alphabetId,
+            });
+            await this.ensureRepresentationTrackState(representation.id);
             if (nextActiveId == null) {
-                nextActiveId = id;
+                nextActiveId = representation.id;
             }
         }
 
-        await this.activateRepresentation(nextActiveId, { resetView: true });
+        await this.activateRepresentation(nextActiveId, { resetView });
+    }
+
+    async setRepresentations(representations, { activeId = null } = {}) {
+        await this.setOptions({
+            data: {
+                representations,
+                activeRepresentationId: activeId,
+            },
+        });
     }
 
     async setActiveRepresentation(id) {
-        await this.activateRepresentation(id, { resetView: false });
+        await this.setOptions({
+            data: {
+                activeRepresentationId: id,
+            },
+        });
     }
 
-    async loadAlignment(store) {
-        const { representationId, alphabetId } = this.state.getAlignmentIdentity();
-        const defaultRepresentationId = representationId ?? "default";
-        const activeAlphabetId = alphabetId;
-        await this.loadRepresentation(defaultRepresentationId, store, { alphabetId: activeAlphabetId });
+    async parseAlignmentInput(input, format = "fasta") {
+        return format === "a3m"
+            ? await parseA3MAlignment(input)
+            : await parseFastaAlignment(input);
     }
-    
-    async loadFastaAlignment(source, format = "fasta") {
-        const parsed = format === "a3m"
-            ? await parseA3MAlignment(source)
-            : await parseFastaAlignment(source);
-        await this.loadAlignment(parsed);
+
+    async loadText(text, {
+        format = "fasta",
+        id = null,
+        label = null,
+        alphabetId = null,
+        activate = true,
+        replace = true,
+    } = {}) {
+        const { representationId, alphabetId: activeAlphabetId } = this.state.getAlignmentIdentity();
+        const nextId = id ?? representationId ?? "default";
+        const nextAlphabetId = alphabetId ?? activeAlphabetId;
+        const parsed = await this.parseAlignmentInput(text, format);
+        const nextRepresentation = normalizeRepresentationInput(null, {
+            id: nextId,
+            label: label ?? nextId,
+            store: parsed,
+            alphabetId: nextAlphabetId,
+        });
+        const existingRepresentations = replace
+            ? []
+            : this.options.data.representations.filter((representation) => representation.id !== nextId);
+        await this.setRepresentations(
+            [...existingRepresentations, nextRepresentation],
+            { activeId: activate ? nextId : this.getActiveRepresentation()?.id ?? null }
+        );
         return parsed;
+    }
+
+    async loadFile(file, {
+        format = "auto",
+        id = null,
+        label = null,
+        alphabetId = null,
+        activate = true,
+        replace = true,
+    } = {}) {
+        const nextFormat = format === "auto" ? inferAlignmentFormat(file?.name) : format;
+        const nextId = id ?? toRepresentationId(file?.name ?? "", "default");
+        return this.loadText(file, {
+            format: nextFormat,
+            id: nextId,
+            label: label ?? file?.name ?? nextId,
+            alphabetId,
+            activate,
+            replace,
+        });
+    }
+
+    async loadFiles(files, {
+        format = "auto",
+        activate = "first",
+        replace = true,
+    } = {}) {
+        const fileEntries = Array.from(files ?? []).map((entry, index) => {
+            if (typeof File !== "undefined" && entry instanceof File) {
+                const inferredId = toRepresentationId(entry.name, `representation-${index + 1}`);
+                return {
+                    file: entry,
+                    format,
+                    id: inferredId,
+                    label: entry.name,
+                    alphabetId: this.state.getAlignmentIdentity().alphabetId,
+                };
+            }
+            return {
+                ...entry,
+                format: entry?.format ?? format,
+                id: entry?.id ?? toRepresentationId(entry?.file?.name ?? "", `representation-${index + 1}`),
+                label: entry?.label ?? entry?.file?.name ?? entry?.id ?? `representation-${index + 1}`,
+                alphabetId: entry?.alphabetId ?? this.state.getAlignmentIdentity().alphabetId,
+            };
+        });
+        const representations = await Promise.all(fileEntries.map(async (entry) => ({
+            id: entry.id,
+            label: entry.label,
+            store: await this.parseAlignmentInput(entry.file, entry.format === "auto" ? inferAlignmentFormat(entry.file?.name) : entry.format),
+            alphabetId: entry.alphabetId,
+        })));
+        const nextRepresentations = replace
+            ? representations
+            : [
+                ...this.options.data.representations.filter((representation) => !representations.some((next) => next.id === representation.id)),
+                ...representations,
+            ];
+        const activeId = activate === "first"
+            ? representations[0]?.id ?? null
+            : typeof activate === "string"
+                ? activate
+                : this.getActiveRepresentation()?.id ?? null;
+        await this.setRepresentations(nextRepresentations, { activeId });
+        return representations;
     }
 
     syncThemeBuffer() {
@@ -1317,7 +1577,7 @@ export class MSAViewer {
         this.lastThemeUniform = { darkMode, colorSchemeId };
     }
     
-    async setScheme(schemeKey) {
+    async applySchemeOption(schemeKey) {
         const snapshot = this.state.getSnapshot();
         const alphabet = this.getActiveAlphabet();
         if (!this.schemePolicy.isSupported(schemeKey, alphabet)) {
@@ -1346,15 +1606,21 @@ export class MSAViewer {
         this.scheduleMinimapRebuild();
         this.requestRender();
     }
-    
+
     async setTheme({ mode, darkMode }) {
-        if (mode != null) this.state.setThemeMode(mode);
-        if (darkMode != null) this.state.setResolvedDarkMode(darkMode);
-        this.scheduleMinimapRebuild();
-        this.requestRender();
+        if (mode != null) {
+            await this.setOptions({
+                theme: { mode },
+            });
+        }
+        if (darkMode != null) {
+            this.state.setResolvedDarkMode(darkMode);
+            this.scheduleMinimapRebuild();
+            this.requestRender();
+        }
     }
 
-    setColumnMasking(masking) {
+    applyColumnMasking(masking) {
         this.state.setColumnMasking(masking);
         const columnVisibility = this.recomputeColumnVisibility();
         const activeRepresentation = this.getActiveRepresentation();
@@ -1395,24 +1661,18 @@ export class MSAViewer {
         return this.motifController?.getMatchCount() ?? 0;
     }
 
-    setRulerOptions({ tickInterval, height } = {}) {
-        if (tickInterval != null) {
-            this.rulerOptions.tickInterval = Math.max(1, tickInterval);
-            this.rulerView?.setTickInterval?.(this.rulerOptions.tickInterval);
+    applyRulerOptions() {
+        this.rulerView?.setTickInterval?.(this.viewerConfig.views.ruler.tickInterval);
+        this.root.style.setProperty("--msa-ruler-height", this.viewerConfig.cssVariables["--msa-ruler-height"]);
+        if (this.rulerRoot) {
+            this.rulerRoot.style.height = `${this.viewerConfig.views.ruler.height}px`;
+            this.rulerRoot.style.minHeight = `${this.viewerConfig.views.ruler.height}px`;
         }
-        if (height != null) {
-            this.rulerOptions.height = Math.max(20, height);
-            this.root.style.setProperty("--msa-ruler-height", `${this.rulerOptions.height}px`);
-            if (this.rulerRoot) {
-                this.rulerRoot.style.height = `${this.rulerOptions.height}px`;
-                this.rulerRoot.style.minHeight = `${this.rulerOptions.height}px`;
-            }
-            if (this.rulerView) {
-                this.rulerView.height = this.rulerOptions.height;
-                this.rulerView.canvas.style.height = `${this.rulerOptions.height}px`;
-                this.rulerView.root.style.height = `${this.rulerOptions.height}px`;
-                this.rulerView.render();
-            }
+        if (this.rulerView) {
+            this.rulerView.height = this.viewerConfig.views.ruler.height;
+            this.rulerView.canvas.style.height = `${this.viewerConfig.views.ruler.height}px`;
+            this.rulerView.root.style.height = `${this.viewerConfig.views.ruler.height}px`;
+            this.rulerView.render();
         }
         this.viewportController?.refreshLayout();
     }

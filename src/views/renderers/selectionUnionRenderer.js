@@ -1,5 +1,59 @@
 import { getIntervalDifference } from "../models/alignmentOverlayGeometry.js";
 
+function areIntervalsEqual(left = [], right = []) {
+    if (left.length !== right.length) return false;
+    for (let index = 0; index < left.length; index += 1) {
+        if (left[index].colStart !== right[index].colStart || left[index].colEnd !== right[index].colEnd) {
+            return false;
+        }
+    }
+    return true;
+}
+
+function buildFillBlocks(rowIntervals, getRowY, getRowHeight, getIntervalX, getIntervalWidth) {
+    const rows = Array.from(rowIntervals.keys()).sort((a, b) => a - b);
+    const blocks = [];
+    let current = null;
+
+    for (const row of rows) {
+        const intervals = rowIntervals.get(row) ?? [];
+        const y = getRowY(row);
+        const rowHeight = getRowHeight(row);
+        if (
+            current &&
+            row === current.lastRow + 1 &&
+            areIntervalsEqual(intervals, current.intervals)
+        ) {
+            current.lastRow = row;
+            current.height = (y + rowHeight) - current.y;
+            continue;
+        }
+
+        if (current) {
+            blocks.push(current);
+        }
+        current = {
+            intervals,
+            y,
+            height: rowHeight,
+            lastRow: row,
+        };
+    }
+
+    if (current) {
+        blocks.push(current);
+    }
+
+    return blocks.flatMap((block) =>
+        block.intervals.map((interval) => ({
+            x: getIntervalX(interval),
+            y: block.y,
+            width: getIntervalWidth(interval),
+            height: block.height,
+        }))
+    );
+}
+
 export function drawSelectionUnion({
     context,
     rowIntervals,
@@ -17,22 +71,22 @@ export function drawSelectionUnion({
         return;
     }
 
+    const fillBlocks = buildFillBlocks(
+        rowIntervals,
+        getRowY,
+        getRowHeight,
+        getIntervalX,
+        getIntervalWidth
+    );
+
     context.fillStyle = washFillStyle;
-    for (const [row, intervals] of rowIntervals.entries()) {
-        const y = getRowY(row);
-        const rowHeight = getRowHeight(row);
-        for (const interval of intervals) {
-            context.fillRect(getIntervalX(interval), y, getIntervalWidth(interval), rowHeight);
-        }
+    for (const block of fillBlocks) {
+        context.fillRect(block.x, block.y, block.width, block.height);
     }
 
     context.fillStyle = fillStyle;
-    for (const [row, intervals] of rowIntervals.entries()) {
-        const y = getRowY(row);
-        const rowHeight = getRowHeight(row);
-        for (const interval of intervals) {
-            context.fillRect(getIntervalX(interval), y, getIntervalWidth(interval), rowHeight);
-        }
+    for (const block of fillBlocks) {
+        context.fillRect(block.x, block.y, block.width, block.height);
     }
 
     context.strokeStyle = strokeStyle;

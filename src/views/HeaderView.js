@@ -3,9 +3,12 @@ Draw the row headers, which are the labels on the left side of the MSA viewer.
 This view renders row headers, synchronizing their vertical scroll position with the main MSA view.
 */
 export class HeaderView {
-    constructor({ root, rowHeight }) {
+    constructor({ root, rowHeight, width = 180, fontFamily = "\"IBM Plex Mono\", \"IBM Plex Sans\", monospace", fontSize = 14 }) {
         this.root = root;
         this.rowHeight = rowHeight;
+        this.width = width;
+        this.fontFamily = fontFamily;
+        this.fontSize = fontSize;
 
         this.scrollport = document.createElement("div");
         this.scrollport.className = "msa-headers-scrollport";
@@ -21,7 +24,8 @@ export class HeaderView {
         Object.assign(this.root.style, {
             position: "relative",
             height: "100%",
-            maxWidth: "300px",
+            width: `${this.width}px`,
+            maxWidth: `${this.width}px`,
             minWidth: "0",
             overflow: "hidden",
             backgroundColor: "var(--msa-header-bg)",
@@ -62,15 +66,15 @@ export class HeaderView {
                 alignItems: "center",
                 height: "var(--row-height)",
                 padding: "0 8px",
-                fontSize: "14px",
+                fontSize: `${this.fontSize}px`,
                 lineHeight: "1",
                 boxSizing: "border-box",
                 width: "max-content",
-                maxWidth: "300px",
+                maxWidth: `${this.width}px`,
                 overflow: "hidden",
                 textOverflow: "ellipsis",
                 whiteSpace: "nowrap",
-                fontFamily: "\"IBM Plex Mono\", \"IBM Plex Sans\", monospace",
+                fontFamily: this.fontFamily,
             });
             this.track.appendChild(headerCell);
         }

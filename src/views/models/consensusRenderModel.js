@@ -1,4 +1,6 @@
-export function buildConsensusRenderColumns(sourceColumns = []) {
+export function buildConsensusRenderColumns(sourceColumns = [], {
+    resolveLetterColor = null,
+} = {}) {
     return sourceColumns.map((columnData) => {
         const histogramFractionWithGaps =
             (columnData.modalFractionNonGap ?? 0) * (columnData.occupancy ?? 0);
@@ -8,7 +10,7 @@ export function buildConsensusRenderColumns(sourceColumns = []) {
         const informationFactorWithoutGaps = columnData.informationContentRaw ?? 0;
         const logoLetters = (columnData.letters ?? []).map((letter) => ({
             glyph: letter.glyph,
-            color: letter.color,
+            color: resolveLetterColor ? resolveLetterColor(letter.glyph, letter.color) : letter.color,
             logoFraction: letter.logoFraction ?? 0,
         }));
         const topLetter = logoLetters[0]
@@ -116,7 +118,7 @@ export function buildConsensusGlyphs(columns, { consensusFillStyle, heightPx }) 
         glyphs.push({
             column: i,
             glyph: consensusGlyph,
-            color: consensusFillStyle,
+            color: columns[i].topLetter?.color ?? consensusFillStyle,
             y: heightPx,
         });
     }

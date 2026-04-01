@@ -228,7 +228,7 @@ export class ViewerState {
                 darkMode: darkMode, // actual resolved dark mode (true/false)
             },
             scheme: { 
-                key: schemeKey, // e.g. 'clustalx', 'pid', 'blosum62', etc.
+                key: schemeKey, // e.g. 'clustalx', 'pid', 'similarity', etc.
             },
             masking: {
                 hideInsertionColumns,

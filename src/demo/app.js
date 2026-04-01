@@ -1,8 +1,61 @@
 import { MSAViewer } from "../viewer/MSAViewer.js";
-import { parseFastaAlignment } from "../alignment/fasta.js";
-import { parseA3MAlignment } from "../alignment/a3m.js";
-import { getSupportedSchemeKeysForAlphabet } from "../schemes/registry.js";
 import { defaultAlphabetRegistry } from "../alphabets/index.js";
+
+const DEMO_VIEWER_OPTIONS = {
+    data: {
+        representations: [],
+        activeRepresentationId: null,
+    },
+    theme: {
+        mode: "auto",
+        typography: {
+            uiFontFamily: "\"IBM Plex Sans\", sans-serif",
+            uiFontSize: 13,
+            alignmentFontFamily: "\"IBM Plex Mono\", monospace",
+            headerFontFamily: "\"IBM Plex Mono\", \"IBM Plex Sans\", monospace",
+            headerFontSize: 14,
+        },
+    },
+    layout: {
+        header: {
+            visible: true,
+            width: 180,
+        },
+        ruler: {
+            visible: true,
+            height: 28,
+            tickInterval: 10,
+        },
+        minimap: {
+            visible: true,
+            height: 120,
+        },
+        tracks: {
+            visible: true,
+            labelWidth: 100,
+        },
+        cell: {
+            width: 16,
+            height: 16,
+        },
+    },
+    tracks: {
+        enabled: ["consensus", "quality", "conservation", "occupancy"],
+        order: null,
+        definitions: {},
+    },
+    behavior: {
+        selectionMode: "column",
+        masking: {
+            hideInsertionColumns: false,
+            gapThreshold: null,
+        },
+    },
+    rendering: {
+        backend: "webgpu",
+        scheme: "clustalx",
+    },
+};
 
 function inferAlphabetId(fileName) {
     const lower = fileName.toLowerCase();
@@ -17,44 +70,38 @@ function toRepresentationId(fileName, fallbackIndex) {
     return slug || `representation-${fallbackIndex + 1}`;
 }
 
-function buildSchemeOptionCatalog(selectEl) {
-    return Array.from(selectEl.querySelectorAll("optgroup")).map((group) => ({
-        label: group.label,
-        options: Array.from(group.querySelectorAll("option")).map((option) => ({
-            value: option.value,
-            label: option.textContent,
-        })),
-    }));
-}
-
-function syncSchemeOptions({ schemeSelect, schemeCatalog, alphabet, selectedSchemeKey }) {
-    const supportedSchemeKeys = new Set(getSupportedSchemeKeysForAlphabet(alphabet));
+function populateSchemeOptions(schemeSelect, schemes, selectedSchemeKey) {
     schemeSelect.replaceChildren();
-
-    for (const group of schemeCatalog) {
-        const supportedOptions = group.options.filter((option) => supportedSchemeKeys.has(option.value));
-        if (supportedOptions.length === 0) continue;
-
-        const optgroup = document.createElement("optgroup");
-        optgroup.label = group.label;
-        for (const optionDef of supportedOptions) {
-            const option = document.createElement("option");
-            option.value = optionDef.value;
-            option.textContent = optionDef.label;
-            optgroup.appendChild(option);
+    let currentGroup = null;
+    let optgroup = null;
+    for (const scheme of schemes) {
+        if (scheme.group !== currentGroup) {
+            currentGroup = scheme.group;
+            optgroup = document.createElement("optgroup");
+            optgroup.label = currentGroup;
+            schemeSelect.appendChild(optgroup);
         }
-        schemeSelect.appendChild(optgroup);
+        const option = document.createElement("option");
+        option.value = scheme.key;
+        option.textContent = scheme.label;
+        optgroup.appendChild(option);
     }
-
-    schemeSelect.disabled = supportedSchemeKeys.size === 0;
-    if (!schemeSelect.disabled && supportedSchemeKeys.has(selectedSchemeKey)) {
+    schemeSelect.disabled = schemes.length === 0;
+    if (!schemeSelect.disabled) {
         schemeSelect.value = selectedSchemeKey;
     }
 }
 
-function formatRepresentationLabel(representation, alphabetRegistry) {
-    const alphabetLabel = alphabetRegistry.get(representation.alphabetId)?.label ?? representation.alphabetId;
-    return `${representation.label} (${alphabetLabel})`;
+function populateRepresentationOptions(representationSelect, representations) {
+    representationSelect.replaceChildren();
+    for (const representation of representations) {
+        const option = document.createElement("option");
+        option.value = representation.id;
+        option.textContent = representation.displayLabel;
+        representationSelect.appendChild(option);
+    }
+    representationSelect.disabled = representations.length === 0;
+    representationSelect.value = representations[0]?.id ?? "";
 }
 
 function setStatus(statusEl, message) {
@@ -71,26 +118,21 @@ function syncSelectionButton(clearButton, selectionCount) {
     clearButton.disabled = true;
 }
 
-function populateRepresentationOptions(representationSelect, representations, alphabetRegistry) {
-    representationSelect.replaceChildren();
-    for (const representation of representations) {
-        const option = document.createElement("option");
-        option.value = representation.id;
-        option.textContent = formatRepresentationLabel(representation, alphabetRegistry);
-        representationSelect.appendChild(option);
-    }
-    representationSelect.disabled = representations.length === 0;
-    representationSelect.value = representations[0]?.id ?? "";
-}
-
-function closePendingFilesPanel({ pendingFilesPanel, loadFilesButton }) {
-    pendingFilesPanel.hidden = true;
-    loadFilesButton.disabled = true;
-}
-
-function openPendingFilesPanel({ pendingFilesPanel, loadFilesButton, pendingFiles }) {
-    pendingFilesPanel.hidden = false;
-    loadFilesButton.disabled = pendingFiles.length === 0;
+function syncUI({ viewer, representationSelect, schemeSelect, selectionModeSelect, hideInsertionsCheckbox, gapThresholdInput, motifSearchButton }) {
+    const representations = viewer.getRepresentations();
+    const activeRepresentationId = viewer.getActiveRepresentation()?.id ?? representations[0]?.id ?? "";
+    populateRepresentationOptions(representationSelect, representations);
+    representationSelect.value = activeRepresentationId;
+    populateSchemeOptions(
+        schemeSelect,
+        viewer.getCompatibleSchemes(activeRepresentationId),
+        viewer.state.getSnapshot().scheme.key
+    );
+    const masking = viewer.getColumnMasking();
+    hideInsertionsCheckbox.checked = masking.hideInsertionColumns === true;
+    gapThresholdInput.value = masking.gapThreshold == null ? "" : String(masking.gapThreshold);
+    selectionModeSelect.value = viewer.getSelectionMode();
+    motifSearchButton.disabled = !(representationSelect.disabled !== true && representationSelect.value !== "");
 }
 
 async function main() {
@@ -109,37 +151,19 @@ async function main() {
     const pendingFilesPanel = document.getElementById("pending-files-panel");
     const pendingFileList = document.getElementById("pending-file-list");
     const status = document.getElementById("status");
+    const ui = {
+        representationSelect,
+        schemeSelect,
+        selectionModeSelect,
+        hideInsertionsCheckbox,
+        gapThresholdInput,
+        motifSearchButton,
+    };
     const alphabetOptions = defaultAlphabetRegistry.list();
     let pendingFiles = [];
 
-    // Set up the MSAViewer
-    // init() loads all necessary WebGPU components
-    const viewer = new MSAViewer({
-        root,
-        layout: {
-            header: true,
-            minimap: true,
-            tracks: true,
-        },
-    });
-    await viewer.init(); 
-    const schemeCatalog = buildSchemeOptionCatalog(schemeSelect);
-
-    const refreshSchemeSelect = () => {
-        const alphabet = viewer.getActiveAlphabet();
-        const selectedSchemeKey = viewer.state.getSnapshot().scheme.key;
-        syncSchemeOptions({
-            schemeSelect,
-            schemeCatalog,
-            alphabet,
-            selectedSchemeKey,
-        });
-    };
-
-    const syncLoadedControls = () => {
-        const hasActiveRepresentation = representationSelect.disabled !== true && representationSelect.value !== "";
-        motifSearchButton.disabled = !hasActiveRepresentation;
-    };
+    const viewer = new MSAViewer({ root, ...DEMO_VIEWER_OPTIONS, });
+    await viewer.init();
 
     const renderTrackToggles = () => {
         if (!trackToggleList) return;
@@ -152,8 +176,8 @@ async function main() {
             const input = document.createElement("input");
             input.type = "checkbox";
             input.checked = enabledTrackIds.has(track.id);
-            input.addEventListener("change", () => {
-                viewer.toggleTrack(track.id, input.checked);
+            input.addEventListener("change", async () => {
+                await viewer.toggleTrack(track.id, input.checked);
                 setStatus(status, `${input.checked ? "Enabled" : "Disabled"} track: ${track.label}`);
             });
 
@@ -165,40 +189,29 @@ async function main() {
         }
     };
 
-    const syncControls = () => {
-        refreshSchemeSelect();
-        syncMaskControls();
-        syncSelectionModeControl();
-        syncLoadedControls();
-    };
-
-    const syncMaskControls = () => {
-        const masking = viewer.getColumnMasking();
-        hideInsertionsCheckbox.checked = masking.hideInsertionColumns === true;
-        gapThresholdInput.value = masking.gapThreshold == null ? "" : String(masking.gapThreshold);
-    };
-
-    const syncSelectionModeControl = () => {
-        selectionModeSelect.value = viewer.getSelectionMode();
-    };
-
-    const applyMaskControls = () => {
+    const applyMasking = () => {
         const gapThresholdValue = gapThresholdInput.value.trim();
         const parsedGapThreshold = gapThresholdValue === "" ? null : Number(gapThresholdValue);
-        viewer.setColumnMasking({
-            hideInsertionColumns: hideInsertionsCheckbox.checked,
-            gapThreshold: Number.isFinite(parsedGapThreshold) ? parsedGapThreshold : null,
+        void viewer.setOptions({
+            behavior: {
+                masking: {
+                    hideInsertionColumns: hideInsertionsCheckbox.checked,
+                    gapThreshold: Number.isFinite(parsedGapThreshold) ? parsedGapThreshold : null,
+                },
+            },
         });
     };
 
     const renderPendingFiles = () => {
         pendingFileList.replaceChildren();
         if (pendingFiles.length === 0) {
-            closePendingFilesPanel({ pendingFilesPanel, loadFilesButton });
+            pendingFilesPanel.hidden = true;
+            loadFilesButton.disabled = true;
             return;
         }
 
-        openPendingFilesPanel({ pendingFilesPanel, loadFilesButton, pendingFiles });
+        pendingFilesPanel.hidden = false;
+        loadFilesButton.disabled = pendingFiles.length === 0;
         for (const pendingFile of pendingFiles) {
             const row = document.createElement("div");
             row.className = "pending-file-row";
@@ -239,19 +252,27 @@ async function main() {
         setStatus(status, "Load an alignment to begin.");
     });
     schemeSelect.addEventListener("change", async (event) => {
-        await viewer.setScheme(event.target.value);
+        await viewer.setOptions({
+            rendering: {
+                scheme: event.target.value,
+            },
+        });
     });
     hideInsertionsCheckbox.addEventListener("change", () => {
-        applyMaskControls();
+        applyMasking();
     });
     gapThresholdInput.addEventListener("change", () => {
-        applyMaskControls();
+        applyMasking();
     });
     representationSelect.addEventListener("change", async (event) => {
         if (!event.target.value) return;
         try {
-            await viewer.setActiveRepresentation(event.target.value);
-            syncControls();
+            await viewer.setOptions({
+                data: {
+                    activeRepresentationId: event.target.value,
+                },
+            });
+            syncUI({ viewer, ...ui });
             setStatus(status, `Switched to ${event.target.selectedOptions[0].textContent}`);
         } catch (error) {
             setStatus(status, error.message);
@@ -259,7 +280,11 @@ async function main() {
         }
     });
     selectionModeSelect.addEventListener("change", (event) => {
-        viewer.setSelectionMode(event.target.value);
+        void viewer.setOptions({
+            behavior: {
+                selectionMode: event.target.value,
+            },
+        });
         setStatus(status, `Selection mode: ${event.target.selectedOptions[0].textContent}`);
     });
     fileInput.addEventListener("change", async (event) => {
@@ -279,22 +304,20 @@ async function main() {
         if (pendingFiles.length === 0) return;
         try {
             setStatus(status, `Loading ${pendingFiles.length} alignment file${pendingFiles.length === 1 ? "" : "s"}...`);
-            const representations = await Promise.all(pendingFiles.map(async (pendingFile) => {
-                const format = pendingFile.file.name.toLowerCase().endsWith(".a3m") ? "a3m" : "fasta";
-                const store = format === "a3m"
-                    ? await parseA3MAlignment(pendingFile.file)
-                    : await parseFastaAlignment(pendingFile.file);
-                return {
+            const representations = await viewer.loadFiles(
+                pendingFiles.map((pendingFile) => ({
+                    file: pendingFile.file,
                     id: pendingFile.id,
                     label: pendingFile.file.name,
-                    store,
                     alphabetId: pendingFile.alphabetId,
-                };
-            }));
+                })),
+                {
+                    activate: "first",
+                    replace: true,
+                }
+            );
 
-            await viewer.loadRepresentations(representations, { activeId: representations[0].id });
-            populateRepresentationOptions(representationSelect, representations, defaultAlphabetRegistry);
-            syncControls();
+            syncUI({ viewer, ...ui });
 
             pendingFiles = [];
             renderPendingFiles();
@@ -336,9 +359,10 @@ async function main() {
     });
 
     syncSelectionButton(clearButton, 0);
-    syncControls();
+    syncUI({ viewer, ...ui });
     renderTrackToggles();
-    closePendingFilesPanel({ pendingFilesPanel, loadFilesButton });
+    pendingFilesPanel.hidden = true;
+    loadFilesButton.disabled = true;
 }
 
 main().catch((error) => {
