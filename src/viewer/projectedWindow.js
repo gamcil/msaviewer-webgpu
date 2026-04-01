@@ -1,4 +1,4 @@
-import { getTileIndicesForWindow, materializeWindowFromTiles } from "../alignment/tiledStorage.js";
+import { getTileCacheKeysForWindow, materializeWindowFromTiles } from "../alignment/tiledStorage.js";
 
 export function buildVisibleColumnMap(colStart, colCount, columnVisibility) {
     const rawCols = columnVisibility.visibleToRaw.subarray(colStart, colStart + colCount);
@@ -89,7 +89,7 @@ export async function materializeProjectedWindow({
             columnMap,
             rawTextureCols: colCount,
             retainedTiles: includeRetainedTiles
-                ? getTileIndicesForWindow(alignmentStore, rowStart, rowCount, colStart, colCount)
+                ? getTileCacheKeysForWindow(alignmentStore, rowStart, rowCount, colStart, colCount)
                 : null,
         };
     }
@@ -122,7 +122,7 @@ export async function materializeProjectedWindow({
         columnMap,
         rawTextureCols: rawColCount,
         retainedTiles: includeRetainedTiles
-            ? getTileIndicesForWindow(alignmentStore, rowStart, rowCount, minRawCol, rawColCount)
+            ? getTileCacheKeysForWindow(alignmentStore, rowStart, rowCount, minRawCol, rawColCount)
             : null,
     };
 }

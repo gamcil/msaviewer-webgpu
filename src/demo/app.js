@@ -40,7 +40,8 @@ const DEMO_VIEWER_OPTIONS = {
         },
     },
     tracks: {
-        enabled: ["consensus", "quality", "conservation", "occupancy"],
+        defaults: "active-only",
+        variants: [],
         order: null,
         definitions: {},
     },
@@ -147,7 +148,11 @@ async function main() {
     const selectionModeSelect = document.getElementById("selection-mode-select");
     const hideInsertionsCheckbox = document.getElementById("hide-insertions-checkbox");
     const gapThresholdInput = document.getElementById("gap-threshold-input");
+    const trackMenuButton = document.getElementById("track-menu-button");
+    const trackMenuPanel = document.getElementById("track-menu-panel");
     const trackToggleList = document.getElementById("track-toggle-list");
+    const trackDisplayModeLabel = document.getElementById("track-display-mode-label");
+    const resetTrackDefaultsButton = document.getElementById("reset-track-defaults-button");
     const pendingFilesPanel = document.getElementById("pending-files-panel");
     const pendingFileList = document.getElementById("pending-file-list");
     const status = document.getElementById("status");
@@ -165,27 +170,78 @@ async function main() {
     const viewer = new MSAViewer({ root, ...DEMO_VIEWER_OPTIONS, });
     await viewer.init();
 
+    const positionTrackMenuPanel = () => {
+        if (!trackMenuButton || !trackMenuPanel || trackMenuPanel.hidden) return;
+        trackMenuPanel.style.left = "0";
+        trackMenuPanel.style.right = "auto";
+        const panelRect = trackMenuPanel.getBoundingClientRect();
+        if (panelRect.right > window.innerWidth - 12) {
+            trackMenuPanel.style.left = "auto";
+            trackMenuPanel.style.right = "0";
+        }
+    };
+
     const renderTrackToggles = () => {
         if (!trackToggleList) return;
-        const enabledTrackIds = new Set(viewer.getEnabledTrackIds());
         trackToggleList.replaceChildren();
-        for (const track of viewer.getAvailableTracks()) {
-            const label = document.createElement("label");
-            label.className = "toolbar-check";
+        const displayMode = viewer.getTrackDisplayMode();
+        for (const track of viewer.getAvailableTrackOptions()) {
+            const name = document.createElement("div");
+            name.className = "track-popover-name";
+            name.textContent = track.label;
+            trackToggleList.appendChild(name);
+            const hasSingleVariant = track.variants.length === 1;
 
-            const input = document.createElement("input");
-            input.type = "checkbox";
-            input.checked = enabledTrackIds.has(track.id);
-            input.addEventListener("change", async () => {
-                await viewer.toggleTrack(track.id, input.checked);
-                setStatus(status, `${input.checked ? "Enabled" : "Disabled"} track: ${track.label}`);
-            });
+            for (const variant of track.variants) {
+                const label = document.createElement("label");
+                label.className = "track-popover-variant";
+                const input = document.createElement("input");
+                input.type = "checkbox";
+                input.checked = variant.enabled === true;
+                input.addEventListener("change", async () => {
+                    await viewer.setTrackVariantEnabled({
+                        trackId: variant.trackId,
+                        representation: variant.representation,
+                    }, input.checked);
+                    renderTrackToggles();
+                    const trackLabel = variant.label ? `${track.label} (${variant.label})` : track.label;
+                    setStatus(status, `${input.checked ? "Enabled" : "Disabled"} track: ${trackLabel}`);
+                });
 
-            const text = document.createElement("span");
-            text.textContent = track.label;
-
-            label.append(input, text);
-            trackToggleList.appendChild(label);
+                label.append(input);
+                if (!hasSingleVariant) {
+                    const text = document.createElement("span");
+                    text.textContent = variant.label ?? track.label;
+                    label.append(text);
+                }
+                trackToggleList.appendChild(label);
+            }
+            const fillerCount = Math.max(0, 4 - track.variants.length);
+            for (let index = 0; index < fillerCount; index += 1) {
+                const filler = document.createElement("div");
+                filler.className = "track-popover-empty";
+                filler.setAttribute("aria-hidden", "true");
+                trackToggleList.appendChild(filler);
+            }
+        }
+        if (trackDisplayModeLabel) {
+            trackDisplayModeLabel.textContent = displayMode === "active-only"
+                ? "Active only"
+                : displayMode === "all-supported"
+                    ? "All supported"
+                    : "Custom";
+        }
+        if (resetTrackDefaultsButton) {
+            const showReset = displayMode === "none";
+            resetTrackDefaultsButton.setAttribute("aria-hidden", showReset ? "false" : "true");
+        }
+        if (trackMenuButton) {
+            const availableTracks = viewer.getAvailableTrackOptions();
+            const enabledCount = availableTracks
+                .flatMap((track) => track.variants)
+                .filter((variant) => variant.enabled === true).length;
+            trackMenuButton.disabled = availableTracks.length === 0;
+            trackMenuButton.textContent = enabledCount > 0 ? `Tracks (${enabledCount})` : "Tracks";
         }
     };
 
@@ -251,6 +307,18 @@ async function main() {
         renderPendingFiles();
         setStatus(status, "Load an alignment to begin.");
     });
+    trackMenuButton?.addEventListener("click", () => {
+        trackMenuPanel.hidden = !trackMenuPanel.hidden;
+        positionTrackMenuPanel();
+    });
+    document.addEventListener("click", (event) => {
+        if (!trackMenuPanel || trackMenuPanel.hidden) return;
+        if (trackMenuPanel.contains(event.target) || trackMenuButton?.contains(event.target)) return;
+        trackMenuPanel.hidden = true;
+    });
+    window.addEventListener("resize", () => {
+        positionTrackMenuPanel();
+    });
     schemeSelect.addEventListener("change", async (event) => {
         await viewer.setOptions({
             rendering: {
@@ -272,6 +340,7 @@ async function main() {
                     activeRepresentationId: event.target.value,
                 },
             });
+            renderTrackToggles();
             syncUI({ viewer, ...ui });
             setStatus(status, `Switched to ${event.target.selectedOptions[0].textContent}`);
         } catch (error) {
@@ -318,6 +387,7 @@ async function main() {
             );
 
             syncUI({ viewer, ...ui });
+            renderTrackToggles();
 
             pendingFiles = [];
             renderPendingFiles();
@@ -328,6 +398,15 @@ async function main() {
             setStatus(status, error.message);
             console.error(error);
         }
+    });
+
+    resetTrackDefaultsButton?.addEventListener("click", async () => {
+        await viewer.setTrackDisplayMode("active-only", { clearVariants: true });
+        renderTrackToggles();
+        if (trackMenuPanel) {
+            trackMenuPanel.hidden = true;
+        }
+        setStatus(status, "Track defaults reset to active-only.");
     });
     
     viewer.onSelectionChange((selection) => {

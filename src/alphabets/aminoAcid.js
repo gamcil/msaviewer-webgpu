@@ -19,6 +19,7 @@ const logoColors = [
 export const aminoAcidAlphabet = {
     id: "aa",
     label: "Amino acids",
+    shortLabel: "AA",
     symbols,
     logoColors,
     coreSize: 20,

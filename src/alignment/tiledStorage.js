@@ -171,6 +171,10 @@ export function getTileIndex(alignment, rowTile, colTile) {
     return rowTile * alignment.colTileCount + colTile;
 }
 
+export function getTileCacheKey(alignment, tileIndex) {
+    return alignment.tiles[tileIndex] ?? tileIndex;
+}
+
 export function getTileIndicesForWindow(alignment, rowStart, rowCount, colStart, colCount) {
     const rowEnd = Math.min(rowStart + rowCount, alignment.totalRows);
     const colEnd = Math.min(colStart + colCount, alignment.totalCols);
@@ -190,8 +194,14 @@ export function getTileIndicesForWindow(alignment, rowStart, rowCount, colStart,
     return indices;
 }
 
+export function getTileCacheKeysForWindow(alignment, rowStart, rowCount, colStart, colCount) {
+    return getTileIndicesForWindow(alignment, rowStart, rowCount, colStart, colCount)
+        .map((tileIndex) => getTileCacheKey(alignment, tileIndex));
+}
+
 export async function loadDecodedTile(alignment, tileIndex, cache) {
-    const cached = cache?.get(tileIndex);
+    const cacheKey = getTileCacheKey(alignment, tileIndex);
+    const cached = cache?.get(cacheKey);
     if (cached) {
         return await cached;
     }
@@ -202,17 +212,17 @@ export async function loadDecodedTile(alignment, tileIndex, cache) {
 
     const pending = tile.blob.arrayBuffer().then((buffer) => {
         const decoded = new Uint8Array(buffer);
-        cache?.set(tileIndex, decoded, decoded.byteLength);
+        cache?.set(cacheKey, decoded, decoded.byteLength);
         return decoded;
     });
 
-    cache?.set(tileIndex, pending);
+    cache?.set(cacheKey, pending);
 
     try {
         return await pending;
     } catch (error) {
-        if (cache?.get(tileIndex) === pending) {
-            cache.delete(tileIndex);
+        if (cache?.get(cacheKey) === pending) {
+            cache.delete(cacheKey);
         }
         throw error;
     }

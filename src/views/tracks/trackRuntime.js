@@ -3,6 +3,7 @@ import { createBarColorRamps } from "../models/barRenderModel.js";
 import { prepareColorRamp } from "../renderers/trackRenderers.js";
 import { createPreparedLineColorRamp } from "../models/lineRenderModel.js";
 import { resolveSymbolColor } from "../../schemes/symbolColorResolver.js";
+import { buildConsensusState } from "../../viewer/TrackStateBuilder.js";
 
 export function getDefaultGlyphFillStyle(theme) {
     return theme?.darkMode ? "#e6e6e6" : "#333";
@@ -92,11 +93,25 @@ export function resolveTrackSourceData(source, trackContext) {
     if (!source) {
         return undefined;
     }
+    const representation = resolveTrackSourceRepresentation(source, trackContext);
     const trackState = resolveTrackSourceTrackState(source, trackContext);
     if (source.type === "metric" && source.metric) {
+        if (representation?.columnMetrics?.[source.metric]) {
+            return representation.columnMetrics[source.metric];
+        }
         return trackState?.metrics?.[source.metric] ?? null;
     }
     if (source.type === "consensus") {
+        if (representation?.columnMetrics && representation?.store) {
+            const alphabet = trackContext?.getAlphabet?.(representation.alphabetId) ?? null;
+            if (alphabet) {
+                return buildConsensusState(
+                    representation.columnMetrics,
+                    representation.store.totalRows,
+                    alphabet
+                );
+            }
+        }
         return trackState?.consensus ?? null;
     }
     if (source.type === "values") {

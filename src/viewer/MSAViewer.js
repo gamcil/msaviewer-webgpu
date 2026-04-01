@@ -31,7 +31,7 @@ import { defaultAlphabetRegistry } from "../alphabets/index.js";
 import { buildColumnVisibility } from "./buildColumnVisibility.js";
 import { deriveViewerOptions, mergeViewerOptions, normalizeViewerOptions } from "./config/viewerOptionSchema.js";
 import { normalizeRepresentationInput, normalizeRepresentationInputs } from "./representations/representationInputSchema.js";
-import { createBuiltInTrackDefinitions } from "./tracks/builtInTrackDefinitions.js";
+import { BUILT_IN_TRACK_DEFINITIONS } from "./tracks/builtInTrackDefinitions.js";
 import { normalizeTrackDefinitions } from "./tracks/trackDefinitionSchema.js";
 import { createTrackFromDefinition } from "./tracks/createTrackFromDefinition.js";
 
@@ -66,6 +66,156 @@ function toRepresentationId(value = "", fallback = "default") {
         .replace(/[^a-z0-9]+/g, "-")
         .replace(/^-+|-+$/g, "");
     return id || fallback;
+}
+
+function cloneTrackLayer(layer) {
+    return {
+        ...layer,
+        style: layer.style ? { ...layer.style } : layer.style,
+        colors: layer.colors
+            ? {
+                ...layer.colors,
+                light: layer.colors.light ? { ...layer.colors.light } : layer.colors.light,
+                dark: layer.colors.dark ? { ...layer.colors.dark } : layer.colors.dark,
+            }
+            : layer.colors,
+        colorRamps: layer.colorRamps
+            ? Object.fromEntries(
+                Object.entries(layer.colorRamps).map(([key, ramp]) => [key, ramp ? { ...ramp } : ramp])
+            )
+            : layer.colorRamps,
+    };
+}
+
+function cloneTrackDefinition(definition) {
+    return {
+        ...definition,
+        source: definition.source ? { ...definition.source } : definition.source,
+        coloring: definition.coloring ? { ...definition.coloring } : definition.coloring,
+        options: definition.options
+            ? {
+                ...definition.options,
+                valueRange: definition.options.valueRange ? { ...definition.options.valueRange } : definition.options.valueRange,
+                elements: definition.options.elements ? { ...definition.options.elements } : definition.options.elements,
+                layers: Array.isArray(definition.options.layers)
+                    ? definition.options.layers.map(cloneTrackLayer)
+                    : definition.options.layers,
+            }
+            : definition.options,
+    };
+}
+
+function buildTrackBindingId({ trackId, representation = "active", alphabetId = null }) {
+    if (alphabetId) {
+        return `${trackId}::alphabet:${alphabetId}`;
+    }
+    return `${trackId}::${representation}`;
+}
+
+function dedupeTrackBindings(bindings) {
+    const next = new Map();
+    for (const binding of bindings) {
+        if (!binding) continue;
+        next.set(buildTrackBindingId(binding), binding);
+    }
+    return [...next.values()];
+}
+
+function getSupportedTrackRepresentations(definition, representations = []) {
+    const supportedAlphabetIds = definition.supports?.alphabets ?? null;
+    return representations.filter((representation) =>
+        !Array.isArray(supportedAlphabetIds) || supportedAlphabetIds.includes(representation.alphabetId)
+    );
+}
+
+function getTrackVariants(definition, representations = []) {
+    if (definition.supports?.shared === true) {
+        return [{ trackId: definition.id, representation: definition.source?.representation ?? "active" }];
+    }
+    return getSupportedTrackRepresentations(definition, representations)
+        .filter((representation) => representation.id != null)
+        .map((representation) => ({ trackId: definition.id, representation: representation.id }));
+}
+
+function findTrackVariantOverride(variant, variantOverrides = []) {
+    return variantOverrides.find((override) =>
+        override.trackId === variant.trackId
+        && (override.representation ?? "active") === variant.representation
+    ) ?? null;
+}
+
+function isTrackVariantEnabled(variant, {
+    defaults,
+    activeRepresentationId,
+    variantOverrides = [],
+}) {
+    const override = findTrackVariantOverride(variant, variantOverrides);
+    if (override) {
+        return override.enabled !== false;
+    }
+    if (defaults === "none") {
+        return false;
+    }
+    if (defaults === "all-supported") {
+        return true;
+    }
+    if (defaults === "active-only") {
+        if (variant.representation === "active") {
+            return activeRepresentationId != null;
+        }
+        return variant.representation === activeRepresentationId;
+    }
+    return false;
+}
+
+function resolveTrackVariantOverride(variant, definition, representations = [], activeRepresentationId = null) {
+    if (!variant || !definition) return null;
+    if (variant.alphabetId) {
+        const matchingRepresentation = getSupportedTrackRepresentations(definition, representations).find((representation) =>
+            representation.alphabetId === variant.alphabetId
+        ) ?? null;
+        if (!matchingRepresentation) return null;
+        return {
+            trackId: definition.id,
+            representation: matchingRepresentation.id,
+            enabled: variant.enabled !== false,
+        };
+    }
+    if (variant.representation === "active" && definition.supports?.shared !== true) {
+        if (!activeRepresentationId) return null;
+        return {
+            trackId: definition.id,
+            representation: activeRepresentationId,
+            enabled: variant.enabled !== false,
+        };
+    }
+    return {
+        trackId: definition.id,
+        representation: variant.representation ?? "active",
+        enabled: variant.enabled !== false,
+    };
+}
+
+function choosePreferredRepresentationId(representations = []) {
+    return representations.find((representation) => representation.alphabetId === "aa")?.id
+        ?? representations[0]?.id
+        ?? null;
+}
+
+function areRepresentationListsEquivalent(nextRepresentations = [], previousRepresentations = []) {
+    if (nextRepresentations === previousRepresentations) return true;
+    if (!Array.isArray(nextRepresentations) || !Array.isArray(previousRepresentations)) return false;
+    if (nextRepresentations.length !== previousRepresentations.length) return false;
+    for (let index = 0; index < nextRepresentations.length; index += 1) {
+        const next = nextRepresentations[index];
+        const previous = previousRepresentations[index];
+        if (!next || !previous) return false;
+        if (next.id !== previous.id) return false;
+        if (next.alphabetId !== previous.alphabetId) return false;
+        if (next.store !== previous.store) return false;
+        if ((next.label ?? null) !== (previous.label ?? null)) return false;
+    }
+    return true;
 }
 
 const AUTO_LAYOUT_CSS = `
@@ -377,6 +527,7 @@ export class MSAViewer {
                 label: representation.label ?? representation.id,
                 alphabetId: representation.alphabetId,
                 alphabetLabel: alphabet?.label ?? representation.alphabetId,
+                alphabetShortLabel: alphabet?.shortLabel ?? alphabet?.label ?? representation.alphabetId,
                 displayLabel: `${representation.label ?? representation.id} (${alphabet?.label ?? representation.alphabetId})`,
             };
         });
@@ -399,17 +550,164 @@ export class MSAViewer {
             }));
     }
 
+    resolveConcreteTrackBinding(binding) {
+        if (!binding) return null;
+        if (binding.alphabetId) {
+            const representations = this.representationStore
+                ? this.getRepresentations()
+                : (this.options?.data?.representations ?? []).map((representation) => ({
+                    id: representation.id,
+                    alphabetId: representation.alphabetId,
+                    label: representation.label ?? representation.id,
+                }));
+            const activeRepresentation = this.state
+                ? this.getActiveRepresentation()
+                : (
+                    this.options?.data?.activeRepresentationId
+                        ? (this.options.data.representations ?? []).find((representation) => representation.id === this.options.data.activeRepresentationId) ?? null
+                        : null
+                );
+            const matchingRepresentation = (activeRepresentation?.alphabetId === binding.alphabetId
+                ? activeRepresentation
+                : null)
+                ?? representations.find((representation) => representation.alphabetId === binding.alphabetId)
+                ?? null;
+            if (!matchingRepresentation) return null;
+            return {
+                trackId: binding.trackId,
+                representation: matchingRepresentation.id,
+            };
+        }
+        return {
+            trackId: binding.trackId,
+            representation: binding.representation === "active"
+                ? this.getActiveRepresentation()?.id ?? "active"
+                : binding.representation,
+        };
+    }
+
+    getRepresentationTrackVariantSuffixes(representations = this.getRepresentations()) {
+        const alphabetCounts = new Map();
+        for (const representation of representations) {
+            alphabetCounts.set(representation.alphabetShortLabel, (alphabetCounts.get(representation.alphabetShortLabel) ?? 0) + 1);
+        }
+        return Object.fromEntries(
+            representations.map((representation) => [
+                representation.id,
+                (alphabetCounts.get(representation.alphabetShortLabel) ?? 0) > 1
+                    ? representation.label
+                    : representation.alphabetShortLabel,
+            ])
+        );
+    }
+
+    getAvailableTrackOptions() {
+        const representations = this.getRepresentations();
+        if (representations.length === 0) {
+            return [];
+        }
+        const suffixByRepresentationId = this.getRepresentationTrackVariantSuffixes();
+        return this.trackDefinitions.map((definition) => {
+            const rawVariants = getTrackVariants(definition, representations);
+            const variants = rawVariants.map((variant) => ({
+                ...variant,
+                label: null,
+                enabled: isTrackVariantEnabled(variant, {
+                    defaults: this.options.tracks.defaults,
+                    activeRepresentationId: this.getActiveRepresentation()?.id ?? this.options.data.activeRepresentationId ?? null,
+                    variantOverrides: this.trackVariantOverrides ?? [],
+                }),
+            }));
+            if (variants.length > 1) {
+                for (const variant of variants) {
+                    variant.label = variant.representation === "active" ? null : suffixByRepresentationId[variant.representation] ?? null;
+                }
+            }
+            return {
+                id: definition.id,
+                label: definition.label,
+                variants,
+            };
+        });
+    }
+
+    resolveTrackBinding(binding) {
+        const definition = this.trackDefinitions.find((track) => track.id === binding.trackId);
+        if (!definition) return null;
+        const concreteRepresentation = binding.representation === "active"
+            ? this.getActiveRepresentation()?.id ?? "active"
+            : binding.representation;
+        const representation = concreteRepresentation === "active"
+            ? null
+            : this.representationStore?.get(concreteRepresentation)
+                ?? this.options.data.representations.find((item) => item.id === concreteRepresentation)
+                ?? null;
+        if (
+            representation
+            && Array.isArray(definition.supports?.alphabets)
+            && !definition.supports.alphabets.includes(representation.alphabetId)
+        ) {
+            return null;
+        }
+        const suffixByRepresentationId = this.getRepresentationTrackVariantSuffixes();
+        const resolved = cloneTrackDefinition(definition);
+        resolved.id = buildTrackBindingId({
+            trackId: definition.id,
+            representation: concreteRepresentation,
+        });
+        resolved.source = {
+            ...(definition.source ?? {}),
+            representation: concreteRepresentation,
+        };
+        resolved.coloring = {
+            ...(definition.coloring ?? {}),
+            representation: concreteRepresentation,
+        };
+        if (definition.supports?.shared !== true && concreteRepresentation !== "active") {
+            const suffix = suffixByRepresentationId[concreteRepresentation];
+            if (suffix) {
+                resolved.options = {
+                    ...(resolved.options ?? {}),
+                    sublabel: suffix,
+                };
+            }
+        }
+        return resolved;
+    }
+
     rebuildTrackDefinitionsFromOptions() {
-        const normalizedTracks = normalizeTrackDefinitions({
-            builtInDefinitions: createBuiltInTrackDefinitions({
-                buildConservationTooltip: (context) => this.buildConservationTooltip(context),
-            }),
+        const representations = this.representationStore
+            ? this.getRepresentations()
+            : (this.options.data.representations ?? []).map((representation) => ({
+                id: representation.id,
+                alphabetId: representation.alphabetId,
+                label: representation.label ?? representation.id,
+            }));
+        const activeRepresentationId = this.state?.getAlignmentIdentity().representationId
+            ?? this.options.data.activeRepresentationId
+            ?? null;
+        this.trackDefinitions = normalizeTrackDefinitions({
+            builtInDefinitions: BUILT_IN_TRACK_DEFINITIONS,
             userDefinitions: this.options.tracks.definitions,
-            enabled: this.options.tracks.enabled,
             order: this.options.tracks.order,
         });
-        this.trackDefinitions = normalizedTracks.definitions;
-        this.enabledTrackIds = [...normalizedTracks.enabledTrackIds];
+        this.trackVariantOverrides = (this.options.tracks.variants ?? [])
+            .map((variant) => {
+                const definition = this.trackDefinitions.find((track) => track.id === variant.trackId);
+                return resolveTrackVariantOverride(variant, definition, representations, activeRepresentationId);
+            })
+            .filter(Boolean);
+        this.enabledTrackBindings = dedupeTrackBindings(
+            this.trackDefinitions.flatMap((definition) =>
+                getTrackVariants(definition, representations).filter((variant) =>
+                    isTrackVariantEnabled(variant, {
+                        defaults: this.options.tracks.defaults,
+                        activeRepresentationId,
+                        variantOverrides: this.trackVariantOverrides,
+                    })
+                )
+            )
+        );
     }
 
     refreshTrackAppearance() {
@@ -476,7 +774,7 @@ export class MSAViewer {
 
     async applyRenderingOptions(nextOptions, previousOptions, changed) {
         if (!changed) return;
-        if (nextOptions.rendering.scheme !== previousOptions.rendering.scheme) {
+        if (nextOptions.rendering.scheme !== this.state.getSchemeKey()) {
             await this.applySchemeOption(nextOptions.rendering.scheme);
         }
     }
@@ -516,6 +814,15 @@ export class MSAViewer {
     }
 
     getActiveAlphabet() {
+        if (!this.state) {
+            const activeRepresentationId = this.options?.data?.activeRepresentationId ?? null;
+            const activeRepresentation = activeRepresentationId
+                ? (this.options?.data?.representations ?? []).find((representation) => representation.id === activeRepresentationId) ?? null
+                : null;
+            return this.alphabetRegistry.get(
+                activeRepresentation?.alphabetId ?? this.options?.alphabet ?? "aa"
+            );
+        }
         const activeRepresentation = this.getActiveRepresentation();
         if (activeRepresentation) {
             return this.alphabetRegistry.get(activeRepresentation.alphabetId);
@@ -524,6 +831,7 @@ export class MSAViewer {
     }
 
     getActiveRepresentation() {
+        if (!this.state) return null;
         const { representationId } = this.state.getAlignmentIdentity();
         if (!representationId) return null;
         return this.representationStore?.get(representationId) ?? null;
@@ -909,15 +1217,26 @@ export class MSAViewer {
         return this.trackDefinitions;
     }
 
-    createTrackById(trackId) {
-        const definition = this.getTrackDefinitions().find((track) => track.id === trackId);
+    createTrackFromBinding(binding) {
+        const definition = this.resolveTrackBinding(binding);
         return createTrackFromDefinition(definition, {
             labelWidth: this.viewerConfig.views.tracks.labelWidth,
+            behaviorHelpers: {
+                buildConservationTooltip: (context) => this.buildConservationTooltip(context),
+            },
         });
     }
 
     getAvailableTracks() {
-        return this.getTrackDefinitions().map(({ id, label, kind, source }) => ({ id, label, kind, source }));
+        return this.getAvailableTrackOptions().flatMap((track) =>
+            track.variants.map((variant) => ({
+                id: buildTrackBindingId(variant),
+                trackId: track.id,
+                label: variant.label ? `${track.label} (${variant.label})` : track.label,
+                representation: variant.representation,
+                source: this.trackDefinitions.find((definition) => definition.id === track.id)?.source ?? null,
+            }))
+        );
     }
 
     getTrackContext() {
@@ -932,23 +1251,54 @@ export class MSAViewer {
     }
 
     getEnabledTrackIds() {
-        return [...this.enabledTrackIds];
+        return dedupeTrackBindings(
+            this.enabledTrackBindings.map((binding) => {
+                if (binding.alphabetId) {
+                    return this.resolveConcreteTrackBinding(binding);
+                }
+                return binding;
+            }).filter(Boolean)
+        ).map(buildTrackBindingId);
+    }
+
+    getEnabledTrackBindings() {
+        return this.enabledTrackBindings.map((binding) => ({ ...binding }));
+    }
+
+    getTrackDefaults() {
+        return this.options.tracks.defaults;
+    }
+
+    getTrackDisplayMode() {
+        return this.options.tracks.defaults;
+    }
+
+    async setTrackDisplayMode(mode, { clearVariants = false } = {}) {
+        await this.setOptions({
+            tracks: {
+                defaults: mode,
+                variants: clearVariants ? [] : this.options.tracks.variants,
+            },
+        });
     }
 
     syncTrackVisibility() {
         if (this.trackStackViews.length === 0) return;
-        const trackDefinitions = this.getTrackDefinitions();
-        const enabledTrackIds = this.enabledTrackIds.filter((id) => trackDefinitions.some((track) => track.id === id));
+        const enabledTrackBindings = this.enabledTrackBindings
+            .map((binding) => this.resolveConcreteTrackBinding(binding))
+            .filter((binding) => binding && this.resolveTrackBinding(binding));
+        const enabledTrackInstanceIds = enabledTrackBindings.map(buildTrackBindingId);
 
         for (const trackStackView of this.trackStackViews) {
             for (const track of [...trackStackView.tracks]) {
-                if (!enabledTrackIds.includes(track.id)) {
+                if (!enabledTrackInstanceIds.includes(track.id)) {
                     trackStackView.removeTrack(track.id);
                 }
             }
-            enabledTrackIds.forEach((trackId, index) => {
+            enabledTrackBindings.forEach((binding, index) => {
+                const trackId = buildTrackBindingId(binding);
                 if (trackStackView.hasTrack(trackId)) return;
-                const track = this.createTrackById(trackId);
+                const track = this.createTrackFromBinding(binding);
                 if (!track) return;
                 trackStackView.addTrackAt(track, index);
             });
@@ -958,22 +1308,71 @@ export class MSAViewer {
         }
     }
 
-    async toggleTrack(trackId, enabled = null) {
-        const availableTrackIds = new Set(this.getAvailableTracks().map((track) => track.id));
-        if (!availableTrackIds.has(trackId)) return;
-        const next = new Set(this.enabledTrackIds);
-        const shouldEnable = enabled == null ? !next.has(trackId) : enabled === true;
-        if (shouldEnable) {
-            next.add(trackId);
+    async toggleTrack(track, enabled = null) {
+        const binding = typeof track === "string"
+            ? { trackId: track, representation: "active" }
+            : { trackId: track.trackId, representation: track.representation ?? "active" };
+        const availableTrackIds = new Set(this.getAvailableTracks().map((item) => item.id));
+        const bindingId = buildTrackBindingId(binding);
+        if (!availableTrackIds.has(bindingId)) return;
+        const enabledTrackIds = new Set(this.getEnabledTrackIds());
+        const shouldEnable = enabled == null ? !enabledTrackIds.has(bindingId) : enabled === true;
+        const nextVariants = [...(this.options.tracks.variants ?? [])];
+        const existingIndex = nextVariants.findIndex((variant) =>
+            variant.trackId === binding.trackId
+            && (variant.representation ?? "active") === binding.representation
+            && (variant.alphabetId ?? null) == null
+        );
+        const nextVariant = {
+            trackId: binding.trackId,
+            representation: binding.representation,
+            enabled: shouldEnable,
+        };
+        if (existingIndex >= 0) {
+            nextVariants[existingIndex] = nextVariant;
         } else {
-            next.delete(trackId);
+            nextVariants.push(nextVariant);
         }
-        const ordered = this.getAvailableTracks().map((track) => track.id).filter((id) => next.has(id));
         await this.setOptions({
             tracks: {
-                enabled: ordered,
+                defaults: this.options.tracks.defaults,
+                variants: nextVariants,
             },
         });
+    }
+
+    async setTrackVariantEnabled(track, enabled) {
+        const binding = typeof track === "string"
+            ? { trackId: track, representation: "active" }
+            : { trackId: track.trackId, representation: track.representation ?? "active" };
+        const activeRepresentationId = this.getActiveRepresentation()?.id ?? null;
+        const selectingNonActiveVariant = enabled === true
+            && this.getTrackDisplayMode() === "active-only"
+            && binding.representation !== "active"
+            && binding.representation !== activeRepresentationId;
+
+        if (selectingNonActiveVariant) {
+            const nextVariants = this.getAvailableTrackOptions()
+                .flatMap((availableTrack) => availableTrack.variants)
+                .map((availableVariant) => ({
+                    trackId: availableVariant.trackId,
+                    representation: availableVariant.representation,
+                    enabled:
+                        availableVariant.trackId === binding.trackId
+                        && availableVariant.representation === binding.representation
+                            ? true
+                            : availableVariant.enabled === true,
+                }));
+            await this.setOptions({
+                tracks: {
+                    defaults: "none",
+                    variants: nextVariants,
+                },
+            });
+            return;
+        }
+
+        await this.toggleTrack(binding, enabled);
     }
     
     ensureTracks() {
@@ -1356,13 +1755,14 @@ export class MSAViewer {
     }
 
     async finalizeActiveRepresentationActivation(id) {
+        this.rebuildTrackDefinitionsFromOptions();
+        this.rebuildTrackViews();
         await this.performVisibleWindowUpload();
         await this.rebuildMinimap();
         this.viewportController?.syncMinimapViewportRect();
         this.syncMinimapSelectionBands();
         this.syncAlignmentOverlay();
         await this.motifController?.refreshActiveRepresentation();
-        this.ensureTracks();
         for (const trackStackView of this.trackStackViews) {
             trackStackView.setTrackContext(this.getTrackContext());
         }
@@ -1415,7 +1815,7 @@ export class MSAViewer {
     async applyDataOptions(dataOptions, previousData = null) {
         const nextRepresentations = dataOptions?.representations ?? [];
         const previousRepresentations = previousData?.representations ?? [];
-        const representationsChanged = nextRepresentations !== previousRepresentations;
+        const representationsChanged = !areRepresentationListsEquivalent(nextRepresentations, previousRepresentations);
         const activeIdChanged = dataOptions?.activeRepresentationId !== previousData?.activeRepresentationId;
 
         if (representationsChanged && nextRepresentations.length > 0) {
@@ -1554,11 +1954,13 @@ export class MSAViewer {
                 ...this.options.data.representations.filter((representation) => !representations.some((next) => next.id === representation.id)),
                 ...representations,
             ];
-        const activeId = activate === "first"
-            ? representations[0]?.id ?? null
-            : typeof activate === "string"
-                ? activate
-                : this.getActiveRepresentation()?.id ?? null;
+        const activeId = activate === "preferred"
+            ? choosePreferredRepresentationId(representations)
+            : activate === "first"
+                ? representations[0]?.id ?? null
+                : typeof activate === "string"
+                    ? activate
+                    : this.getActiveRepresentation()?.id ?? null;
         await this.setRepresentations(nextRepresentations, { activeId });
         return representations;
     }

@@ -40,8 +40,14 @@
  * }} TrackOptionsDefinition
  *
  * @typedef {{
+ *   alphabets?: string[]|null,
+ *   shared?: boolean,
+ * }} TrackSupportsDefinition
+ *
+ * @typedef {{
  *   id: string,
  *   label?: string,
+ *   supports?: TrackSupportsDefinition|null,
  *   source: TrackSourceDefinition|null,
  *   coloring?: TrackColoringDefinition|null,
  *   options?: TrackOptionsDefinition,
@@ -183,6 +189,10 @@ export function normalizeTrackDefinition(definition) {
         ...definition,
         id: definition.id,
         label: definition.label ?? definition.id,
+        supports: {
+            alphabets: Array.isArray(definition.supports?.alphabets) ? [...definition.supports.alphabets] : null,
+            shared: definition.supports?.shared === true,
+        },
         source,
         coloring: normalizeTrackColoring(definition.coloring, source),
         options: {
@@ -195,7 +205,6 @@ export function normalizeTrackDefinition(definition) {
 export function normalizeTrackDefinitions({
     builtInDefinitions = {},
     userDefinitions = {},
-    enabled = [],
     order = null,
 }) {
     const definitionsById = new Map();
@@ -230,8 +239,5 @@ export function normalizeTrackDefinitions({
         ]
         : fallbackOrder.filter((id) => availableIds.has(id));
 
-    return {
-        definitions: orderedIds.map((id) => definitionsById.get(id)).filter(Boolean),
-        enabledTrackIds: Array.from(enabled ?? []).filter((id) => availableIds.has(id)),
-    };
+    return orderedIds.map((id) => definitionsById.get(id)).filter(Boolean);
 }

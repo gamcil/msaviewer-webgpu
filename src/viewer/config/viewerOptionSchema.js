@@ -49,6 +49,26 @@ function normalizeTrackDefinitions(definitions = {}) {
     return normalized;
 }
 
+function normalizeTrackDefaults(value) {
+    return value === "none" || value === "all-supported" || value === "active-only"
+        ? value
+        : "active-only";
+}
+
+function normalizeTrackVariants(variants = []) {
+    if (!Array.isArray(variants)) {
+        return [];
+    }
+    return variants
+        .filter((variant) => variant && typeof variant === "object" && typeof variant.trackId === "string" && variant.trackId.length > 0)
+        .map((variant) => ({
+            trackId: variant.trackId,
+            representation: variant.representation ?? "active",
+            alphabetId: variant.alphabetId ?? null,
+            enabled: variant.enabled !== false,
+        }));
+}
+
 export function deriveViewerOptions(options) {
     return {
         visibility: {
@@ -129,6 +149,8 @@ export function normalizeViewerOptions(rawOptions = {}) {
     const normalizedRendering = mergeObjects(DEFAULT_VIEWER_OPTIONS.rendering, rawOptions.rendering);
     const normalizedTracks = mergeObjects(DEFAULT_VIEWER_OPTIONS.tracks, rawOptions.tracks);
     normalizedTracks.definitions = normalizeTrackDefinitions(rawOptions.tracks?.definitions);
+    normalizedTracks.defaults = normalizeTrackDefaults(rawOptions.tracks?.defaults ?? normalizedTracks.defaults);
+    normalizedTracks.variants = normalizeTrackVariants(rawOptions.tracks?.variants ?? normalizedTracks.variants);
 
     const normalized = {
         alphabet: rawOptions.alphabet ?? DEFAULT_VIEWER_OPTIONS.alphabet,

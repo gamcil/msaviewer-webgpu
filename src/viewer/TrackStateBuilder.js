@@ -52,6 +52,10 @@ function buildConsensusColumns(columnMetrics, numSequences, alphabet) {
     return { columns };
 }
 
+export function buildConsensusState(columnMetrics, numSequences, alphabet = aminoAcidAlphabet) {
+    return buildConsensusColumns(columnMetrics, numSequences, alphabet);
+}
+
 export class TrackStateBuilder {
     buildMetricsState(columnMetrics) {
         return {
@@ -64,7 +68,7 @@ export class TrackStateBuilder {
     }
 
     buildConsensusState(columnMetrics, numSequences, alphabet = aminoAcidAlphabet) {
-        return buildConsensusColumns(columnMetrics, numSequences, alphabet);
+        return buildConsensusState(columnMetrics, numSequences, alphabet);
     }
 
     build(columnMetrics, numSequences, alphabet = aminoAcidAlphabet) {

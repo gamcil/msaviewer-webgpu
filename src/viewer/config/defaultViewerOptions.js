@@ -38,7 +38,8 @@ export const DEFAULT_VIEWER_OPTIONS = {
         },
     },
     tracks: {
-        enabled: ["consensus", "quality", "conservation", "occupancy"],
+        defaults: "active-only",
+        variants: [],
         order: null,
         definitions: {},
     },

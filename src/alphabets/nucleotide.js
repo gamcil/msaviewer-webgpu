@@ -11,6 +11,7 @@ const logoColors = [
 export const nucleotideAlphabet = {
     id: "nt",
     label: "Nucleotides",
+    shortLabel: "NT",
     symbols,
     logoColors,
     coreSize: 4,

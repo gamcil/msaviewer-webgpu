@@ -13,6 +13,7 @@ const logoColors = [
 export const threeDIAlphabet = {
     id: "3di",
     label: "3Di",
+    shortLabel: "3Di",
     symbols,
     logoColors,
     coreSize: 20,
