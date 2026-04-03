@@ -367,6 +367,10 @@ const AUTO_LAYOUT_CSS = `
     overflow: visible;
 }
 
+.msa-trackstack-body::-webkit-scrollbar {
+    display: none;
+}
+
 .msa-minimap {
     position: relative;
     width: 100%;
@@ -873,6 +877,12 @@ export class MSAViewer {
         this.syncTrackVisibility();
     }
 
+    syncTrackScrollTargets() {
+        for (const trackStackView of this.trackStackViews) {
+            trackStackView.setHorizontalScrollTarget?.(() => this.alignmentView?.scroller ?? null);
+        }
+    }
+
     async resetLoadedData({ preserveSelection = false, preserveScroll = false } = {}) {
         this.decodedTileCache.clear();
         this.visibleWindowController?.clear?.();
@@ -952,7 +962,7 @@ export class MSAViewer {
         this.viewportController?.destroy?.();
         this.minimapView?.destroy?.();
         this.rulerView?.destroy?.();
-        this.trackStackViews?.forEach((trackStackView) => trackStackView.clear?.());
+        this.trackStackViews?.forEach((trackStackView) => trackStackView.destroy?.());
         this.motifController = null;
         this.views = { header: null, alignment: null, ruler: null, minimap: null, trackStacks: [] };
         this.mainRowRoot = null;
@@ -1352,6 +1362,7 @@ export class MSAViewer {
             getColumnVisibility: () => this.getActiveRepresentation()?.columnVisibility ?? null,
         });
         this.selectionController.bind();
+        this.syncTrackScrollTargets();
         this.rulerView?.setTheme?.({ darkMode: this.state.getResolvedDarkMode() });
 
         this.setLoadedLayoutVisible(false);
@@ -1418,6 +1429,7 @@ export class MSAViewer {
             getColumnVisibility: () => this.getActiveRepresentation()?.columnVisibility ?? null,
         });
         this.selectionController.bind();
+        this.syncTrackScrollTargets();
         this.rulerView?.setTheme?.({ darkMode: this.state.getResolvedDarkMode() });
     }
 
@@ -2698,6 +2710,7 @@ export class MSAViewer {
         this.selectionController?.destroy?.();
         this.motifController = null;
         this.viewportController?.destroy?.();
+        this.trackStackViews?.forEach((trackStackView) => trackStackView.destroy?.());
         window.removeEventListener("keydown", this.onKeyDown);
         this.themeMedia.removeEventListener("change", this.onThemeChange);
         this.visibleWindowController?.clear?.();

@@ -12,13 +12,26 @@ export class TrackStackView {
     constructor({ root }) {
         this.root = root;
         this.root.style.position = this.root.style.position || "relative";
+        this.root.style.overflowX = "auto";
+        this.root.style.overflowY = "hidden";
+        this.root.style.scrollbarWidth = "none";
+        this.root.style.msOverflowStyle = "none";
         this.tracks = [];
         this.trackState = null;
         this.trackContext = null;
         this.viewport = null;
         this.theme = null;
+        this.getHorizontalScrollTarget = null;
+        this.isSyncingScroll = false;
         this.renderDirty = false;
         this.frameHandle = 0;
+
+        this.scrollSpacer = document.createElement("div");
+        this.scrollSpacer.style.position = "absolute";
+        this.scrollSpacer.style.left = "0";
+        this.scrollSpacer.style.top = "0";
+        this.scrollSpacer.style.height = "1px";
+        this.scrollSpacer.style.pointerEvents = "none";
 
         this.tooltipOverlay = document.createElement("div");
         this.tooltipOverlay.style.position = "absolute";
@@ -40,10 +53,12 @@ export class TrackStackView {
 
         this.tooltipOverlay.appendChild(this.tooltipHitbox);
         this.tooltipOverlay.appendChild(this.tooltipEl);
+        this.root.appendChild(this.scrollSpacer);
         this.root.appendChild(this.tooltipOverlay);
         this.tooltipPresenter = new TrackTooltipPresenter({ tooltipEl: this.tooltipEl });
         this.tooltipPresenter.applyTheme(this.theme);
         this.bindTooltipEvents();
+        this.bindNativeScrollSync();
     }
 
     addTrack(track) {
@@ -54,6 +69,8 @@ export class TrackStackView {
         const insertIndex = Math.max(0, Math.min(index, this.tracks.length));
         this.tracks.splice(insertIndex, 0, track);
         const nextTrack = this.tracks[insertIndex + 1] ?? null;
+        track.root.style.position = "sticky";
+        track.root.style.left = "0";
         this.root.insertBefore(track.root, nextTrack?.root ?? this.tooltipOverlay);
         if (this.viewport) {
             track.setViewport(this.viewport);
@@ -67,6 +84,7 @@ export class TrackStackView {
         if (this.theme) {
             track.setTheme?.(this.theme);
         }
+        this.syncScrollMetrics();
         this.updateTooltipBounds();
     }
 
@@ -90,6 +108,7 @@ export class TrackStackView {
 
     setViewport(viewport) {
         this.viewport = viewport;
+        this.syncScrollMetrics();
         for (const track of this.tracks) {
             track.setViewport?.(viewport);
         }
@@ -136,6 +155,39 @@ export class TrackStackView {
         this.tooltipHitbox.addEventListener("pointerleave", this.onTooltipPointerLeave);
     }
 
+    bindNativeScrollSync() {
+        this.onScroll = () => {
+            this.updateTooltipBounds();
+            if (this.isSyncingScroll) return;
+            const scrollTarget = this.getHorizontalScrollTarget?.() ?? null;
+            if (!scrollTarget) return;
+            scrollTarget.scrollLeft = this.root.scrollLeft;
+        };
+
+        this.root.addEventListener("scroll", this.onScroll, { passive: true });
+    }
+
+    setHorizontalScrollTarget(getTarget) {
+        this.getHorizontalScrollTarget = typeof getTarget === "function" ? getTarget : null;
+        this.syncScrollMetrics();
+    }
+
+    syncScrollMetrics() {
+        const totalCols = this.viewport?.totalCols ?? 0;
+        const cellWidth = this.viewport?.cellWidth ?? 0;
+        const labelWidth = this.tracks[0]?.labelWidth ?? 0;
+        const contentWidth = Math.max(0, totalCols * cellWidth);
+        this.scrollSpacer.style.left = `${labelWidth}px`;
+        this.scrollSpacer.style.width = `${contentWidth}px`;
+        const targetScrollLeft = this.viewport?.scrollLeft ?? this.getHorizontalScrollTarget?.()?.scrollLeft ?? 0;
+        if (this.root.scrollLeft !== targetScrollLeft) {
+            this.isSyncingScroll = true;
+            this.root.scrollLeft = targetScrollLeft;
+            this.isSyncingScroll = false;
+        }
+        this.updateTooltipBounds();
+    }
+
     updateTooltipBounds() {
         if (this.tracks.length === 0) {
             this.tooltipOverlay.style.width = "0";
@@ -144,6 +196,7 @@ export class TrackStackView {
         }
 
         const rootRect = this.root.getBoundingClientRect();
+        const scrollLeft = this.root.scrollLeft;
         let left = Infinity;
         let top = Infinity;
         let right = -Infinity;
@@ -151,9 +204,9 @@ export class TrackStackView {
 
         for (const track of this.tracks) {
             const bodyRect = track.bodyEl.getBoundingClientRect();
-            left = Math.min(left, bodyRect.left - rootRect.left);
+            left = Math.min(left, scrollLeft + bodyRect.left - rootRect.left);
             top = Math.min(top, bodyRect.top - rootRect.top);
-            right = Math.max(right, bodyRect.right - rootRect.left);
+            right = Math.max(right, scrollLeft + bodyRect.right - rootRect.left);
             bottom = Math.max(bottom, bodyRect.bottom - rootRect.top);
         }
 
@@ -227,7 +280,23 @@ export class TrackStackView {
             track.destroy();
         }
         this.tracks = [];
-        this.root.replaceChildren(this.tooltipOverlay);
+        this.scrollSpacer.style.left = "0";
+        this.scrollSpacer.style.width = "0";
+        this.root.scrollLeft = 0;
+        this.root.replaceChildren(this.scrollSpacer, this.tooltipOverlay);
         this.updateTooltipBounds();
+    }
+
+    destroy() {
+        this.clear();
+        if (this.onTooltipPointerMove) {
+            this.tooltipHitbox.removeEventListener("pointermove", this.onTooltipPointerMove);
+        }
+        if (this.onTooltipPointerLeave) {
+            this.tooltipHitbox.removeEventListener("pointerleave", this.onTooltipPointerLeave);
+        }
+        if (this.onScroll) {
+            this.root.removeEventListener("scroll", this.onScroll);
+        }
     }
 }
