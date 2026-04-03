@@ -117,14 +117,26 @@ function setStatus(statusEl, message) {
     statusEl.textContent = message;
 }
 
-function syncSelectionButton(clearButton, selectionCount) {
+function syncSelectionButtons(clearButton, exportButton, selectionCount) {
     if (selectionCount > 0) {
         clearButton.innerHTML = `Clear ${selectionCount}<br>selection${selectionCount === 1 ? "" : "s"}`;
         clearButton.disabled = false;
+        exportButton.disabled = false;
         return;
     }
     clearButton.innerHTML = "Clear<br>selection";
     clearButton.disabled = true;
+    exportButton.disabled = true;
+}
+
+function downloadTextFile(text, fileName, mimeType = "text/plain;charset=utf-8") {
+    const blob = new Blob([text], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = fileName;
+    link.click();
+    URL.revokeObjectURL(url);
 }
 
 function syncUI({ viewer, representationSelect, schemeSelect, backendSelect, selectionModeSelect, hideInsertionsCheckbox, gapThresholdInput, motifSearchButton }) {
@@ -150,6 +162,7 @@ async function main() {
     const root = document.getElementById("viewer");
     const fileInput = document.getElementById("file-input");
     const clearButton = document.getElementById("clear-selection-button");
+    const exportFastaButton = document.getElementById("export-fasta-button");
     const motifSearchButton = document.getElementById("motif-search-button");
     const uploadButton = document.getElementById("upload-button");
     const loadFilesButton = document.getElementById("load-files-button");
@@ -180,6 +193,9 @@ async function main() {
     let pendingFiles = [];
     const viewer = new MSAViewer({ root, ...DEMO_VIEWER_OPTIONS });
     await viewer.init();
+    viewer.addEventListener("sequenceclick", (event) => {
+        setStatus(status, `Clicked sequence ${event.detail.record.name} in ${event.detail.representationId} at row ${event.detail.rowIndex}.`);
+    });
 
     const positionTrackMenuPanel = () => {
         if (!trackMenuButton || !trackMenuPanel || trackMenuPanel.hidden) return;
@@ -444,12 +460,29 @@ async function main() {
 
     viewer.onSelectionChange((selection) => {
         const selectionCount = selection?.componentCount ?? 0;
-        syncSelectionButton(clearButton, selectionCount);
+        syncSelectionButtons(clearButton, exportFastaButton, selectionCount);
     });
 
     clearButton.onclick = () => {
         viewer.clearSelection();
     };
+
+    exportFastaButton.addEventListener("click", async () => {
+        try {
+            const fasta = await viewer.exportSelectionAsFasta();
+            if (!fasta) {
+                setStatus(status, "No selection to export.");
+                return;
+            }
+            const activeRepresentation = viewer.getActiveRepresentation();
+            const fileStem = activeRepresentation?.id ?? "selection";
+            downloadTextFile(fasta, `${fileStem}-selection.fasta`, "text/fasta;charset=utf-8");
+            setStatus(status, `Exported FASTA for current selection from ${activeRepresentation?.label ?? fileStem}.`);
+        } catch (error) {
+            setStatus(status, error.message);
+            console.error(error);
+        }
+    });
 
     motifSearchButton.addEventListener("click", async () => {
         const currentQuery = viewer.motifController?.query ?? "";
@@ -470,7 +503,7 @@ async function main() {
         }
     });
 
-    syncSelectionButton(clearButton, viewer.getSelection()?.componentCount ?? 0);
+    syncSelectionButtons(clearButton, exportFastaButton, viewer.getSelection()?.componentCount ?? 0);
     syncUI({ viewer, ...ui });
     renderTrackToggles();
     pendingFilesPanel.hidden = true;

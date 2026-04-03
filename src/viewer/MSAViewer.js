@@ -29,6 +29,7 @@ import { normalizeRepresentationInput, normalizeRepresentationInputs } from "./r
 import { BUILT_IN_TRACK_DEFINITIONS } from "./tracks/builtInTrackDefinitions.js";
 import { normalizeTrackDefinitions } from "./tracks/trackDefinitionSchema.js";
 import { createTrackFromDefinition } from "./tracks/createTrackFromDefinition.js";
+import { exportSelectionAsFasta as buildSelectionFasta } from "./export/exportSelectionAsFasta.js";
 import {
     createAlignmentSurface,
     createBackendMinimapController,
@@ -1826,6 +1827,36 @@ export class MSAViewer {
     clearSelection() {
         this.selectionController?.clearSelection();
     }
+
+    async exportSelectionAsFasta({
+        representationId = null,
+        lineWidth = 80,
+    } = {}) {
+        const selection = this.state.getSelectionSnapshot();
+        if (!selection.ranges.length) {
+            return "";
+        }
+        const targetRepresentationId = representationId
+            ?? this.getActiveRepresentation()?.id
+            ?? this.options.data.activeRepresentationId
+            ?? null;
+        if (!targetRepresentationId) {
+            return "";
+        }
+        const representation = this.representationStore?.get(targetRepresentationId)
+            ?? this.options.data.representations.find((candidate) => candidate.id === targetRepresentationId)
+            ?? null;
+        if (!representation?.store) {
+            throw new Error(`Unknown representation: ${targetRepresentationId}`);
+        }
+        return buildSelectionFasta({
+            alignmentStore: representation.store,
+            selectionRanges: selection.ranges,
+            lineWidth,
+            decodedTileCache: this.decodedTileCache,
+        });
+    }
+
     applySelectionMode(mode) {
         this.selectionController?.setSelectionMode(mode);
     }
