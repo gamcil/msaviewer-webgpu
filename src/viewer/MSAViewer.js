@@ -471,6 +471,7 @@ export class MSAViewer {
         this.renderBackend = resolveRenderingBackendKind(this.options.rendering.backend, {
             hasWebGPU: typeof navigator !== "undefined" && !!navigator.gpu,
         });
+        this.eventTarget = new EventTarget();
         this.rebuildTrackDefinitionsFromOptions();
         const initialAlphabet = typeof this.options.alphabet === "string"
             ? this.alphabetRegistry.get(this.options.alphabet)
@@ -559,8 +560,35 @@ export class MSAViewer {
     get trackStackViews() { return this.views.trackStacks; }
     set trackStackViews(views) { this.views.trackStacks = Array.isArray(views) ? views : []; }
 
+    addEventListener(type, listener, options) {
+        this.eventTarget.addEventListener(type, listener, options);
+    }
+
+    removeEventListener(type, listener, options) {
+        this.eventTarget.removeEventListener(type, listener, options);
+    }
+
+    dispatchViewerEvent(type, detail) {
+        this.eventTarget.dispatchEvent(new CustomEvent(type, { detail }));
+    }
+
     getOptions() {
         return this.options;
+    }
+
+    handleSequenceHeaderClick(rowIndex, originalEvent) {
+        const records = this.getActiveAlignmentStore()?.records ?? [];
+        const record = records[rowIndex] ?? null;
+        if (!record) return;
+        const detail = {
+            rowIndex,
+            record,
+            representationId: this.getActiveRepresentation()?.id ?? this.state.getAlignmentIdentity().representationId ?? null,
+            alphabetId: this.getActiveAlphabet()?.id ?? this.state.getAlignmentIdentity().alphabetId ?? null,
+            originalEvent,
+        };
+        this.dispatchViewerEvent("sequenceclick", detail);
+        this.options.interactions.onSequenceClick?.(detail);
     }
 
     getRepresentations() {
@@ -962,6 +990,7 @@ export class MSAViewer {
         this.viewportController?.destroy?.();
         this.minimapView?.destroy?.();
         this.rulerView?.destroy?.();
+        this.headerView?.destroy?.();
         this.trackStackViews?.forEach((trackStackView) => trackStackView.destroy?.());
         this.motifController = null;
         this.views = { header: null, alignment: null, ruler: null, minimap: null, trackStacks: [] };
@@ -1298,6 +1327,7 @@ export class MSAViewer {
             width: this.viewerConfig.views.header.width,
             fontFamily: this.viewerConfig.views.header.fontFamily,
             fontSize: this.viewerConfig.views.header.fontSize,
+            onRowClick: (rowIndex, event) => this.handleSequenceHeaderClick(rowIndex, event),
         }) : null;
         this.minimapView = minimapRoot ? new MinimapView({ root: minimapRoot }) : null;
         this.minimapController = createBackendMinimapController({
@@ -1429,6 +1459,7 @@ export class MSAViewer {
             getColumnVisibility: () => this.getActiveRepresentation()?.columnVisibility ?? null,
         });
         this.selectionController.bind();
+        this.headerView?.setOnRowClick?.((rowIndex, event) => this.handleSequenceHeaderClick(rowIndex, event));
         this.syncTrackScrollTargets();
         this.rulerView?.setTheme?.({ darkMode: this.state.getResolvedDarkMode() });
     }

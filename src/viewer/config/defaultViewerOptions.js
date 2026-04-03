@@ -49,6 +49,9 @@ export const DEFAULT_VIEWER_OPTIONS = {
             gapThreshold: null,
         },
     },
+    interactions: {
+        onSequenceClick: null,
+    },
     rendering: {
         backend: "auto",
         scheme: "clustalx",

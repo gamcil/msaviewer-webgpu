@@ -3,12 +3,20 @@ Draw the row headers, which are the labels on the left side of the MSA viewer.
 This view renders row headers, synchronizing their vertical scroll position with the main MSA view.
 */
 export class HeaderView {
-    constructor({ root, rowHeight, width = 180, fontFamily = "\"IBM Plex Mono\", \"IBM Plex Sans\", monospace", fontSize = 14 }) {
+    constructor({
+        root,
+        rowHeight,
+        width = 180,
+        fontFamily = "\"IBM Plex Mono\", \"IBM Plex Sans\", monospace",
+        fontSize = 14,
+        onRowClick = null,
+    }) {
         this.root = root;
         this.rowHeight = rowHeight;
         this.width = width;
         this.fontFamily = fontFamily;
         this.fontSize = fontSize;
+        this.onRowClick = typeof onRowClick === "function" ? onRowClick : null;
 
         this.scrollport = document.createElement("div");
         this.scrollport.className = "msa-headers-scrollport";
@@ -19,6 +27,8 @@ export class HeaderView {
         this.root.appendChild(this.scrollport);
         this.root.style.setProperty("--row-height", `${this.rowHeight}px`);
         this.applyStyles();
+        this.bindEvents();
+        this.setOnRowClick(this.onRowClick);
     }
     applyStyles() {
         Object.assign(this.root.style, {
@@ -45,6 +55,22 @@ export class HeaderView {
             minWidth: "100%",
         });
     }
+    bindEvents() {
+        this.onClick = (event) => {
+            const rowEl = event.target instanceof Element
+                ? event.target.closest(".msa-header-row")
+                : null;
+            if (!rowEl) return;
+            const rowIndex = Number.parseInt(rowEl.dataset.rowIndex ?? "", 10);
+            if (!Number.isInteger(rowIndex)) return;
+            this.onRowClick?.(rowIndex, event);
+        };
+        this.track.addEventListener("click", this.onClick);
+    }
+    setOnRowClick(onRowClick) {
+        this.onRowClick = typeof onRowClick === "function" ? onRowClick : null;
+        this.track.style.cursor = this.onRowClick ? "pointer" : "";
+    }
     setRowHeight(rowHeight) { 
         if (this.rowHeight === rowHeight) return;
         this.rowHeight = rowHeight;
@@ -57,9 +83,10 @@ export class HeaderView {
     }
     renderRecords(records) {
         this.track.replaceChildren();
-        for (const record of records) {
+        for (const [rowIndex, record] of records.entries()) {
             const headerCell = document.createElement("div");
             headerCell.className = "msa-header-row";
+            headerCell.dataset.rowIndex = String(rowIndex);
             headerCell.textContent = record.name;
             Object.assign(headerCell.style, {
                 display: "flex",
@@ -87,5 +114,11 @@ export class HeaderView {
         this.track.replaceChildren();
         this.track.style.height = "0px";
         this.scrollport.scrollTop = 0;
+    }
+    destroy() {
+        if (this.onClick) {
+            this.track.removeEventListener("click", this.onClick);
+        }
+        this.clear();
     }
 }

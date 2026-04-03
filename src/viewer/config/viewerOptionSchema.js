@@ -147,6 +147,7 @@ export function normalizeViewerOptions(rawOptions = {}) {
     normalizedTheme.typography.headerFontSize = Math.max(1, normalizedTheme.typography.headerFontSize);
 
     const normalizedBehavior = mergeObjects(DEFAULT_VIEWER_OPTIONS.behavior, rawOptions.behavior);
+    const normalizedInteractions = mergeObjects(DEFAULT_VIEWER_OPTIONS.interactions, rawOptions.interactions);
     const normalizedRendering = mergeObjects(DEFAULT_VIEWER_OPTIONS.rendering, rawOptions.rendering);
     normalizedRendering.backend = normalizeRenderingBackend(rawOptions.rendering?.backend ?? normalizedRendering.backend);
     normalizedRendering.schemeSourceRepresentationId = rawOptions.rendering?.schemeSourceRepresentationId ?? normalizedRendering.schemeSourceRepresentationId ?? null;
@@ -167,6 +168,7 @@ export function normalizeViewerOptions(rawOptions = {}) {
         theme: normalizedTheme,
         tracks: normalizedTracks,
         behavior: normalizedBehavior,
+        interactions: normalizedInteractions,
         rendering: normalizedRendering,
     };
 
