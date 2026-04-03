@@ -49,7 +49,6 @@ export const BUILT_IN_TRACK_DEFINITIONS = {
                         maxGlyphHeightRatio: 0.8,
                         minGlyphPixelHeight: 1,
                         minLogoCellWidth: 10,
-                        logoFont: `bold 100px "IBM Plex Mono", monospace`,
                         logoMaxScaleX: 1.25,
                     },
                 },

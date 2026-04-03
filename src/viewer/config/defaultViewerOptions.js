@@ -32,7 +32,6 @@ export const DEFAULT_VIEWER_OPTIONS = {
         typography: {
             uiFontFamily: "\"IBM Plex Sans\", sans-serif",
             uiFontSize: 13,
-            alignmentFontFamily: "\"IBM Plex Mono\", monospace",
             headerFontFamily: "\"IBM Plex Mono\", \"IBM Plex Sans\", monospace",
             headerFontSize: 14,
         },
@@ -51,7 +50,7 @@ export const DEFAULT_VIEWER_OPTIONS = {
         },
     },
     rendering: {
-        backend: "webgpu",
+        backend: "auto",
         scheme: "clustalx",
         schemeSourceRepresentationId: null,
     },

@@ -56,6 +56,7 @@ export function warmTrackLogoGlyphCaches({
     source,
     layers,
     layerCaches,
+    theme,
 }) {
     if (source?.type !== "consensus") return;
     for (let index = 0; index < layers.length; index += 1) {
@@ -64,7 +65,7 @@ export function warmTrackLogoGlyphCaches({
         if (layer?.type !== "logo" || !cache?.renderColumns || layer.show === false) continue;
         const glyphColorPairs = collectConsensusLogoGlyphPairs(cache.renderColumns);
         warmSequenceLogoGlyphCache(
-            layer.style?.logoFont ?? `bold 100px "IBM Plex Mono", monospace`,
+            layer.style?.logoFont ?? `bold 100px ${theme?.uiFontFamily ?? "\"IBM Plex Sans\", sans-serif"}`,
             glyphColorPairs
         );
     }

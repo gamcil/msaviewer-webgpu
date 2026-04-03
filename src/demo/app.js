@@ -11,7 +11,6 @@ const DEMO_VIEWER_OPTIONS = {
         typography: {
             uiFontFamily: "\"IBM Plex Sans\", sans-serif",
             uiFontSize: 13,
-            alignmentFontFamily: "\"IBM Plex Mono\", monospace",
             headerFontFamily: "\"IBM Plex Mono\", \"IBM Plex Sans\", monospace",
             headerFontSize: 14,
         },
@@ -53,7 +52,7 @@ const DEMO_VIEWER_OPTIONS = {
         },
     },
     rendering: {
-        backend: "webgpu",
+        backend: "auto",
         scheme: "clustalx",
     },
 };
@@ -128,7 +127,7 @@ function syncSelectionButton(clearButton, selectionCount) {
     clearButton.disabled = true;
 }
 
-function syncUI({ viewer, representationSelect, schemeSelect, selectionModeSelect, hideInsertionsCheckbox, gapThresholdInput, motifSearchButton }) {
+function syncUI({ viewer, representationSelect, schemeSelect, backendSelect, selectionModeSelect, hideInsertionsCheckbox, gapThresholdInput, motifSearchButton }) {
     const representations = viewer.getRepresentations();
     const activeRepresentationId = viewer.getActiveRepresentation()?.id ?? representations[0]?.id ?? "";
     populateRepresentationOptions(representationSelect, representations);
@@ -142,6 +141,7 @@ function syncUI({ viewer, representationSelect, schemeSelect, selectionModeSelec
     const masking = viewer.getColumnMasking();
     hideInsertionsCheckbox.checked = masking.hideInsertionColumns === true;
     gapThresholdInput.value = masking.gapThreshold == null ? "" : String(masking.gapThreshold);
+    backendSelect.value = viewer.getOptions().rendering.backend;
     selectionModeSelect.value = viewer.getSelectionMode();
     motifSearchButton.disabled = !(representationSelect.disabled !== true && representationSelect.value !== "");
 }
@@ -154,6 +154,7 @@ async function main() {
     const uploadButton = document.getElementById("upload-button");
     const loadFilesButton = document.getElementById("load-files-button");
     const schemeSelect = document.getElementById("scheme-select");
+    const backendSelect = document.getElementById("backend-select");
     const representationSelect = document.getElementById("representation-select");
     const selectionModeSelect = document.getElementById("selection-mode-select");
     const hideInsertionsCheckbox = document.getElementById("hide-insertions-checkbox");
@@ -169,6 +170,7 @@ async function main() {
     const ui = {
         representationSelect,
         schemeSelect,
+        backendSelect,
         selectionModeSelect,
         hideInsertionsCheckbox,
         gapThresholdInput,
@@ -176,8 +178,7 @@ async function main() {
     };
     const alphabetOptions = defaultAlphabetRegistry.list();
     let pendingFiles = [];
-
-    const viewer = new MSAViewer({ root, ...DEMO_VIEWER_OPTIONS, });
+    const viewer = new MSAViewer({ root, ...DEMO_VIEWER_OPTIONS });
     await viewer.init();
 
     const positionTrackMenuPanel = () => {
@@ -338,6 +339,26 @@ async function main() {
             },
         });
     });
+    backendSelect.addEventListener("change", async (event) => {
+        const requestedBackend = event.target.value;
+        try {
+            await viewer.setOptions({
+                rendering: {
+                    backend: requestedBackend,
+                },
+            });
+            syncUI({ viewer, ...ui });
+            renderTrackToggles();
+            const actualBackend = requestedBackend === "auto"
+                ? ` (${viewer.renderBackend})`
+                : "";
+            setStatus(status, `Rendering backend: ${requestedBackend}${actualBackend}`);
+        } catch (error) {
+            syncUI({ viewer, ...ui });
+            setStatus(status, error.message);
+            console.error(error);
+        }
+    });
     hideInsertionsCheckbox.addEventListener("change", () => {
         applyMasking();
     });
@@ -420,7 +441,7 @@ async function main() {
         }
         setStatus(status, "Track defaults reset to active-only.");
     });
-    
+
     viewer.onSelectionChange((selection) => {
         const selectionCount = selection?.componentCount ?? 0;
         syncSelectionButton(clearButton, selectionCount);
@@ -449,7 +470,7 @@ async function main() {
         }
     });
 
-    syncSelectionButton(clearButton, 0);
+    syncSelectionButton(clearButton, viewer.getSelection()?.componentCount ?? 0);
     syncUI({ viewer, ...ui });
     renderTrackToggles();
     pendingFilesPanel.hidden = true;

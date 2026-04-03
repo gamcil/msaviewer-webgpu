@@ -460,6 +460,17 @@
                 <div class="toolbar-separator" aria-hidden="true"></div>
                 <div class="toolbar-group">
                     <div class="toolbar-field">
+                        <label for="backend-select">Backend</label>
+                        <select id="backend-select" class="control-select">
+                            <option value="auto">Auto</option>
+                            <option value="webgpu">WebGPU</option>
+                            <option value="cpu">CPU</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="toolbar-separator" aria-hidden="true"></div>
+                <div class="toolbar-group">
+                    <div class="toolbar-field">
                         <label class="mask-toggle" for="hide-insertions-checkbox">Hide<br>Insertions</label>
                         <input id="hide-insertions-checkbox" type="checkbox">
                     </div>

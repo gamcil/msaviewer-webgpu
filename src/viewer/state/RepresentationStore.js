@@ -38,12 +38,14 @@ export class RepresentationStore {
         const { totalCols, totalRows } = store;
         const previous = this.get(id);
         let colProfileBuffer = previous?.alignmentState?.colProfileBuffer ?? null;
-        if (!colProfileBuffer || previous?.alignmentState?.totalCols !== totalCols) {
+        if (this.device && (!colProfileBuffer || previous?.alignmentState?.totalCols !== totalCols)) {
             colProfileBuffer?.destroy?.();
             colProfileBuffer = this.device.createBuffer({
                 size: totalCols * this.getProfileStride(),
                 usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
             });
+        } else if (!this.device) {
+            colProfileBuffer = null;
         }
 
         const preserveProfileSchemeKey = Boolean(colProfileBuffer && previous?.alignmentState?.totalCols === totalCols);
@@ -53,6 +55,7 @@ export class RepresentationStore {
             store,
             alignmentState: {
                 colProfileBuffer,
+                colProfileData: null,
                 totalCols,
                 totalRows,
                 profileSchemeKey: preserveProfileSchemeKey ? (previous?.alignmentState?.profileSchemeKey ?? null) : null,
@@ -69,11 +72,19 @@ export class RepresentationStore {
         return representation;
     }
 
+    setProfileData(id, colProfileData) {
+        const representation = this.get(id);
+        if (!representation) return null;
+        representation.alignmentState.colProfileData = colProfileData ?? null;
+        return representation;
+    }
+
     setAlphabetId(id, alphabetId) {
         const representation = this.get(id);
         if (!representation) return null;
         representation.alphabetId = alphabetId;
         representation.alignmentState.profileSchemeKey = null;
+        representation.alignmentState.colProfileData = null;
         return representation;
     }
 
@@ -121,6 +132,7 @@ export class RepresentationStore {
         representation.trackState = null;
         representation.minimapCache = null;
         representation.alignmentState.profileSchemeKey = null;
+        representation.alignmentState.colProfileData = null;
         return representation;
     }
 

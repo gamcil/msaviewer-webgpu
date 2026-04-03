@@ -1,13 +1,16 @@
 import { loadDecodedTile } from "../alignment/tiledStorage.js";
+import { computeColumnMetricsCpu } from "./backends/cpu/computeColumnMetricsCpu.js";
 
 export class ColumnMetricService {
     constructor({
+        backend = "webgpu",
         device,
         gpuResources,
         pipelineRegistry,
         decodedTileCache,
         getMetricUniformBuffer,
     }) {
+        this.backend = backend;
         this.device = device;
         this.gpuResources = gpuResources;
         this.pipelineRegistry = pipelineRegistry;
@@ -16,6 +19,13 @@ export class ColumnMetricService {
     }
 
     async compute({ alignmentStore, alphabet }) {
+        if (this.backend === "cpu") {
+            return computeColumnMetricsCpu({
+                alignmentStore,
+                alphabet,
+                decodedTileCache: this.decodedTileCache,
+            });
+        }
         const bucketStride = alphabet.metricConfig.bucketStride;
         const totalCols = alignmentStore.totalCols;
         const totalRows = alignmentStore.totalRows;

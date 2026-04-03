@@ -501,7 +501,7 @@ export class ViewerState {
         this.state.alignment.alphabetId = alphabetId;
         this.emit();
     }
-    clearAlignment() {
+    clearAlignment({ preserveSelection = false, preserveScroll = false } = {}) {
         this.state.alignment = {
             records: [],
             totalRows: 0,
@@ -510,11 +510,15 @@ export class ViewerState {
             representationId: this.state.alignment.representationId,
             loaded: false,
         };
-        this.state.selection.ranges = [];
-        this.state.selection.componentCount = 0;
-        this.emitSelection();
-        this.state.viewport.scrollLeft = 0;
-        this.state.viewport.scrollTop = 0;
+        if (!preserveSelection) {
+            this.state.selection.ranges = [];
+            this.state.selection.componentCount = 0;
+            this.emitSelection();
+        }
+        if (!preserveScroll) {
+            this.state.viewport.scrollLeft = 0;
+            this.state.viewport.scrollTop = 0;
+        }
         this.emit();
     }
     setViewportScroll(scrollLeft, scrollTop) {

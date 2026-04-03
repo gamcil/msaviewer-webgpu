@@ -10,6 +10,14 @@ import {
 } from "../models/consensusRenderModel.js";
 import { getDefaultGlyphFillStyle, getThemedStyleValue, isNumericTrackData } from "./trackRuntime.js";
 
+function getTrackGlyphFontFamily(theme) {
+    return theme?.uiFontFamily ?? "\"IBM Plex Sans\", sans-serif";
+}
+
+function getTrackLogoFont(theme) {
+    return `bold 100px ${getTrackGlyphFontFamily(theme)}`;
+}
+
 function getGlyphLaneHeightPx(layers, dpr) {
     let lane = 0;
     for (const layer of layers) {
@@ -140,7 +148,7 @@ function buildGlyphLayer(layer, cache, data, renderContext, theme, track, trackS
                 cellWidthPx: renderContext.cellWidthPx,
                 localScrollLeftPx: renderContext.localScrollLeftPx,
                 canvasHeight: renderContext.heightPx,
-                font: `${fontPx}px "IBM Plex Mono", monospace`,
+                font: `${fontPx}px ${getTrackGlyphFontFamily(theme)}`,
                 fillStyle: layer.style.fillStyle ?? getDefaultGlyphFillStyle(theme),
                 textAlign: "center",
                 textBaseline: "bottom",
@@ -165,7 +173,7 @@ function buildGlyphLayer(layer, cache, data, renderContext, theme, track, trackS
             cellWidthPx: renderContext.cellWidthPx,
             localScrollLeftPx: renderContext.localScrollLeftPx,
             canvasHeight: renderContext.heightPx,
-            font: `${fontPx}px "IBM Plex Mono", monospace`,
+            font: `${fontPx}px ${getTrackGlyphFontFamily(theme)}`,
             fillStyle: layer.style.fillStyle ?? getDefaultGlyphFillStyle(theme),
             textAlign: "center",
             textBaseline: "bottom",
@@ -202,7 +210,7 @@ function buildConsensusGlyphLayer(layer, cache, renderContext, theme) {
             cellWidthPx: renderContext.cellWidthPx,
             localScrollLeftPx: renderContext.localScrollLeftPx,
             canvasHeight: renderContext.heightPx,
-            font: `${fontPx}px "IBM Plex Mono", monospace`,
+            font: `${fontPx}px ${getTrackGlyphFontFamily(theme)}`,
             fillStyle,
             textAlign: "center",
             textBaseline: "bottom",
@@ -210,7 +218,7 @@ function buildConsensusGlyphLayer(layer, cache, renderContext, theme) {
     };
 }
 
-function buildLogoLayer(layer, cache, renderContext) {
+function buildLogoLayer(layer, cache, renderContext, theme) {
     const renderColumns = cache?.renderColumns;
     if (!renderColumns || layer.show === false) return null;
     const style = layer.style ?? {};
@@ -234,7 +242,7 @@ function buildLogoLayer(layer, cache, renderContext) {
             cellWidthPx: renderContext.cellWidthPx,
             localScrollLeftPx: renderContext.localScrollLeftPx,
             plotHeightPx: renderContext.plotHeightPx,
-            font: style.logoFont ?? `bold 100px "IBM Plex Mono", monospace`,
+            font: style.logoFont ?? getTrackLogoFont(theme),
             maxScaleX: style.logoMaxScaleX ?? 1.25,
             capGlyphHeight: style.capGlyphHeight ?? true,
             maxGlyphHeightRatio: style.maxGlyphHeightRatio ?? 0.8,
@@ -275,7 +283,7 @@ export function buildRenderedTrackLayers({
                 renderedLayer = buildGlyphLayer(layer, cache, data, renderContext, theme, track, trackState, viewport);
             }
         } else if (layer.type === "logo") {
-            renderedLayer = buildLogoLayer(layer, cache, { ...renderContext, plotHeightPx });
+            renderedLayer = buildLogoLayer(layer, cache, { ...renderContext, plotHeightPx }, theme);
         }
         if (renderedLayer) {
             renderedLayers.push(renderedLayer);

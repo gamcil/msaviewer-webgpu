@@ -1,5 +1,6 @@
 import { DEFAULT_VIEWER_OPTIONS } from "./defaultViewerOptions.js";
 import { normalizeRepresentationInputs } from "../representations/representationInputSchema.js";
+import { normalizeRenderingBackend } from "../backends/backendRuntime.js";
 
 function isObject(value) {
     return value != null && typeof value === "object" && !Array.isArray(value);
@@ -147,6 +148,7 @@ export function normalizeViewerOptions(rawOptions = {}) {
 
     const normalizedBehavior = mergeObjects(DEFAULT_VIEWER_OPTIONS.behavior, rawOptions.behavior);
     const normalizedRendering = mergeObjects(DEFAULT_VIEWER_OPTIONS.rendering, rawOptions.rendering);
+    normalizedRendering.backend = normalizeRenderingBackend(rawOptions.rendering?.backend ?? normalizedRendering.backend);
     normalizedRendering.schemeSourceRepresentationId = rawOptions.rendering?.schemeSourceRepresentationId ?? normalizedRendering.schemeSourceRepresentationId ?? null;
     const normalizedTracks = mergeObjects(DEFAULT_VIEWER_OPTIONS.tracks, rawOptions.tracks);
     normalizedTracks.definitions = normalizeTrackDefinitions(rawOptions.tracks?.definitions);

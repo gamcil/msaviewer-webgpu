@@ -85,6 +85,7 @@ export class TrackView extends BaseTrackView {
             source: this.source,
             layers: this.layers,
             layerCaches: this.layerCaches,
+            theme: this.theme,
         });
     }
 

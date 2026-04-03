@@ -1,13 +1,16 @@
 import { SCHEMES } from "../schemes/registry.js";
 import { materializeWindowFromTiles } from "../alignment/tiledStorage.js";
+import { computeColumnProfileDataCpu } from "./backends/cpu/computeColumnProfileCpu.js";
 
 export class ColumnProfileService {
     constructor({
+        backend = "webgpu",
         device,
         gpuResources,
         pipelineRegistry,
         decodedTileCache,
     }) {
+        this.backend = backend;
         this.device = device;
         this.gpuResources = gpuResources;
         this.pipelineRegistry = pipelineRegistry;
@@ -18,8 +21,20 @@ export class ColumnProfileService {
         alignmentStore,
         alignmentState,
         schemeKey,
+        columnMetrics = null,
+        alphabet = null,
     }) {
         const activeScheme = SCHEMES[schemeKey];
+        if (this.backend === "cpu") {
+            alignmentState.colProfileData = activeScheme.type === "columnStatistic"
+                ? computeColumnProfileDataCpu({
+                    columnMetrics,
+                    alphabet,
+                    schemeKey,
+                })
+                : new Uint32Array(alignmentState.totalCols);
+            return;
+        }
         if (activeScheme.type !== "columnStatistic") {
             this.device.queue.writeBuffer(
                 alignmentState.colProfileBuffer,

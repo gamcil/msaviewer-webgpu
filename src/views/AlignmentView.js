@@ -4,57 +4,17 @@ View for the alignment itself
 
 import { AlignmentOverlayPainter } from "./helpers/AlignmentOverlayPainter.js";
 
-function writeRenderUniformBuffer(
-    device,
-    buffer,
-    scrollPxX,
-    scrollPxY,
-    totalCols,
-    totalRows,
-    gridPxX,
-    gridPxY,
-    canvasWidth,
-    canvasHeight,
-    windowColStart,
-    windowRowStart,
-    windowCols,
-    windowRows
-) {
-    const data = new Uint32Array([
-        scrollPxX,
-        scrollPxY,
-        totalCols,
-        totalRows,
-        gridPxX,
-        gridPxY,
-        canvasWidth,
-        canvasHeight,
-        windowColStart,
-        windowRowStart,
-        windowCols,
-        windowRows,
-    ]);
-    device.queue.writeBuffer(buffer, 0, data);
-}
-
 export class AlignmentView {
     constructor({
         root,
-        renderer,
-        uniformBuffer,
-        device,
-        format,
+        surfaceRenderer,
         getCellWidth,
         getCellHeight,
     }) {
         this.root = root;
-        this.renderer = renderer;
-        this.uniformBuffer = uniformBuffer;
-        this.device = device;
-        this.format = format;
+        this.surfaceRenderer = surfaceRenderer;
         this.getCellWidth = getCellWidth;
         this.getCellHeight = getCellHeight;
-        this.renderBindGroup = null;
 
         this.scroller = document.createElement("div");
         this.scroller.className = "msa-alignment-scroller";
@@ -62,10 +22,7 @@ export class AlignmentView {
         this.spacer = document.createElement("div");
         this.spacer.className = "msa-alignment-spacer";
 
-        this.canvas = document.createElement("canvas");
-        this.canvas.className = "msa-alignment-canvas";
-        this.context = this.canvas.getContext("webgpu");
-        this.context.configure({ device: this.device, format: this.format });
+        this.canvas = this.surfaceRenderer.canvas;
 
         this.motifOverlay = document.createElement("canvas");
         this.motifOverlay.className = "msa-alignment-motif-canvas";
@@ -97,9 +54,19 @@ export class AlignmentView {
         const dpr = window.devicePixelRatio || 1;
         return Math.max(1, Math.round(this.getCellHeight() * dpr)) / dpr;
     }
-    setBindGroup(bindGroup) {
-        this.renderBindGroup = bindGroup;
+
+    set renderer(renderer) {
+        this.surfaceRenderer?.setRenderer(renderer);
     }
+
+    get renderer() {
+        return this.surfaceRenderer?.renderer ?? null;
+    }
+
+    setRenderResources(renderResources) {
+        this.surfaceRenderer?.setRenderResources?.(renderResources);
+    }
+
     syncRenderState({ totalCols, totalRows, windowColStart = 0, windowRowStart = 0, windowCols = 0, windowRows = 0 }) {
         const dpr = window.devicePixelRatio || 1;
         const cellWidthCss = this.getRenderedCellWidthCss();
@@ -108,22 +75,18 @@ export class AlignmentView {
         const gridPxY = Math.max(1, Math.round(cellHeightCss * dpr));
         const localScrollLeft = this.scroller.scrollLeft - windowColStart * cellWidthCss;
         const localScrollTop = this.scroller.scrollTop - windowRowStart * cellHeightCss;
-        writeRenderUniformBuffer(
-            this.device,
-            this.uniformBuffer,
-            Math.round(localScrollLeft * dpr),
-            Math.round(localScrollTop * dpr),
+        this.surfaceRenderer?.syncRenderState({
+            scrollPxX: Math.round(localScrollLeft * dpr),
+            scrollPxY: Math.round(localScrollTop * dpr),
             totalCols,
             totalRows,
             gridPxX,
             gridPxY,
-            this.canvas.width,
-            this.canvas.height,
             windowColStart,
             windowRowStart,
             windowCols,
             windowRows,
-        );
+        });
     }
     getVisibleColumnRange() {
         const scrollLeft = this.scroller.scrollLeft;
@@ -202,14 +165,11 @@ export class AlignmentView {
         this.renderSelectionOverlay();
     }
     renderSurface() {
-        if (!this.renderBindGroup) return;
-        this.renderer.render(this.context, this.renderBindGroup);
+        this.surfaceRenderer?.render();
     }
     syncSurfaceSize() {
         const viewportWidth = Math.max(1, this.scroller.clientWidth);
         const viewportHeight = Math.max(1, this.scroller.clientHeight);
-        this.canvas.style.width = `${viewportWidth}px`;
-        this.canvas.style.height = `${viewportHeight}px`;
         this.motifOverlay.style.width = `${viewportWidth}px`;
         this.motifOverlay.style.height = `${viewportHeight}px`;
         this.overlay.style.width = `${viewportWidth}px`;
@@ -217,9 +177,8 @@ export class AlignmentView {
 
         const width = Math.max(1, Math.floor(viewportWidth * window.devicePixelRatio));
         const height = Math.max(1, Math.floor(viewportHeight * window.devicePixelRatio));
-        if (this.canvas.width !== width || this.canvas.height !== height) {
-            this.canvas.width = width;
-            this.canvas.height = height;
+        this.surfaceRenderer?.syncSize(width, height, viewportWidth, viewportHeight);
+        if (this.motifOverlay.width !== width || this.motifOverlay.height !== height) {
             this.motifOverlay.width = width;
             this.motifOverlay.height = height;
             this.overlay.width = width;

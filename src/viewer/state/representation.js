@@ -3,7 +3,7 @@
  * @property {string} id
  * @property {string} alphabetId
  * @property {Object} store
- * @property {{ colProfileBuffer: GPUBuffer, totalCols: number, totalRows: number, profileSchemeKey?: string|null }} alignmentState
+ * @property {{ colProfileBuffer: GPUBuffer|null, colProfileData?: Uint32Array|null, totalCols: number, totalRows: number, profileSchemeKey?: string|null }} alignmentState
  * @property {Object|null} columnMetrics
  * @property {Object|null} columnVisibility
  * @property {{ query: string, visibilitySignature: string, hitsByRow: Array<Array<{ start: number, len: number }>>, matchCount: number }|null} motifSearch
@@ -16,7 +16,7 @@
  *   id: string,
  *   alphabetId: string,
  *   store: Object,
- *   alignmentState: { colProfileBuffer: GPUBuffer, totalCols: number, totalRows: number, profileSchemeKey?: string|null },
+ *   alignmentState: { colProfileBuffer: GPUBuffer|null, colProfileData?: Uint32Array|null, totalCols: number, totalRows: number, profileSchemeKey?: string|null },
  *   columnMetrics?: Object|null,
  *   columnVisibility?: Object|null,
  *   motifSearch?: { query: string, visibilitySignature: string, hitsByRow: Array<Array<{ start: number, len: number }>>, matchCount: number }|null,

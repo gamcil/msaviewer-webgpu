@@ -2,10 +2,12 @@ import { materializeProjectedWindow } from "../projectedWindow.js";
 
 export class VisibleWindowController {
     constructor({
+        backend = "webgpu",
         device,
         gpuResources,
         decodedTileCache,
     }) {
+        this.backend = backend;
         this.device = device;
         this.gpuResources = gpuResources;
         this.decodedTileCache = decodedTileCache;
@@ -69,33 +71,50 @@ export class VisibleWindowController {
             !previousVisibleColumnMapBuffer ||
             this.state.colCount !== colCount;
 
-        const texture = needsNewTexture
-            ? this.device.createTexture({
-                size: [Math.max(1, rawTextureCols), Math.max(1, rowCount), 1],
-                format: "r8uint",
-                usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
-            })
-            : previousTexture;
-        const visibleColumnMapBuffer = needsNewVisibleColumnMapBuffer
-            ? this.device.createBuffer({
-                size: Math.max(1, colCount * 2) * Uint32Array.BYTES_PER_ELEMENT,
-                usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-            })
-            : previousVisibleColumnMapBuffer;
+        const texture = this.backend === "webgpu"
+            ? (needsNewTexture
+                ? this.device.createTexture({
+                    size: [Math.max(1, rawTextureCols), Math.max(1, rowCount), 1],
+                    format: "r8uint",
+                    usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+                })
+                : previousTexture)
+            : null;
+        const visibleColumnMapBuffer = this.backend === "webgpu"
+            ? (needsNewVisibleColumnMapBuffer
+                ? this.device.createBuffer({
+                    size: Math.max(1, colCount * 2) * Uint32Array.BYTES_PER_ELEMENT,
+                    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+                })
+                : previousVisibleColumnMapBuffer)
+            : null;
 
-        this.device.queue.writeTexture(
-            { texture },
+        if (this.backend === "webgpu") {
+            this.device.queue.writeTexture(
+                { texture },
+                data,
+                {
+                    offset: 0,
+                    bytesPerRow: Math.max(1, rawTextureCols),
+                    rowsPerImage: Math.max(1, rowCount),
+                },
+                [Math.max(1, rawTextureCols), Math.max(1, rowCount), 1]
+            );
+            this.device.queue.writeBuffer(visibleColumnMapBuffer, 0, columnMap);
+        }
+
+        this.state = {
+            key,
+            rowStart,
+            rowCount,
+            colStart,
+            colCount,
+            rawTextureCols,
+            texture,
+            visibleColumnMapBuffer,
             data,
-            {
-                offset: 0,
-                bytesPerRow: Math.max(1, rawTextureCols),
-                rowsPerImage: Math.max(1, rowCount),
-            },
-            [Math.max(1, rawTextureCols), Math.max(1, rowCount), 1]
-        );
-        this.device.queue.writeBuffer(visibleColumnMapBuffer, 0, columnMap);
-
-        this.state = { key, rowStart, rowCount, colStart, colCount, rawTextureCols, texture, visibleColumnMapBuffer };
+            columnMap,
+        };
         this.decodedTileCache.retain(retainedTiles);
 
         if (needsNewTexture && previousTexture) {
