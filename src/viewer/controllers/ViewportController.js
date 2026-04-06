@@ -165,11 +165,20 @@ export class ViewportController {
 
     refreshLayout() {
         if (!this.alignmentView) return;
+        const alignmentStore = this.getAlignmentStore();
+        if (alignmentStore) {
+            this.alignmentView.setAlignmentSize(
+                alignmentStore.totalCols,
+                alignmentStore.totalRows,
+                this.getColumnVisibility?.() ?? null
+            );
+        }
         this.alignmentView.syncSurfaceSize();
+        this.headerView?.setRowHeight?.(this.alignmentView.getRenderedCellHeightCss());
         this.headerView?.setViewportHeight(this.getViewportHeight());
         this.headerView?.syncScroll?.(this.getScrollTop());
         this.state.setCanvasSize(this.alignmentView.canvas.width, this.alignmentView.canvas.height);
-        if (this.getAlignmentStore()) {
+        if (alignmentStore) {
             void this.uploadVisibleWindow?.();
         }
         this.requestRender?.();

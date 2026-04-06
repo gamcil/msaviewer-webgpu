@@ -51,6 +51,9 @@ export class HeaderView {
         if (this.rowHeight === rowHeight) return;
         this.rowHeight = rowHeight;
         this.root.style.setProperty("--row-height", `${this.rowHeight}px`);
+        if (this.track.childElementCount > 0) {
+            this.track.style.height = `${Math.max(1, this.track.childElementCount * this.rowHeight)}px`;
+        }
     }
     setViewportHeight(height) {
         const nextHeight = `${Math.max(1, height)}px`;
