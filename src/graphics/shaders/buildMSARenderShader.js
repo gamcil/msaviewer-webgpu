@@ -1,4 +1,4 @@
-import renderShaderTemplate from "./msa.render.wgsl?raw";
+import renderShaderTemplate from "./msa.render.wgsl";
 import { buildSchemeColorWgsl } from "./buildSchemeColorWgsl.js";
 
 export function buildMSARenderShaderCode(alphabet) {

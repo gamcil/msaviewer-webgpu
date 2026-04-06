@@ -12,7 +12,7 @@ function clampTrackSize(value, minimum = 0) {
     return Math.max(minimum, value);
 }
 
-export function mergeNestedOptions(base, override) {
+function mergeNestedOptions(base, override) {
     if (!isObject(base)) {
         return isObject(override) ? { ...override } : override;
     }

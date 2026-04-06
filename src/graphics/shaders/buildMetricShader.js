@@ -1,4 +1,4 @@
-import metricShaderTemplate from "./metrics.compute.wgsl?raw";
+import metricShaderTemplate from "./metrics.compute.wgsl";
 
 function buildQualityFunction(alphabet) {
     const metricConfig = alphabet.metricConfig;

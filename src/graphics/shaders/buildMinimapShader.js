@@ -1,4 +1,4 @@
-import minimapShaderTemplate from "./minimap.compute.wgsl?raw";
+import minimapShaderTemplate from "./minimap.compute.wgsl";
 import { buildSchemeColorWgsl } from "./buildSchemeColorWgsl.js";
 
 export function buildMinimapShaderCode(alphabet) {

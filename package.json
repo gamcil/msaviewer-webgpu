@@ -22,16 +22,20 @@
     "viewer"
   ],
   "exports": {
-    ".": "./src/index.js"
+    ".": "./dist/index.js"
   },
   "files": [
-    "src"
+    "dist",
+    "README.md",
+    "LICENSE"
   ],
   "scripts": {
-    "dev": "vite src/demo",
-    "build:demo": "vite build --config vite.demo.config.js"
+    "dev": "vite --config vite.demo.config.js",
+    "build:demo": "vite build --config vite.demo.config.js",
+    "build": "vite build --config vite.lib.config.js",
+    "prepack": "npm run build"
   },
-  "dependencies": {
+  "devDependencies": {
     "vite": "^8.0.0"
   }
 }

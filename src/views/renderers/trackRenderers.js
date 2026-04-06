@@ -217,14 +217,6 @@ export function warmSequenceLogoGlyphCache(font, glyphColorPairs = []) {
     }
 }
 
-export function getTrackRenderGeometry(viewport) {
-    const dpr = window.devicePixelRatio || 1;
-    const cellWidthPx = Math.max(1, Math.round(viewport.cellWidth * dpr));
-    const localScrollLeft = viewport.scrollLeft - viewport.colStart * viewport.cellWidth;
-    const localScrollLeftPx = Math.round(localScrollLeft * dpr);
-    return { dpr, cellWidthPx, localScrollLeftPx };
-}
-
 export function renderBars(context, {
     bars,
     cellWidthPx,
