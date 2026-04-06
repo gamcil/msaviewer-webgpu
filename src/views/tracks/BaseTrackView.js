@@ -7,22 +7,18 @@ import { SizedCanvas2D } from "../helpers/SizedCanvas2D.js";
 
 export class BaseTrackView {
     constructor({
-        root,
         height,
         id,
         label,
         sublabel = null,
         valueRange = null,
         tooltip = null,
-        labelWidth = 100,
     }) {
-        this.root = root;
         this.id = id;
         this.height = height;
         this.label = label;
         this.sublabel = sublabel;
         this.tooltip = tooltip;
-        this.labelWidth = labelWidth;
         this.valueRange = valueRange ? {
             min: valueRange.min ?? 0,
             max: valueRange.max ?? 1,
@@ -54,12 +50,9 @@ export class BaseTrackView {
                 columnVisibility: viewport?.columnVisibility ?? null,
             }),
         });
-        
-        this.root.classList.add("msa-track-row");
 
         this.labelEl = document.createElement("div");
         this.labelEl.className = "msa-track-label";
-        this.labelEl.style.minWidth = `${this.labelWidth}px`;
 
         this.labelTextEl = document.createElement("div");
         this.labelTextEl.className = "msa-track-label-text";
@@ -73,18 +66,22 @@ export class BaseTrackView {
 
         this.bodyEl = document.createElement("div");
         this.bodyEl.className = "msa-track-body";
+
+        this.labelRowEl = document.createElement("div");
+        this.labelRowEl.className = "msa-track-row msa-track-label-row";
+
+        this.bodyRowEl = document.createElement("div");
+        this.bodyRowEl.className = "msa-track-row msa-track-body-row";
         
         this.canvas = document.createElement("canvas");
         this.canvas.className = "msa-track-canvas";
         
         this.bodyEl.appendChild(this.canvas);
-        this.root.appendChild(this.labelEl);
-        this.root.appendChild(this.bodyEl);
+        this.labelRowEl.appendChild(this.labelEl);
+        this.bodyRowEl.appendChild(this.bodyEl);
 
         this.context = this.canvas.getContext("2d");
-        this.root.style.height = `${this.height}px`;
-        this.bodyEl.style.height = `${this.height}px`;
-        this.bodyEl.style.width = "100%";
+        this.syncViewHeight();
         this.sizedCanvas = new SizedCanvas2D({
             root: this.bodyEl,
             canvas: this.canvas,
@@ -114,6 +111,13 @@ export class BaseTrackView {
     setTheme(theme) {
         this.theme = theme;
         this.invalidateRenderCache();
+    }
+
+    syncViewHeight() {
+        this.labelRowEl.style.setProperty("--msa-track-view-height", `${this.height}px`);
+        this.bodyRowEl.style.setProperty("--msa-track-view-height", `${this.height}px`);
+        this.labelEl.style.setProperty("--msa-track-view-height", `${this.height}px`);
+        this.bodyEl.style.setProperty("--msa-track-view-height", `${this.height}px`);
     }
 
     setSublabel(sublabel) {
@@ -226,6 +230,7 @@ export class BaseTrackView {
     destroy() {
         this.sizedCanvas.destroy();
         this.prerenderWindow.invalidate();
-        this.root.replaceChildren();
+        this.labelRowEl.remove();
+        this.bodyRowEl.remove();
     }
 }

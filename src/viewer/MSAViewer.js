@@ -95,6 +95,23 @@ function cloneTrackLayer(layer) {
     };
 }
 
+function cloneTrackLayout(layout) {
+    if (!layout) {
+        return layout;
+    }
+    return {
+        ...layout,
+        lanes: Array.isArray(layout.lanes)
+            ? layout.lanes.map((lane) => ({
+                ...lane,
+                layers: Array.isArray(lane.layers)
+                    ? lane.layers.map(cloneTrackLayer)
+                    : lane.layers,
+            }))
+            : layout.lanes,
+    };
+}
+
 function cloneTrackDefinition(definition) {
     return {
         ...definition,
@@ -104,10 +121,7 @@ function cloneTrackDefinition(definition) {
             ? {
                 ...definition.options,
                 valueRange: definition.options.valueRange ? { ...definition.options.valueRange } : definition.options.valueRange,
-                elements: definition.options.elements ? { ...definition.options.elements } : definition.options.elements,
-                layers: Array.isArray(definition.options.layers)
-                    ? definition.options.layers.map(cloneTrackLayer)
-                    : definition.options.layers,
+                layout: cloneTrackLayout(definition.options.layout),
             }
             : definition.options,
     };
@@ -267,14 +281,13 @@ const AUTO_LAYOUT_CSS = `
     --msa-ruler-height: 28px;
     --msa-header-width: 180px;
     --msa-track-label-width: 100px;
+    --msa-track-row-gap: 8px;
     --msa-ui-font-family: "IBM Plex Sans", sans-serif;
     --msa-ui-font-size: 13px;
     --msa-grid-line: rgba(0, 0, 0, 0.05);
     --msa-scroller-bg: #fff;
     --msa-header-bg: #f0f0f0;
     --msa-header-border: rgba(30, 30, 30, 0.1);
-    --msa-scrollbar-thumb: rgba(0, 0, 0, 0.32);
-    --msa-scrollbar-track: rgba(0, 0, 0, 0.08);
 }
 
 :host([data-theme="dark"]) {
@@ -283,8 +296,6 @@ const AUTO_LAYOUT_CSS = `
     --msa-scroller-bg: #111;
     --msa-header-bg: #161616;
     --msa-header-border: rgba(255, 255, 255, 0.08);
-    --msa-scrollbar-thumb: rgba(255, 255, 255, 0.35);
-    --msa-scrollbar-track: rgba(255, 255, 255, 0.12);
 }
 
 :host([data-theme="light"]) {
@@ -305,71 +316,38 @@ const AUTO_LAYOUT_CSS = `
 
 .msa-auto-shell {
     display: grid;
-    grid-template-columns: var(--msa-header-width) minmax(0, 1fr);
-    grid-template-rows: auto auto minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr) auto;
     width: 100%;
     height: 100%;
     min-width: 0;
     min-height: 0;
 }
 
-.msa-main-row,
-.msa-headers,
 .viewer-body,
-.msa-ruler-body,
-.msa-minimap-body,
-.msa-trackstack-body {
+.msa-minimap-body {
     min-width: 0;
 }
 
-.msa-main-row,
-.viewer-body,
-.msa-trackstack-body {
+.viewer-body {
     min-height: 0;
 }
 
 .msa-minimap-body {
-    grid-column: 2;
     grid-row: 1;
     height: var(--msa-minimap-height);
     padding: 8px;
-}
-
-.msa-ruler-body {
-    grid-column: 2;
-    grid-row: 2;
-    min-height: var(--msa-ruler-height);
-    border-bottom: 1px solid var(--msa-header-border);
-}
-
-.msa-main-row {
-    grid-column: 1 / -1;
-    grid-row: 3;
-    display: grid;
-    grid-template-columns: subgrid;
-}
-
-.msa-headers {
-    grid-column: 1;
+    margin-left: var(--msa-minimap-offset-left, 0px);
+    width: calc(100% - var(--msa-minimap-offset-left, 0px));
+    background: var(--msa-header-bg);
 }
 
 .viewer-body {
-    grid-column: 2;
+    grid-row: 2;
+    display: grid;
     position: relative;
     overflow: hidden;
-}
-
-.msa-trackstack-body {
-    grid-column: 1 / -1;
-    grid-row: 4;
-    display: grid;
-    grid-template-columns: subgrid;
-    align-self: start;
-    overflow: visible;
-}
-
-.msa-trackstack-body::-webkit-scrollbar {
-    display: none;
+    background: var(--msa-header-bg);
 }
 
 .msa-minimap {
@@ -379,15 +357,150 @@ const AUTO_LAYOUT_CSS = `
     border: 1px solid grey;
 }
 
-.msa-alignment-scroller {
-    position: relative;
-    width: 100%;
-    height: 100%;
-    overflow: auto;
+.msa-alignment-corner {
+    background: var(--msa-header-bg);
+}
+
+.msa-alignment-top-row,
+.msa-alignment-body-row {
+    display: grid;
+    min-width: 0;
+    min-height: 0;
+}
+
+.msa-alignment-left-column,
+.msa-alignment-content-column {
+    min-width: 0;
+    min-height: 0;
+}
+
+.msa-alignment-left-column {
+    display: flex;
+    flex-direction: column;
+    background: var(--msa-header-bg);
+}
+
+.msa-alignment-horizontal-scroller,
+.msa-alignment-viewport,
+.msa-alignment-interaction-proxy {
     color-scheme: inherit;
 }
 
-:host([data-loaded="false"]) .msa-alignment-scroller {
+.msa-alignment-content-column {
+    overflow: hidden;
+    background: var(--msa-header-bg);
+}
+
+.msa-alignment-horizontal-scroller {
+    overflow-x: auto;
+    overflow-y: hidden;
+    width: 100%;
+    height: 100%;
+    background: var(--msa-header-bg);
+}
+
+.msa-alignment-interaction-proxy {
+    position: absolute;
+    inset: 0;
+    overflow-x: auto;
+    overflow-y: auto;
+    background: transparent;
+    z-index: 2;
+    scrollbar-width: none;
+}
+
+.msa-alignment-interaction-proxy::-webkit-scrollbar {
+    display: none;
+    width: 0;
+    height: 0;
+}
+
+.msa-alignment-vertical-scroller {
+    position: relative;
+    width: 100%;
+    overflow-x: hidden;
+    overflow-y: scroll;
+    background: transparent;
+    scrollbar-gutter: stable;
+}
+
+.msa-alignment-content-stack {
+    position: relative;
+    min-width: 100%;
+}
+
+.msa-alignment-viewport {
+    position: sticky;
+    left: 0;
+    top: 0;
+    z-index: 1;
+    background: var(--msa-scroller-bg);
+}
+
+.msa-ruler-body {
+    min-height: var(--msa-ruler-height);
+    border-bottom: 1px solid var(--msa-header-border);
+    background: transparent;
+}
+
+.msa-headers,
+.msa-track-label-stack,
+.msa-track-body-stack {
+    background: var(--msa-header-bg);
+}
+
+.msa-headers {
+    width: var(--msa-header-view-width, var(--msa-header-width));
+    max-width: var(--msa-header-view-width, var(--msa-header-width));
+    overflow: hidden;
+    flex: 0 0 auto;
+    border-right: 1px solid var(--msa-header-border);
+    --msa-header-font-family: "IBM Plex Mono", "IBM Plex Sans", monospace;
+    --msa-header-font-size: 14px;
+}
+
+.msa-headers-track {
+    position: relative;
+    width: max-content;
+    min-width: 100%;
+}
+
+.msa-header-row {
+    display: flex;
+    align-items: center;
+    height: var(--row-height);
+    padding: 0 8px;
+    font-size: var(--msa-header-font-size);
+    line-height: 1;
+    box-sizing: border-box;
+    width: max-content;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-family: var(--msa-header-font-family);
+}
+
+.msa-track-label-stack {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    flex: 0 0 auto;
+}
+
+.msa-track-body-stack {
+    position: sticky;
+    left: 0;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    border-top: 1px solid var(--msa-header-border);
+}
+
+.viewer-body.is-unloaded,
+.viewer-body.is-unloaded .msa-alignment-content-column,
+.viewer-body.is-unloaded .msa-alignment-horizontal-scroller,
+.viewer-body.is-unloaded .msa-alignment-viewport {
     background:
         linear-gradient(90deg, var(--msa-grid-line) 1px, transparent 1px),
         linear-gradient(var(--msa-grid-line) 1px, transparent 1px),
@@ -412,22 +525,31 @@ const AUTO_LAYOUT_CSS = `
 }
 
 .msa-track-row {
-    display: grid;
-    grid-column: 1 / -1;
-    grid-template-columns: subgrid;
-    box-sizing: content-box;
-    padding: 8px 0;
+    padding: var(--msa-track-row-gap) 0;
+    min-width: 0;
+    box-sizing: border-box;
+}
+
+.msa-track-label-row {
+    display: flex;
+    height: calc(var(--msa-track-view-height) + (var(--msa-track-row-gap) * 2));
+}
+
+.msa-track-body-row {
+    display: block;
+    height: calc(var(--msa-track-view-height) + (var(--msa-track-row-gap) * 2));
 }
 
 .msa-track-label {
-    grid-column: 1;
     display: flex;
     flex-direction: column;
     align-items: flex-end;
     justify-content: flex-end;
     text-align: right;
     padding: 0 8px;
+    min-height: var(--msa-track-view-height);
     min-width: var(--msa-track-label-width);
+    margin-left: auto;
 }
 
 .msa-track-label-text {
@@ -442,12 +564,31 @@ const AUTO_LAYOUT_CSS = `
 }
 
 .msa-track-body {
-    grid-column: 2;
     min-width: 0;
+    width: 100%;
+    height: var(--msa-track-view-height);
 }
 
 .msa-track-canvas {
     display: block;
+}
+
+.msa-track-tooltip-overlay {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 0;
+    height: 0;
+    z-index: 10;
+    pointer-events: none;
+    background: transparent;
+}
+
+.msa-track-tooltip-hitbox {
+    position: absolute;
+    inset: 0;
+    pointer-events: auto;
+    background: transparent;
 }
 `;
 
@@ -872,6 +1013,11 @@ export class MSAViewer {
     }
 
     refreshTrackAppearance() {
+        const isLoaded = this.root.dataset.loaded !== "false";
+        this.alignmentView?.setViewportChrome?.({
+            headerWidth: this.viewerConfig.views.header.width,
+            headerVisible: isLoaded && this.viewerConfig.visibility.header,
+        });
         if (this.headerView) {
             this.headerView.width = this.viewerConfig.views.header.width;
             this.headerView.fontFamily = this.viewerConfig.views.header.fontFamily;
@@ -880,14 +1026,6 @@ export class MSAViewer {
             const records = this.getActiveAlignmentStore()?.records;
             if (records) {
                 this.headerView.renderRecords(records);
-            }
-        }
-        for (const trackStackView of this.trackStackViews) {
-            for (const track of trackStackView.tracks) {
-                track.labelWidth = this.viewerConfig.views.tracks.labelWidth;
-                if (track.labelEl) {
-                    track.labelEl.style.minWidth = `${this.viewerConfig.views.tracks.labelWidth}px`;
-                }
             }
         }
     }
@@ -904,12 +1042,6 @@ export class MSAViewer {
             trackStackView.clear();
         }
         this.syncTrackVisibility();
-    }
-
-    syncTrackScrollTargets() {
-        for (const trackStackView of this.trackStackViews) {
-            trackStackView.setHorizontalScrollTarget?.(() => this.alignmentView?.scroller ?? null);
-        }
     }
 
     async resetLoadedData({ preserveSelection = false, preserveScroll = false } = {}) {
@@ -931,7 +1063,6 @@ export class MSAViewer {
         }
         this.alignmentView?.setMotifState?.({ motifHitsByRow: null });
         this.headerView?.renderRecords?.([]);
-        this.headerView?.syncScroll?.(preserveScroll ? this.state.getViewportSnapshot().scrollTop : 0);
         for (const trackStackView of this.trackStackViews) {
             trackStackView.clear();
             trackStackView.setTrackContext(this.getTrackContext());
@@ -963,6 +1094,7 @@ export class MSAViewer {
     applyLayoutOptions(changed) {
         if (!changed) return;
         this.applyRulerOptions();
+        this.applyMinimapOptions();
     }
 
     applyTrackOptions(changed) {
@@ -995,12 +1127,12 @@ export class MSAViewer {
         this.trackStackViews?.forEach((trackStackView) => trackStackView.destroy?.());
         this.motifController = null;
         this.views = { header: null, alignment: null, ruler: null, minimap: null, trackStacks: [] };
-        this.mainRowRoot = null;
         this.headerRoot = null;
         this.alignmentRoot = null;
         this.rulerRoot = null;
         this.minimapRoot = null;
-        this.trackstackRoot = null;
+        this.trackLabelRoot = null;
+        this.trackBodyRoot = null;
 
         this.visibleWindowController?.clear?.();
         this.schemeVisibleWindowController?.clear?.();
@@ -1017,8 +1149,8 @@ export class MSAViewer {
         if (this.providedViews) {
             throw new Error("Changing rendering backend at runtime is not supported in manual view mode.");
         }
-        const currentScrollLeft = this.alignmentView?.scroller?.scrollLeft ?? this.state.getViewportSnapshot().scrollLeft;
-        const currentScrollTop = this.alignmentView?.scroller?.scrollTop ?? this.state.getViewportSnapshot().scrollTop;
+        const currentScrollLeft = this.alignmentView?.getScrollLeft?.() ?? this.alignmentView?.scroller?.scrollLeft ?? this.state.getViewportSnapshot().scrollLeft;
+        const currentScrollTop = this.alignmentView?.getScrollTop?.() ?? this.alignmentView?.scroller?.scrollTop ?? this.state.getViewportSnapshot().scrollTop;
         this.state.setViewportScroll(currentScrollLeft, currentScrollTop);
 
         this.destroyRuntimeViewsAndResources();
@@ -1216,6 +1348,7 @@ export class MSAViewer {
         if (this.options.data.representations.length > 0) {
             await this.applyDataOptions(this.options.data, { representations: [], activeRepresentationId: null });
         } else {
+            this.setLoadedLayoutVisible(false);
             this.requestRender();
         }
     }
@@ -1243,48 +1376,20 @@ export class MSAViewer {
         const mountRoot = this.providedViews ? this.root : this.getAutoLayoutMountRoot();
         mountRoot.replaceChildren();
 
-        const mainRowRoot = document.createElement("div");
-        mainRowRoot.className = "msa-main-row";
-
-        const headerRoot = this.viewerConfig.visibility.header ? document.createElement("div") : null;
-        if (headerRoot) {
-            headerRoot.className = "msa-headers";
-        }
-
         const alignmentRoot = document.createElement("div");
         alignmentRoot.className = "viewer-body";
-
-        const rulerRoot = this.viewerConfig.visibility.ruler ? document.createElement("div") : null;
-        if (rulerRoot) {
-            rulerRoot.className = "msa-ruler-body";
-        }
         
         const minimapRoot = this.viewerConfig.visibility.minimap ? document.createElement("div") : null;
         if (minimapRoot) {
             minimapRoot.className = "msa-minimap-body";
         }
         
-        const trackstackRoot = this.viewerConfig.visibility.tracks ? document.createElement("div") : null;
-        if (trackstackRoot) {
-            trackstackRoot.className = "msa-trackstack-body";
-        }
-        
-        mountRoot.appendChild(mainRowRoot);
-        if (headerRoot) {
-            mainRowRoot.appendChild(headerRoot);
-        }
-        mainRowRoot.appendChild(alignmentRoot);
-        if (rulerRoot) {
-            mountRoot.appendChild(rulerRoot);
-        }
+        mountRoot.appendChild(alignmentRoot);
         if (minimapRoot) {
-            mountRoot.appendChild(minimapRoot);
-        }
-        if (trackstackRoot) {
-            mountRoot.appendChild(trackstackRoot);
+            mountRoot.insertBefore(minimapRoot, alignmentRoot);
         }
 
-        return { mainRowRoot, headerRoot, alignmentRoot, rulerRoot, minimapRoot, trackstackRoot };
+        return { alignmentRoot, minimapRoot };
     }
 
     getAutoLayoutMountRoot() {
@@ -1308,22 +1413,40 @@ export class MSAViewer {
         for (const [key, value] of Object.entries(this.viewerConfig.cssVariables)) {
             this.root.style.setProperty(
                 key,
-                key === "--msa-header-width" && !isLoaded ? "0px" : value
+                (key === "--msa-header-width" || key === "--msa-left-chrome-width") && !isLoaded ? "0px" : value
             );
         }
     }
 
     createAutoViews() {
-        const { mainRowRoot, headerRoot, alignmentRoot, rulerRoot, minimapRoot, trackstackRoot } = this.createLayout();
-        this.mainRowRoot = mainRowRoot;
-        this.headerRoot = headerRoot;
+        const { alignmentRoot, minimapRoot } = this.createLayout();
         this.alignmentRoot = alignmentRoot;
-        this.rulerRoot = rulerRoot;
         this.minimapRoot = minimapRoot;
-        this.trackstackRoot = trackstackRoot;
         this.renderer = this.pipelineRegistry?.getRenderer(this.getActiveAlphabet()) ?? null;
-        this.headerView = headerRoot ? new HeaderView({
-            root: headerRoot,
+        const alignmentSurface = createAlignmentSurface({
+            backend: this.renderBackend,
+            device: this.device,
+            format: this.format,
+            uniformBuffer: this.uniformBuffer,
+            renderer: this.renderer,
+            atlasBitmap: this.atlasBitmap,
+        });
+        this.alignmentView = new AlignmentView({
+            root: alignmentRoot,
+            surfaceRenderer: alignmentSurface,
+            getCellWidth: () => this.state.getCellSize().cellWidth,
+            getCellHeight: () => this.state.getCellSize().cellHeight,
+            headerWidth: this.viewerConfig.visibility.header ? this.viewerConfig.views.header.width : 0,
+            rulerHeight: this.viewerConfig.visibility.ruler ? this.viewerConfig.views.ruler.height : 0,
+            headerVisible: this.viewerConfig.visibility.header,
+            rulerVisible: this.viewerConfig.visibility.ruler,
+        });
+        this.headerRoot = this.alignmentView.headerSlot;
+        this.rulerRoot = this.alignmentView.rulerSlot;
+        this.trackLabelRoot = this.alignmentView.trackLabelSlot;
+        this.trackBodyRoot = this.alignmentView.trackBodySlot;
+        this.headerView = this.headerRoot ? new HeaderView({
+            root: this.headerRoot,
             rowHeight: this.state.getCellSize().cellHeight,
             width: this.viewerConfig.views.header.width,
             fontFamily: this.viewerConfig.views.header.fontFamily,
@@ -1339,26 +1462,18 @@ export class MSAViewer {
             minimapView: this.minimapView,
             decodedTileCache: this.decodedTileCache,
         });
-        this.rulerView = rulerRoot ? new RulerView({
-            root: rulerRoot,
+        this.rulerView = this.rulerRoot ? new RulerView({
+            root: this.rulerRoot,
             tickInterval: this.viewerConfig.views.ruler.tickInterval,
             height: this.viewerConfig.views.ruler.height,
         }) : null;
-        this.trackStackViews = trackstackRoot ? [new TrackStackView({ root: trackstackRoot })] : [];
-        const alignmentSurface = createAlignmentSurface({
-            backend: this.renderBackend,
-            device: this.device,
-            format: this.format,
-            uniformBuffer: this.uniformBuffer,
-            renderer: this.renderer,
-            atlasBitmap: this.atlasBitmap,
-        });
-        this.alignmentView = new AlignmentView({
-            root: alignmentRoot,
-            surfaceRenderer: alignmentSurface,
-            getCellWidth: () => this.state.getCellSize().cellWidth,
-            getCellHeight: () => this.state.getCellSize().cellHeight,
-        });
+        this.trackStackViews = this.viewerConfig.visibility.tracks
+            ? [new TrackStackView({
+                root: this.alignmentRoot,
+                labelRoot: this.trackLabelRoot,
+                bodyRoot: this.trackBodyRoot,
+            })]
+            : [];
         this.viewportController = new ViewportController({
             state: this.state,
             alignmentView: this.alignmentView,
@@ -1393,7 +1508,6 @@ export class MSAViewer {
             getColumnVisibility: () => this.getActiveRepresentation()?.columnVisibility ?? null,
         });
         this.selectionController.bind();
-        this.syncTrackScrollTargets();
         this.rulerView?.setTheme?.({ darkMode: this.state.getResolvedDarkMode() });
 
         this.setLoadedLayoutVisible(false);
@@ -1461,7 +1575,6 @@ export class MSAViewer {
         });
         this.selectionController.bind();
         this.headerView?.setOnRowClick?.((rowIndex, event) => this.handleSequenceHeaderClick(rowIndex, event));
-        this.syncTrackScrollTargets();
         this.rulerView?.setTheme?.({ darkMode: this.state.getResolvedDarkMode() });
     }
 
@@ -1535,7 +1648,6 @@ export class MSAViewer {
     createTrackFromBinding(binding) {
         const definition = this.resolveTrackBinding(binding);
         return createTrackFromDefinition(definition, {
-            labelWidth: this.viewerConfig.views.tracks.labelWidth,
             behaviorHelpers: {
                 buildConservationTooltip: (context) => this.buildConservationTooltip(context),
             },
@@ -1638,8 +1750,9 @@ export class MSAViewer {
             });
             trackStackView.setTheme(this.getTrackTheme());
             trackStackView.setTrackContext(this.getTrackContext());
-            this.viewportController?.syncTracksViewport();
         }
+        this.alignmentView?.syncSurfaceSize?.();
+        this.viewportController?.syncTracksViewport();
     }
 
     async toggleTrack(track, enabled = null) {
@@ -1693,17 +1806,17 @@ export class MSAViewer {
     }
     
     getCoordsFromScrollerPosition({ clientX, clientY }) {
-        const bounds = this.alignmentView.scroller.getBoundingClientRect();
+        const bounds = this.alignmentView.getViewportBounds?.() ?? this.alignmentView.scroller.getBoundingClientRect();
         const withinViewport =
             clientX >= bounds.left &&
-            clientX < bounds.left + this.alignmentView.scroller.clientWidth &&
+            clientX < bounds.left + bounds.width &&
             clientY >= bounds.top &&
-            clientY < bounds.top + this.alignmentView.scroller.clientHeight;
+            clientY < bounds.top + bounds.height;
         if (!withinViewport) {
             return null;
         }
-        const contentX = clientX - bounds.left + this.alignmentView.scroller.scrollLeft;
-        const contentY = clientY - bounds.top  + this.alignmentView.scroller.scrollTop;
+        const contentX = clientX - bounds.left + (this.alignmentView.getScrollLeft?.() ?? this.alignmentView.scroller.scrollLeft);
+        const contentY = clientY - bounds.top  + (this.alignmentView.getScrollTop?.() ?? this.alignmentView.scroller.scrollTop);
         const cellWidth = this.alignmentView.getRenderedCellWidthCss();
         const cellHeight = this.alignmentView.getRenderedCellHeightCss();
         const snapshot = this.state.getSnapshot();
@@ -1715,6 +1828,13 @@ export class MSAViewer {
     }
 
     setLoadedLayoutVisible(loaded) {
+        this.alignmentView?.setViewportChrome?.({
+            headerWidth: this.viewerConfig.views.header.width,
+            rulerHeight: this.viewerConfig.views.ruler.height,
+            headerVisible: loaded && this.viewerConfig.visibility.header,
+            rulerVisible: loaded && this.viewerConfig.visibility.ruler,
+        });
+        this.alignmentView?.setLoadedState?.(loaded);
         this.root.dataset.loaded = loaded ? "true" : "false";
         this.applyConfiguredAppearance();
         if (this.alignmentView?.canvas) {
@@ -1735,9 +1855,13 @@ export class MSAViewer {
         if (this.minimapRoot) {
             this.minimapRoot.hidden = !loaded;
         }
-        if (this.trackstackRoot) {
-            this.trackstackRoot.hidden = !loaded;
+        if (this.trackLabelRoot) {
+            this.trackLabelRoot.hidden = !loaded || !this.viewerConfig.visibility.tracks;
         }
+        if (this.trackBodyRoot) {
+            this.trackBodyRoot.hidden = !loaded || !this.viewerConfig.visibility.tracks;
+        }
+        this.alignmentView?.syncSurfaceSize?.();
     }
     
     async rebuildMinimap({ shouldApply = null } = {}) {
@@ -1977,26 +2101,6 @@ export class MSAViewer {
             prevSchemeKey = snapshot.scheme.key;
         });
 
-        let prevAlignmentLoaded = null;
-        let prevScrollTop = null;
-        this.unsubscribeViewportState = this.state.subscribe((snapshot) => {
-            if (
-                snapshot.alignment.loaded === prevAlignmentLoaded &&
-                snapshot.viewport.scrollTop === prevScrollTop
-            ) {
-                return;
-            }
-
-            prevAlignmentLoaded = snapshot.alignment.loaded;
-            prevScrollTop = snapshot.viewport.scrollTop;
-
-            if (!snapshot.alignment.loaded) {
-                return;
-            }
-
-            this.viewportController?.syncHeaderScroll(snapshot.viewport.scrollTop);
-        });
-        
         let prevSelection = null;
         this.unsubscribeSelectionState = this.state.subscribeSelection((selection) => {
             if (!this.selectionController) return;
@@ -2021,14 +2125,16 @@ export class MSAViewer {
             if (!this.getActiveAlignmentState()) return;
             let handled = true;
             const { cellWidth: dx, cellHeight: dy } = this.state.getCellSize();
+            const scrollBy = this.alignmentView?.scrollBy?.bind(this.alignmentView)
+                ?? ((delta) => this.alignmentView?.scroller?.scrollBy?.(delta));
             if (event.key === "ArrowLeft") {
-                this.alignmentView.scroller.scrollBy({ left: -dx, top: 0 });
+                scrollBy({ left: -dx, top: 0 });
             } else if (event.key === "ArrowRight") {
-                this.alignmentView.scroller.scrollBy({ left: dx, top: 0 });
+                scrollBy({ left: dx, top: 0 });
             } else if (event.key === "ArrowUp") {
-                this.alignmentView.scroller.scrollBy({ left: 0, top: -dy });
+                scrollBy({ left: 0, top: -dy });
             } else if (event.key === "ArrowDown") {
-                this.alignmentView.scroller.scrollBy({ left: 0, top: dy });
+                scrollBy({ left: 0, top: dy });
             } else {
                 handled = false;
             }
@@ -2045,10 +2151,10 @@ export class MSAViewer {
         return {
             previousScrollLeft: useSnapshotScroll
                 ? previousSnapshot.viewport.scrollLeft
-                : (this.alignmentView?.scroller?.scrollLeft ?? previousSnapshot.viewport.scrollLeft),
+                : (this.alignmentView?.getScrollLeft?.() ?? this.alignmentView?.scroller?.scrollLeft ?? previousSnapshot.viewport.scrollLeft),
             previousScrollTop: useSnapshotScroll
                 ? previousSnapshot.viewport.scrollTop
-                : (this.alignmentView?.scroller?.scrollTop ?? previousSnapshot.viewport.scrollTop),
+                : (this.alignmentView?.getScrollTop?.() ?? this.alignmentView?.scroller?.scrollTop ?? previousSnapshot.viewport.scrollTop),
             resetView,
         };
     }
@@ -2111,7 +2217,6 @@ export class MSAViewer {
             this.alignmentView.scrollTo(previousScrollLeft, previousScrollTop);
         }
         this.headerView?.renderRecords(records);
-        this.headerView?.syncScroll(this.alignmentView.scroller.scrollTop);
         this.selectionController?.syncOverlay(this.state.getSelectionSnapshot());
         this.syncMinimapSelectionBands();
         this.requestRender();
@@ -2483,8 +2588,13 @@ export class MSAViewer {
     }
 
     applyRulerOptions() {
+        const isLoaded = this.root.dataset.loaded !== "false";
         this.rulerView?.setTickInterval?.(this.viewerConfig.views.ruler.tickInterval);
         this.root.style.setProperty("--msa-ruler-height", this.viewerConfig.cssVariables["--msa-ruler-height"]);
+        this.alignmentView?.setViewportChrome?.({
+            rulerHeight: this.viewerConfig.views.ruler.height,
+            rulerVisible: isLoaded && this.viewerConfig.visibility.ruler,
+        });
         if (this.rulerRoot) {
             this.rulerRoot.style.height = `${this.viewerConfig.views.ruler.height}px`;
             this.rulerRoot.style.minHeight = `${this.viewerConfig.views.ruler.height}px`;
@@ -2496,6 +2606,12 @@ export class MSAViewer {
             this.rulerView.render();
         }
         this.viewportController?.refreshLayout();
+    }
+
+    applyMinimapOptions() {
+        if (this.minimapView) {
+            this.minimapView.refreshRendering?.();
+        }
     }
 
     rawColumnToVisible(rawCol) {

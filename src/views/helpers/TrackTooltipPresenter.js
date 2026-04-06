@@ -8,6 +8,7 @@ export class TrackTooltipPresenter {
 
     applyBaseStyles() {
         this.tooltipEl.style.position = "fixed";
+        this.tooltipEl.style.zIndex = "2147483647";
         this.tooltipEl.style.pointerEvents = "none";
         this.tooltipEl.style.display = "none";
         this.tooltipEl.style.minWidth = "120px";

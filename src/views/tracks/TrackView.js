@@ -3,21 +3,35 @@ import { buildTrackLayerCaches, warmTrackLogoGlyphCaches } from "./trackLayerCac
 import { buildRenderedTrackLayers, renderTrackLayer } from "./trackLayerRenderer.js";
 import { normalizeTrackLayers, resolveTrackSourceData, resolveTrackSourceTrackState } from "./trackRuntime.js";
 
+function flattenTrackLayoutLayers(layout = null) {
+    if (!Array.isArray(layout?.lanes)) {
+        return [];
+    }
+    return layout.lanes.flatMap((lane, laneIndex) =>
+        (lane.layers ?? []).map((layer) => ({
+            ...layer,
+            laneIndex,
+        }))
+    );
+}
+
 export class TrackView extends BaseTrackView {
     constructor({
+        layout = null,
         source = null,
         coloring = null,
         valueRange = null,
-        layers = [],
         ...options
     }) {
         super({
             ...options,
+            height: layout?.totalHeight ?? options.height,
             valueRange,
         });
+        this.layout = layout;
         this.source = source;
         this.coloring = coloring;
-        this.layers = normalizeTrackLayers(layers);
+        this.layers = normalizeTrackLayers(flattenTrackLayoutLayers(layout));
         this.layerCaches = [];
     }
 
@@ -50,12 +64,6 @@ export class TrackView extends BaseTrackView {
     setTheme(theme) {
         super.setTheme(theme);
         this.rebuildLayerCaches();
-    }
-
-    setLayers(layers) {
-        this.layers = normalizeTrackLayers(layers);
-        this.rebuildLayerCaches();
-        this.invalidateRenderCache();
     }
 
     setValueRange(valueRange) {
@@ -93,6 +101,7 @@ export class TrackView extends BaseTrackView {
         const renderedLayers = buildRenderedTrackLayers({
             source: this.source,
             data: this.data,
+            layout: this.layout,
             layers: this.layers,
             layerCaches: this.layerCaches,
             theme: this.theme,
@@ -103,7 +112,10 @@ export class TrackView extends BaseTrackView {
             renderContext,
         });
         for (const layer of renderedLayers) {
+            context.save();
+            context.translate(0, layer.offsetTopPx ?? 0);
             renderTrackLayer(context, layer);
+            context.restore();
         }
     }
 }

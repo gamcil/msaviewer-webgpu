@@ -81,6 +81,9 @@ export function deriveViewerOptions(options) {
         layout: {
             headerWidth: options.layout.header.width,
             minimapHeight: options.layout.minimap.height,
+            minimap: {
+                fullWidth: options.layout.minimap.fullWidth === true,
+            },
             ruler: {
                 tickInterval: options.layout.ruler.tickInterval,
                 height: options.layout.ruler.height,
@@ -100,6 +103,12 @@ export function deriveViewerOptions(options) {
             headerFontSize: options.theme.typography.headerFontSize,
         },
         cssVariables: {
+            "--msa-left-chrome-width": options.layout.header.visible === false
+                ? "0px"
+                : `${options.layout.header.width}px`,
+            "--msa-minimap-offset-left": (options.layout.minimap.fullWidth === true || options.layout.header.visible === false)
+                ? "0px"
+                : `${options.layout.header.width}px`,
             "--msa-ruler-height": `${options.layout.ruler.height}px`,
             "--msa-minimap-height": `${options.layout.minimap.height}px`,
             "--msa-header-width": `${options.layout.header.width}px`,
@@ -138,6 +147,7 @@ export function normalizeViewerOptions(rawOptions = {}) {
     normalizedLayout.ruler.height = Math.max(20, normalizedLayout.ruler.height ?? DEFAULT_VIEWER_OPTIONS.layout.ruler.height);
     normalizedLayout.ruler.tickInterval = Math.max(1, normalizedLayout.ruler.tickInterval ?? DEFAULT_VIEWER_OPTIONS.layout.ruler.tickInterval);
     normalizedLayout.minimap.height = Math.max(20, normalizedLayout.minimap.height ?? DEFAULT_VIEWER_OPTIONS.layout.minimap.height);
+    normalizedLayout.minimap.fullWidth = normalizedLayout.minimap.fullWidth === true;
     normalizedLayout.tracks.labelWidth = Math.max(72, normalizedLayout.tracks.labelWidth ?? DEFAULT_VIEWER_OPTIONS.layout.tracks.labelWidth);
     normalizedLayout.cell.width = Math.max(1, normalizedLayout.cell.width ?? DEFAULT_VIEWER_OPTIONS.layout.cell.width);
     normalizedLayout.cell.height = Math.max(1, normalizedLayout.cell.height ?? DEFAULT_VIEWER_OPTIONS.layout.cell.height);

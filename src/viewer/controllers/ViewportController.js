@@ -39,8 +39,26 @@ export class ViewportController {
         this.lastObservedHeight = -1;
     }
 
+    getViewportWidth() {
+        return this.alignmentView?.getViewportWidthCss?.() ?? this.alignmentView?.scroller?.clientWidth ?? 0;
+    }
+
+    getViewportHeight() {
+        return this.alignmentView?.getViewportHeightCss?.() ?? this.alignmentView?.scroller?.clientHeight ?? 0;
+    }
+
+    getScrollLeft() {
+        return this.alignmentView?.getScrollLeft?.() ?? this.alignmentView?.scroller?.scrollLeft ?? 0;
+    }
+
+    getScrollTop() {
+        return this.alignmentView?.getScrollTop?.() ?? this.alignmentView?.scroller?.scrollTop ?? 0;
+    }
+
     bind() {
         if (!this.alignmentView) return;
+        const verticalScrollElement = this.alignmentView.getVerticalScrollElement?.() ?? this.alignmentView.scroller;
+        const horizontalScrollElement = this.alignmentView.getHorizontalScrollElement?.() ?? this.alignmentView.scroller;
 
         this.onScroll = () => {
             this.onSetScrolling?.(true);
@@ -53,8 +71,8 @@ export class ViewportController {
             }, 120);
             this.onHoverReset?.();
             this.state.setViewportScroll(
-                this.alignmentView.scroller.scrollLeft,
-                this.alignmentView.scroller.scrollTop
+                this.getScrollLeft(),
+                this.getScrollTop(),
             );
             if (this.getAlignmentStore()) {
                 void this.uploadVisibleWindow?.();
@@ -73,13 +91,17 @@ export class ViewportController {
 
         this.onResize = () => this.refreshLayout();
 
-        this.alignmentView.scroller.addEventListener("scroll", this.onScroll);
-        this.alignmentView.scroller.addEventListener("scrollend", this.onScrollEnd);
+        verticalScrollElement?.addEventListener("scroll", this.onScroll);
+        verticalScrollElement?.addEventListener("scrollend", this.onScrollEnd);
+        if (horizontalScrollElement && horizontalScrollElement !== verticalScrollElement) {
+            horizontalScrollElement.addEventListener("scroll", this.onScroll);
+            horizontalScrollElement.addEventListener("scrollend", this.onScrollEnd);
+        }
         window.addEventListener("resize", this.onResize);
         if (typeof ResizeObserver !== "undefined") {
             this.resizeObserver = new ResizeObserver(() => {
-                const width = this.alignmentView?.scroller?.clientWidth ?? 0;
-                const height = this.alignmentView?.scroller?.clientHeight ?? 0;
+                const width = this.getViewportWidth();
+                const height = this.getViewportHeight();
                 if (width === this.lastObservedWidth && height === this.lastObservedHeight) {
                     return;
                 }
@@ -96,8 +118,8 @@ export class ViewportController {
             if (!request.type) return;
             const alignmentStore = this.getAlignmentStore();
             if (!alignmentStore) return;
-            const viewportWidth = this.alignmentView.scroller.clientWidth;
-            const viewportHeight = this.alignmentView.scroller.clientHeight;
+            const viewportWidth = this.getViewportWidth();
+            const viewportHeight = this.getViewportHeight();
             const { cellWidth, cellHeight } = this.state.getCellSize();
             const visibleCount = this.getColumnVisibility?.()?.visibleCount ?? alignmentStore.totalCols;
             const contentWidth = visibleCount * cellWidth;
@@ -134,6 +156,7 @@ export class ViewportController {
         this.scrollSyncFrameHandle = window.requestAnimationFrame(() => {
             this.scrollSyncFrameHandle = 0;
             this.alignmentView.renderOverlays?.();
+            this.headerView?.syncScroll?.(this.getScrollTop());
             this.syncMinimapViewportRect();
             this.syncRulerViewport();
             this.syncTracksViewport();
@@ -143,7 +166,8 @@ export class ViewportController {
     refreshLayout() {
         if (!this.alignmentView) return;
         this.alignmentView.syncSurfaceSize();
-        this.headerView?.setViewportHeight(this.alignmentView.scroller.clientHeight);
+        this.headerView?.setViewportHeight(this.getViewportHeight());
+        this.headerView?.syncScroll?.(this.getScrollTop());
         this.state.setCanvasSize(this.alignmentView.canvas.width, this.alignmentView.canvas.height);
         if (this.getAlignmentStore()) {
             void this.uploadVisibleWindow?.();
@@ -155,11 +179,19 @@ export class ViewportController {
     }
 
     destroy() {
-        if (this.alignmentView && this.onScroll) {
-            this.alignmentView.scroller.removeEventListener("scroll", this.onScroll);
+        const verticalScrollElement = this.alignmentView?.getVerticalScrollElement?.() ?? this.alignmentView?.scroller ?? null;
+        const horizontalScrollElement = this.alignmentView?.getHorizontalScrollElement?.() ?? this.alignmentView?.scroller ?? null;
+        if (verticalScrollElement && this.onScroll) {
+            verticalScrollElement.removeEventListener("scroll", this.onScroll);
         }
-        if (this.alignmentView && this.onScrollEnd) {
-            this.alignmentView.scroller.removeEventListener("scrollend", this.onScrollEnd);
+        if (verticalScrollElement && this.onScrollEnd) {
+            verticalScrollElement.removeEventListener("scrollend", this.onScrollEnd);
+        }
+        if (horizontalScrollElement && horizontalScrollElement !== verticalScrollElement && this.onScroll) {
+            horizontalScrollElement.removeEventListener("scroll", this.onScroll);
+        }
+        if (horizontalScrollElement && horizontalScrollElement !== verticalScrollElement && this.onScrollEnd) {
+            horizontalScrollElement.removeEventListener("scrollend", this.onScrollEnd);
         }
         if (this.onResize) {
             window.removeEventListener("resize", this.onResize);
@@ -185,16 +217,12 @@ export class ViewportController {
         }
     }
 
-    syncHeaderScroll(scrollTop) {
-        this.headerView?.syncScroll(scrollTop);
-    }
-
     buildHorizontalViewport({ overscanCols = 0 } = {}) {
         const alignmentStore = this.getAlignmentStore();
         if (!alignmentStore || !this.alignmentView) return null;
         const columnVisibility = this.getColumnVisibility?.() ?? null;
-        const scrollLeft = this.alignmentView.scroller.scrollLeft;
-        const viewportWidth = this.alignmentView.scroller.clientWidth;
+        const scrollLeft = this.getScrollLeft();
+        const viewportWidth = this.getViewportWidth();
         const cellWidth = this.alignmentView.getRenderedCellWidthCss();
         const totalCols = columnVisibility?.visibleCount ?? alignmentStore.totalCols;
         const colStart = Math.max(0, Math.floor(scrollLeft / cellWidth) - overscanCols);
@@ -216,10 +244,10 @@ export class ViewportController {
 
     getVisibleWindowBounds() {
         const alignmentStore = this.getAlignmentStore();
-        const scrollLeft = this.alignmentView.scroller.scrollLeft;
-        const scrollTop = this.alignmentView.scroller.scrollTop;
-        const viewportWidth = this.alignmentView.scroller.clientWidth;
-        const viewportHeight = this.alignmentView.scroller.clientHeight;
+        const scrollLeft = this.getScrollLeft();
+        const scrollTop = this.getScrollTop();
+        const viewportWidth = this.getViewportWidth();
+        const viewportHeight = this.getViewportHeight();
         const cellWidth = this.alignmentView.getRenderedCellWidthCss();
         const cellHeight = this.alignmentView.getRenderedCellHeightCss();
         const totalVisibleCols = this.getColumnVisibility?.()?.visibleCount ?? alignmentStore.totalCols;
@@ -258,10 +286,10 @@ export class ViewportController {
         if (!alignmentStore || !this.minimapController) return;
         this.minimapController.syncViewportRect({
             alignmentStore,
-            scrollLeft: this.alignmentView.scroller.scrollLeft,
-            scrollTop: this.alignmentView.scroller.scrollTop,
-            viewportWidth: this.alignmentView.scroller.clientWidth,
-            viewportHeight: this.alignmentView.scroller.clientHeight,
+            scrollLeft: this.getScrollLeft(),
+            scrollTop: this.getScrollTop(),
+            viewportWidth: this.getViewportWidth(),
+            viewportHeight: this.getViewportHeight(),
             ...this.state.getCellSize(),
             visibleColCount: this.getColumnVisibility?.()?.visibleCount ?? null,
         });

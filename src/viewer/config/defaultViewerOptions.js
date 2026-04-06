@@ -17,6 +17,7 @@ export const DEFAULT_VIEWER_OPTIONS = {
         minimap: {
             visible: true,
             height: 120,
+            fullWidth: false,
         },
         tracks: {
             visible: true,

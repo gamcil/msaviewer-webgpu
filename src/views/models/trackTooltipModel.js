@@ -1,6 +1,7 @@
 export function getHoveredTrack(tracks, clientY) {
     for (const track of tracks) {
-        const rect = track.root.getBoundingClientRect();
+        const rect = (track.bodyRowEl ?? track.bodyEl)?.getBoundingClientRect?.();
+        if (!rect) continue;
         if (clientY >= rect.top && clientY <= rect.bottom) {
             return track;
         }

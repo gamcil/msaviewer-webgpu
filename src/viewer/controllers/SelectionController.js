@@ -20,6 +20,7 @@ export class SelectionController {
 
     bind() {
         if (!this.alignmentView) return;
+        const interactionTarget = this.alignmentView.getInteractionTarget?.() ?? this.alignmentView.scroller;
 
         this.onMouseMove = (event) => {
             if (this.isDragging || this.getIsScrolling?.()) return;
@@ -57,16 +58,17 @@ export class SelectionController {
             this.resetDrag();
         };
 
-        this.alignmentView.scroller.addEventListener("mousemove", this.onMouseMove);
-        this.alignmentView.scroller.addEventListener("mouseleave", this.onMouseLeave);
-        this.alignmentView.scroller.addEventListener("mousedown", this.onMouseDown);
+        interactionTarget.addEventListener("mousemove", this.onMouseMove);
+        interactionTarget.addEventListener("mouseleave", this.onMouseLeave);
+        interactionTarget.addEventListener("mousedown", this.onMouseDown);
     }
 
     destroy() {
         if (!this.alignmentView) return;
-        this.alignmentView.scroller.removeEventListener("mousemove", this.onMouseMove);
-        this.alignmentView.scroller.removeEventListener("mouseleave", this.onMouseLeave);
-        this.alignmentView.scroller.removeEventListener("mousedown", this.onMouseDown);
+        const interactionTarget = this.alignmentView.getInteractionTarget?.() ?? this.alignmentView.scroller;
+        interactionTarget.removeEventListener("mousemove", this.onMouseMove);
+        interactionTarget.removeEventListener("mouseleave", this.onMouseLeave);
+        interactionTarget.removeEventListener("mousedown", this.onMouseDown);
         this.detachWindowDragListeners();
     }
 

@@ -18,42 +18,18 @@ export class HeaderView {
         this.fontSize = fontSize;
         this.onRowClick = typeof onRowClick === "function" ? onRowClick : null;
 
-        this.scrollport = document.createElement("div");
-        this.scrollport.className = "msa-headers-scrollport";
-
         this.track = document.createElement("div");
         this.track.className = "msa-headers-track";
-        this.scrollport.appendChild(this.track);
-        this.root.appendChild(this.scrollport);
+        this.root.appendChild(this.track);
         this.root.style.setProperty("--row-height", `${this.rowHeight}px`);
         this.applyStyles();
         this.bindEvents();
         this.setOnRowClick(this.onRowClick);
     }
     applyStyles() {
-        Object.assign(this.root.style, {
-            position: "relative",
-            height: "100%",
-            width: `${this.width}px`,
-            maxWidth: `${this.width}px`,
-            minWidth: "0",
-            overflow: "hidden",
-            backgroundColor: "var(--msa-header-bg)",
-            borderRight: "1px solid var(--msa-header-border)",
-        });
-        Object.assign(this.scrollport.style, {
-            position: "relative",
-            height: "100%",
-            overflowX: "hidden",
-            overflowY: "auto",
-            scrollbarWidth: "none",
-            msOverflowStyle: "none",
-        });
-        Object.assign(this.track.style, {
-            position: "relative",
-            width: "max-content",
-            minWidth: "100%",
-        });
+        this.root.style.setProperty("--msa-header-view-width", `${this.width}px`);
+        this.root.style.setProperty("--msa-header-font-family", this.fontFamily);
+        this.root.style.setProperty("--msa-header-font-size", `${this.fontSize}px`);
     }
     bindEvents() {
         this.onClick = (event) => {
@@ -78,8 +54,8 @@ export class HeaderView {
     }
     setViewportHeight(height) {
         const nextHeight = `${Math.max(1, height)}px`;
-        if (this.scrollport.style.height === nextHeight) return;
-        this.scrollport.style.height = nextHeight;
+        if (this.root.style.height === nextHeight) return;
+        this.root.style.height = nextHeight;
     }
     renderRecords(records) {
         this.track.replaceChildren();
@@ -88,32 +64,18 @@ export class HeaderView {
             headerCell.className = "msa-header-row";
             headerCell.dataset.rowIndex = String(rowIndex);
             headerCell.textContent = record.name;
-            Object.assign(headerCell.style, {
-                display: "flex",
-                alignItems: "center",
-                height: "var(--row-height)",
-                padding: "0 8px",
-                fontSize: `${this.fontSize}px`,
-                lineHeight: "1",
-                boxSizing: "border-box",
-                width: "max-content",
-                maxWidth: `${this.width}px`,
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
-                fontFamily: this.fontFamily,
-            });
             this.track.appendChild(headerCell);
         }
-        this.track.style.height = `${Math.max(1, records.length * this.rowHeight)}px`;
+        const trackHeight = Math.max(1, records.length * this.rowHeight);
+        this.track.style.height = `${trackHeight}px`;
     }
     syncScroll(scrollTop) {
-        this.scrollport.scrollTop = scrollTop;
+        this.track.style.transform = `translateY(${-scrollTop}px)`;
     }
     clear() {
         this.track.replaceChildren();
         this.track.style.height = "0px";
-        this.scrollport.scrollTop = 0;
+        this.track.style.transform = "translateY(0px)";
     }
     destroy() {
         if (this.onClick) {

@@ -18,14 +18,27 @@ function getTrackLogoFont(theme) {
     return `bold 100px ${getTrackGlyphFontFamily(theme)}`;
 }
 
-function getGlyphLaneHeightPx(layers, dpr) {
-    let lane = 0;
-    for (const layer of layers) {
-        if (layer.type !== "glyph") continue;
-        const fontPx = Math.max(10, Math.round((layer.style?.fontSize ?? 14) * dpr));
-        lane = Math.max(lane, fontPx + Math.max(2, Math.round(4 * dpr)));
+function getTrackLaneGeometries(layout, totalHeightPx) {
+    const lanes = Array.isArray(layout?.lanes) ? layout.lanes : [];
+    if (!lanes.length) {
+        return [{ topPx: 0, heightPx: totalHeightPx }];
     }
-    return lane;
+    const totalHeight = layout?.totalHeight ?? 0;
+    const scale = totalHeight > 0 ? totalHeightPx / totalHeight : 1;
+    const gapPx = (layout?.gap ?? 0) * scale;
+    let cursorPx = (layout?.paddingTop ?? 0) * scale;
+    return lanes.map((lane, laneIndex) => {
+        const nextHeightPx = Math.max(1, (lane.height ?? 0) * scale);
+        const geometry = {
+            topPx: cursorPx,
+            heightPx: nextHeightPx,
+        };
+        cursorPx += nextHeightPx;
+        if (laneIndex < lanes.length - 1) {
+            cursorPx += gapPx;
+        }
+        return geometry;
+    });
 }
 
 function buildBarLayer(layer, cache, renderContext) {
@@ -66,7 +79,7 @@ function buildConsensusBarLayer(layer, cache, renderContext, theme) {
     if (!columns.length) return null;
     const bars = buildConsensusHistogramBars(columns, {
         includeGaps: layer.includeGaps !== false,
-        plotHeightPx: renderContext.plotHeightPx,
+        plotHeightPx: renderContext.heightPx,
     });
     return {
         type: "bar",
@@ -74,7 +87,7 @@ function buildConsensusBarLayer(layer, cache, renderContext, theme) {
             bars,
             cellWidthPx: renderContext.cellWidthPx,
             localScrollLeftPx: renderContext.localScrollLeftPx,
-            canvasHeight: renderContext.plotHeightPx,
+            canvasHeight: renderContext.heightPx,
             fillStyle: getThemedStyleValue(layer.colors, "fillStyle", layer.style?.fillStyle, theme),
             strokeStyle: getThemedStyleValue(layer.colors, "strokeStyle", layer.style?.strokeStyle ?? null, theme),
             lineWidth: layer.style?.lineWidth ?? Math.max(1, Math.round(renderContext.dpr)),
@@ -232,7 +245,7 @@ function buildLogoLayer(layer, cache, renderContext, theme) {
     if (!columns.length) return null;
     const logoColumns = buildConsensusLogoColumns(columns, {
         includeGaps: layer.includeGaps !== false,
-        plotHeightPx: renderContext.plotHeightPx,
+        plotHeightPx: renderContext.heightPx,
         logoHeightMode: style.logoHeightMode ?? "histogram",
     });
     return {
@@ -241,7 +254,7 @@ function buildLogoLayer(layer, cache, renderContext, theme) {
             columns: logoColumns,
             cellWidthPx: renderContext.cellWidthPx,
             localScrollLeftPx: renderContext.localScrollLeftPx,
-            plotHeightPx: renderContext.plotHeightPx,
+            plotHeightPx: renderContext.heightPx,
             font: style.logoFont ?? getTrackLogoFont(theme),
             maxScaleX: style.logoMaxScaleX ?? 1.25,
             capGlyphHeight: style.capGlyphHeight ?? true,
@@ -254,6 +267,7 @@ function buildLogoLayer(layer, cache, renderContext, theme) {
 export function buildRenderedTrackLayers({
     source,
     data,
+    layout,
     layers,
     layerCaches,
     theme,
@@ -264,29 +278,39 @@ export function buildRenderedTrackLayers({
     renderContext,
 }) {
     const renderedLayers = [];
-    const glyphLanePx = getGlyphLaneHeightPx(layers, renderContext.dpr);
-    const plotHeightPx = Math.max(1, renderContext.heightPx - glyphLanePx);
+    const laneGeometries = getTrackLaneGeometries(layout, renderContext.heightPx);
     for (let index = 0; index < layers.length; index += 1) {
         const layer = layers[index];
         const cache = layerCaches[index];
+        const laneGeometry = laneGeometries[layer.laneIndex ?? 0] ?? laneGeometries[0] ?? {
+            topPx: 0,
+            heightPx: renderContext.heightPx,
+        };
+        const laneRenderContext = {
+            ...renderContext,
+            heightPx: laneGeometry.heightPx,
+        };
         let renderedLayer = null;
         if (layer.type === "bar" && source?.type === "consensus") {
-            renderedLayer = buildConsensusBarLayer(layer, cache, { ...renderContext, plotHeightPx }, theme);
+            renderedLayer = buildConsensusBarLayer(layer, cache, laneRenderContext, theme);
         } else if (layer.type === "bar") {
-            renderedLayer = buildBarLayer(layer, cache, { ...renderContext, heightPx: plotHeightPx });
+            renderedLayer = buildBarLayer(layer, cache, laneRenderContext);
         } else if (layer.type === "line") {
-            renderedLayer = buildLineLayer(layer, data, { ...renderContext, heightPx: plotHeightPx }, normalizeValue);
+            renderedLayer = buildLineLayer(layer, data, laneRenderContext, normalizeValue);
         } else if (layer.type === "glyph") {
             if (source?.type === "consensus") {
-                renderedLayer = buildConsensusGlyphLayer(layer, cache, renderContext, theme);
+                renderedLayer = buildConsensusGlyphLayer(layer, cache, laneRenderContext, theme);
             } else {
-                renderedLayer = buildGlyphLayer(layer, cache, data, renderContext, theme, track, trackState, viewport);
+                renderedLayer = buildGlyphLayer(layer, cache, data, laneRenderContext, theme, track, trackState, viewport);
             }
         } else if (layer.type === "logo") {
-            renderedLayer = buildLogoLayer(layer, cache, { ...renderContext, plotHeightPx }, theme);
+            renderedLayer = buildLogoLayer(layer, cache, laneRenderContext, theme);
         }
         if (renderedLayer) {
-            renderedLayers.push(renderedLayer);
+            renderedLayers.push({
+                ...renderedLayer,
+                offsetTopPx: laneGeometry.topPx,
+            });
         }
     }
     return renderedLayers;
