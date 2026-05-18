@@ -1,9 +1,5 @@
 export const DEFAULT_VIEWER_OPTIONS = {
     alphabet: "aa",
-    data: {
-        representations: [],
-        activeRepresentationId: null,
-    },
     layout: {
         header: {
             visible: true,
@@ -37,11 +33,11 @@ export const DEFAULT_VIEWER_OPTIONS = {
             headerFontSize: 14,
         },
     },
-    tracks: {
+    tracks: [],
+    trackDisplay: {
         defaults: "active-only",
         variants: [],
         order: null,
-        definitions: {},
     },
     behavior: {
         selectionMode: "column",

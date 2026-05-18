@@ -327,6 +327,19 @@ export class ViewerState {
             cellHeight: this.state.viewport.cellHeight,
         };
     }
+    setCellSize(cellWidth, cellHeight) {
+        const nextCellWidth = Number.isFinite(cellWidth) ? cellWidth : this.state.viewport.cellWidth;
+        const nextCellHeight = Number.isFinite(cellHeight) ? cellHeight : this.state.viewport.cellHeight;
+        if (
+            this.state.viewport.cellWidth === nextCellWidth &&
+            this.state.viewport.cellHeight === nextCellHeight
+        ) {
+            return;
+        }
+        this.state.viewport.cellWidth = nextCellWidth;
+        this.state.viewport.cellHeight = nextCellHeight;
+        this.emit();
+    }
     getMaskingSnapshot() {
         return { ...this.state.masking };
     }
@@ -380,47 +393,6 @@ export class ViewerState {
         this.emit();
     }
 
-    setSelectedColumns(set) {
-        const totalRows = this.state.alignment.totalRows;
-        const sorted = Array.from(set).filter((value) => Number.isInteger(value) && value >= 0).sort((a, b) => a - b);
-        const ranges = [];
-        for (const col of sorted) {
-            const lastRange = ranges[ranges.length - 1];
-            if (lastRange && col === lastRange.colEnd) {
-                lastRange.colEnd = col + 1;
-                continue;
-            }
-            ranges.push({
-                colStart: col,
-                colEnd: col + 1,
-                rowStart: 0,
-                rowEnd: totalRows,
-            });
-        }
-        this.state.selection.mode = "column";
-        this.applySelectionRanges(ranges, "column");
-        this.emitSelection();
-        this.emit();
-    }
-
-    toggleSelectedColumn(col) {
-        const next = this.getSelectedColumns();
-        if (next.has(col)) next.delete(col);
-        else next.add(col);
-        this.setSelectedColumns(next);
-    }
-
-    getSelectedColumns() {
-        const totalRows = this.state.alignment.totalRows;
-        const selected = new Set();
-        for (const range of this.state.selection.ranges) {
-            if (range.rowStart !== 0 || range.rowEnd !== totalRows) continue;
-            for (let col = range.colStart; col < range.colEnd; col += 1) {
-                selected.add(col);
-            }
-        }
-        return selected;
-    }
     setThemeMode(mode) {
         if (!["light", "dark", "auto"].includes(mode)) return;
         if (this.state.theme.mode === mode) return;

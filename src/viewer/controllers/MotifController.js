@@ -80,9 +80,6 @@ export class MotifController {
     async setQuery(query) {
         this.query = (query || "").trim();
         await this.refreshActiveRepresentation();
-    }
-
-    async clearQuery() {
-        await this.setQuery("");
+        return this.getMatchCount();
     }
 }

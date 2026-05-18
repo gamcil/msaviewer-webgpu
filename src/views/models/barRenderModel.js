@@ -1,5 +1,4 @@
-import { resolveInterpolatedColor } from "../renderers/trackRenderers.js";
-import { createColorRamp } from "../trackStyles.js";
+import { createColorRamp, resolveInterpolatedColor } from "../renderers/trackRenderers.js";
 import { buildProjectedVisibleColumns } from "./visibleColumnModel.js";
 
 export function createBarColorRamps(colorRamps = {}, prepareColorRamp) {

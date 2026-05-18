@@ -1,54 +1,17 @@
-export const TRACK_SOURCE_TYPES = new Set(["metric", "values", "consensus"]);
-export const TRACK_LAYER_TYPES = new Set(["bar", "line", "glyph", "logo"]);
+import { mergeObjects } from "../../util.js";
 
-function isObject(value) {
-    return value != null && typeof value === "object" && !Array.isArray(value);
-}
+const TRACK_SOURCE_TYPES = new Set(["metric", "values", "consensus"]);
+const TRACK_LAYER_TYPES = new Set(["bar", "line", "glyph", "logo"]);
 
-function clampTrackSize(value, minimum = 0) {
-    if (!Number.isFinite(value)) {
-        return minimum;
-    }
-    return Math.max(minimum, value);
-}
-
-function mergeNestedOptions(base, override) {
-    if (!isObject(base)) {
-        return isObject(override) ? { ...override } : override;
-    }
-    if (!isObject(override)) {
-        return { ...base };
-    }
-    const result = { ...base };
-    for (const [key, value] of Object.entries(override)) {
-        if (isObject(value) && isObject(base[key])) {
-            result[key] = mergeNestedOptions(base[key], value);
-        } else {
-            result[key] = value;
-        }
-    }
-    return result;
-}
-
-function resolveTrackLayerIntrinsicHeight(layer = {}) {
+function layerHeight(layer = {}) {
     if (layer.type === "glyph") {
         const fontSize = layer.style?.fontSize ?? 14;
         return Math.max(1, fontSize + 4);
     }
     if (layer.type === "bar" || layer.type === "line" || layer.type === "logo") {
-        return clampTrackSize(layer.height, 24);
+        return Math.max(24, Number.isFinite(layer.height) ? layer.height : 24);
     }
     return 24;
-}
-
-function resolveTrackLaneHeight(lane = null, layers = []) {
-    if (Number.isFinite(lane?.height)) {
-        return clampTrackSize(lane.height, 1);
-    }
-    if (!layers.length) {
-        return 0;
-    }
-    return Math.max(...layers.map((layer) => resolveTrackLayerIntrinsicHeight(layer)));
 }
 
 function normalizeTrackSource(source = null) {
@@ -85,44 +48,16 @@ function normalizeTrackLayers(layers = []) {
         if (!TRACK_LAYER_TYPES.has(layer?.type)) {
             throw new Error(`Unsupported track layer type: ${layer?.type}`);
         }
-        return { ...layer };
+        const source = normalizeTrackSource(layer.source);
+        const normalized = { ...layer };
+        if (source) {
+            normalized.source = source;
+        }
+        if (layer.coloring) {
+            normalized.coloring = normalizeTrackColoring(layer.coloring, source);
+        }
+        return normalized;
     });
-}
-
-function normalizeTrackLane(lane = {}) {
-    const layers = normalizeTrackLayers(lane?.layers ?? []);
-    return {
-        ...lane,
-        height: resolveTrackLaneHeight(lane, layers),
-        layers,
-    };
-}
-
-function resolveTrackLayoutHeight(layout = {}) {
-    const lanes = Array.isArray(layout.lanes) ? layout.lanes : [];
-    const gap = clampTrackSize(layout.gap, 0);
-    const laneHeights = lanes.reduce((sum, lane) => sum + clampTrackSize(lane.height, 0), 0);
-    const gaps = Math.max(0, lanes.length - 1) * gap;
-    return clampTrackSize(layout.paddingTop, 0)
-        + clampTrackSize(layout.paddingBottom, 0)
-        + laneHeights
-        + gaps;
-}
-
-function normalizeTrackLayout(layout = null) {
-    const lanes = Array.isArray(layout?.lanes)
-        ? layout.lanes.map((lane) => normalizeTrackLane(lane))
-        : [];
-    const normalizedLayout = {
-        paddingTop: clampTrackSize(layout?.paddingTop, 0),
-        paddingBottom: clampTrackSize(layout?.paddingBottom, 0),
-        gap: clampTrackSize(layout?.gap, 0),
-        lanes,
-    };
-    return {
-        ...normalizedLayout,
-        totalHeight: resolveTrackLayoutHeight(normalizedLayout),
-    };
 }
 
 export function normalizeTrackDefinition(definition) {
@@ -131,61 +66,78 @@ export function normalizeTrackDefinition(definition) {
         throw new Error("Track definitions require an id.");
     }
 
-    const source = normalizeTrackSource(definition.source);
-    const rawOptions = definition.options ?? {};
-    if (!rawOptions.layout) {
-        throw new Error(`Track definition "${definition.id}" requires options.layout.`);
+    const {
+        lanes: rawLanes,
+        supports: rawSupports,
+        height: _height,
+        ...rest
+    } = definition;
+    if (_height != null) {
+        throw new Error(`Track definition "${definition.id}" does not accept height. Track height is derived from its lanes.`);
     }
-    const { layout: rawLayout, ...optionOverrides } = rawOptions;
-    const layout = normalizeTrackLayout(rawLayout);
+    if (!Array.isArray(rawLanes) || rawLanes.length === 0) {
+        throw new Error(`Track definition "${definition.id}" requires lanes.`);
+    }
 
+    const lanes = rawLanes.map((lane = {}, index) => {
+        const {
+            layers: rawLayers,
+            height,
+            ...restLane
+        } = lane;
+        if (height != null) {
+            throw new Error(`Track definition "${definition.id}" lane ${index} does not accept height. Lane height is derived from its layers.`);
+        }
+        const layers = normalizeTrackLayers(rawLayers ?? []);
+        return {
+            ...restLane,
+            height: Math.max(0, ...layers.map((layer) => layerHeight(layer))),
+            layers,
+        };
+    });
+    const source = normalizeTrackSource(rest.source);
     return {
-        ...definition,
+        ...rest,
         id: definition.id,
-        label: definition.label ?? definition.id,
+        label: rest.label ?? definition.id,
         supports: {
-            alphabets: Array.isArray(definition.supports?.alphabets) ? [...definition.supports.alphabets] : null,
-            shared: definition.supports?.shared === true,
+            alphabets: Array.isArray(rawSupports?.alphabets) ? [...rawSupports.alphabets] : null,
+            shared: rawSupports?.shared === true,
         },
         source,
-        coloring: normalizeTrackColoring(definition.coloring, source),
-        options: {
-            ...optionOverrides,
-            layout,
-        },
+        coloring: normalizeTrackColoring(rest.coloring, source),
+        lanes,
     };
 }
 
 export function normalizeTrackDefinitions({
     builtInDefinitions = {},
-    userDefinitions = {},
+    userDefinitions = [],
     order = null,
 }) {
     const definitionsById = new Map();
     const builtInIds = Object.keys(builtInDefinitions);
+    const userDefinitionList = Array.isArray(userDefinitions) ? userDefinitions : [];
+    const userDefinitionsById = new Map(userDefinitionList
+        .filter((definition) => definition?.id)
+        .map((definition) => [definition.id, definition]));
 
     for (const id of builtInIds) {
         const builtIn = builtInDefinitions[id];
-        const override = userDefinitions[id] ?? null;
-        definitionsById.set(id, normalizeTrackDefinition({
-            ...builtIn,
-            ...(override ?? {}),
-            options: mergeNestedOptions(builtIn.options ?? {}, override?.options ?? {}),
-        }));
+        const override = userDefinitionsById.get(id) ?? null;
+        definitionsById.set(id, normalizeTrackDefinition(mergeObjects(builtIn, override ?? {})));
     }
 
-    for (const [id, definition] of Object.entries(userDefinitions)) {
+    for (const definition of userDefinitionList) {
+        const id = definition?.id;
+        if (!id) continue;
         if (definitionsById.has(id)) continue;
-        definitionsById.set(id, normalizeTrackDefinition({
-            ...definition,
-            id: definition?.id ?? id,
-            label: definition?.label ?? definition?.id ?? id,
-            options: mergeNestedOptions({}, definition.options ?? {}),
-        }));
+        definitionsById.set(id, normalizeTrackDefinition(definition));
     }
 
     const availableIds = new Set(definitionsById.keys());
-    const fallbackOrder = [...builtInIds, ...Object.keys(userDefinitions).filter((id) => !builtInIds.includes(id))];
+    const userIds = userDefinitionList.map((definition) => definition?.id).filter(Boolean);
+    const fallbackOrder = [...builtInIds, ...userIds.filter((id) => !builtInIds.includes(id))];
     const orderedIds = Array.isArray(order) && order.length > 0
         ? [
             ...order.filter((id) => availableIds.has(id)),

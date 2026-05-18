@@ -4,6 +4,36 @@ View for the alignment itself
 
 import { AlignmentOverlayPainter } from "./helpers/AlignmentOverlayPainter.js";
 
+const ALIGNMENT_VIEW_TEMPLATE = `
+<div data-view="topRow" class="msa-alignment-top-row">
+    <div data-view="corner" class="msa-alignment-corner"></div>
+    <div data-view="rulerSlot" class="msa-ruler-body"></div>
+</div>
+<div data-view="bodyRow" class="msa-alignment-body-row">
+    <div data-view="leftColumn" class="msa-alignment-left-column">
+        <div data-view="headerSlot" class="msa-headers"></div>
+        <div data-view="trackLabelSlot" class="msa-track-label-stack"></div>
+    </div>
+    <div data-view="contentColumn" class="msa-alignment-content-column">
+        <div data-view="horizontalScroller" class="msa-alignment-horizontal-scroller">
+            <div data-view="contentStack" class="msa-alignment-content-stack">
+                <div data-view="alignmentShell" class="msa-alignment-viewport">
+                    <div data-view="verticalScroller" class="msa-alignment-vertical-scroller">
+                        <div data-view="spacer" class="msa-alignment-spacer"></div>
+                    </div>
+                    <canvas data-view="motifOverlay" class="msa-alignment-motif-canvas"></canvas>
+                    <canvas data-view="overlay" class="msa-alignment-overlay-canvas"></canvas>
+                    <div data-view="interactionProxy" class="msa-alignment-interaction-proxy">
+                        <div data-view="proxySpacer" class="msa-alignment-spacer"></div>
+                    </div>
+                </div>
+                <div data-view="trackBodySlot" class="msa-track-body-stack"></div>
+            </div>
+        </div>
+    </div>
+</div>
+`;
+
 export class AlignmentView {
     constructor({
         root,
@@ -29,84 +59,15 @@ export class AlignmentView {
         this.contentWidth = 0;
         this.contentHeight = 0;
 
-        this.topRow = document.createElement("div");
-        this.topRow.className = "msa-alignment-top-row";
-
-        this.corner = document.createElement("div");
-        this.corner.className = "msa-alignment-corner";
-
-        this.rulerSlot = document.createElement("div");
-        this.rulerSlot.className = "msa-ruler-body";
-
-        this.bodyRow = document.createElement("div");
-        this.bodyRow.className = "msa-alignment-body-row";
-
-        this.leftColumn = document.createElement("div");
-        this.leftColumn.className = "msa-alignment-left-column";
-
-        this.headerSlot = document.createElement("div");
-        this.headerSlot.className = "msa-headers";
-
-        this.trackLabelSlot = document.createElement("div");
-        this.trackLabelSlot.className = "msa-track-label-stack";
-
-        this.contentColumn = document.createElement("div");
-        this.contentColumn.className = "msa-alignment-content-column";
-
-        this.horizontalScroller = document.createElement("div");
-        this.horizontalScroller.className = "msa-alignment-horizontal-scroller";
-
-        this.contentStack = document.createElement("div");
-        this.contentStack.className = "msa-alignment-content-stack";
-
-        this.alignmentShell = document.createElement("div");
-        this.alignmentShell.className = "msa-alignment-viewport";
-
-        this.verticalScroller = document.createElement("div");
-        this.verticalScroller.className = "msa-alignment-vertical-scroller";
-
-        this.interactionProxy = document.createElement("div");
-        this.interactionProxy.className = "msa-alignment-interaction-proxy";
-
-        this.spacer = document.createElement("div");
-        this.spacer.className = "msa-alignment-spacer";
-
-        this.proxySpacer = document.createElement("div");
-        this.proxySpacer.className = "msa-alignment-spacer";
-
-        this.trackBodySlot = document.createElement("div");
-        this.trackBodySlot.className = "msa-track-body-stack";
-
+        this.root.replaceChildren();
+        this.root.insertAdjacentHTML("beforeend", ALIGNMENT_VIEW_TEMPLATE);
+        for (const el of this.root.querySelectorAll("[data-view]")) {
+            this[el.dataset.view] = el;
+        }
         this.canvas = this.surfaceRenderer.canvas;
-
-        this.motifOverlay = document.createElement("canvas");
-        this.motifOverlay.className = "msa-alignment-motif-canvas";
+        this.alignmentShell.insertBefore(this.canvas, this.motifOverlay);
         this.motifContext = this.motifOverlay.getContext("2d");
-
-        this.overlay = document.createElement("canvas");
-        this.overlay.className = "msa-alignment-overlay-canvas";
         this.overlayContext = this.overlay.getContext("2d");
-
-        this.verticalScroller.appendChild(this.spacer);
-        this.interactionProxy.appendChild(this.proxySpacer);
-        this.alignmentShell.appendChild(this.verticalScroller);
-        this.alignmentShell.appendChild(this.canvas);
-        this.alignmentShell.appendChild(this.motifOverlay);
-        this.alignmentShell.appendChild(this.overlay);
-        this.alignmentShell.appendChild(this.interactionProxy);
-        this.contentStack.appendChild(this.alignmentShell);
-        this.contentStack.appendChild(this.trackBodySlot);
-        this.horizontalScroller.appendChild(this.contentStack);
-        this.contentColumn.appendChild(this.horizontalScroller);
-        this.leftColumn.appendChild(this.headerSlot);
-        this.leftColumn.appendChild(this.trackLabelSlot);
-        this.topRow.appendChild(this.corner);
-        this.topRow.appendChild(this.rulerSlot);
-        this.bodyRow.appendChild(this.leftColumn);
-        this.bodyRow.appendChild(this.contentColumn);
-        this.root.appendChild(this.topRow);
-        this.root.appendChild(this.bodyRow);
-
         this.scroller = this.verticalScroller;
 
         this.overlayPainter = new AlignmentOverlayPainter({
@@ -117,37 +78,48 @@ export class AlignmentView {
             overlayContext: this.overlayContext,
         });
 
-        this.isSyncingScroll = false;
+        this.scrollListeners = new Set();
         this.bindScrollSync();
         this.syncViewportChrome();
         this.setLoadedState(true);
     }
 
+    onScroll(callback) {
+        this.scrollListeners.add(callback);
+        return () => this.scrollListeners.delete(callback);
+    }
+
+    notifyScroll() {
+        for (const callback of this.scrollListeners) {
+            callback();
+        }
+    }
+
+    setScrollLeft(element, value) {
+        if (Math.abs(element.scrollLeft - value) > 0.5) {
+            element.scrollLeft = value;
+        }
+    }
+
+    setScrollTop(element, value) {
+        if (Math.abs(element.scrollTop - value) > 0.5) {
+            element.scrollTop = value;
+        }
+    }
+
     bindScrollSync() {
         this.onProxyScroll = () => {
-            if (this.isSyncingScroll) return;
-            this.isSyncingScroll = true;
-            if (this.horizontalScroller.scrollLeft !== this.interactionProxy.scrollLeft) {
-                this.horizontalScroller.scrollLeft = this.interactionProxy.scrollLeft;
-            }
-            if (this.verticalScroller.scrollTop !== this.interactionProxy.scrollTop) {
-                this.verticalScroller.scrollTop = this.interactionProxy.scrollTop;
-            }
-            this.isSyncingScroll = false;
+            this.setScrollLeft(this.horizontalScroller, this.interactionProxy.scrollLeft);
+            this.setScrollTop(this.verticalScroller, this.interactionProxy.scrollTop);
+            this.notifyScroll();
         };
         this.onHorizontalScroll = () => {
-            if (this.isSyncingScroll) return;
-            if (this.horizontalScroller.scrollLeft === this.interactionProxy.scrollLeft) return;
-            this.isSyncingScroll = true;
-            this.interactionProxy.scrollLeft = this.horizontalScroller.scrollLeft;
-            this.isSyncingScroll = false;
+            this.setScrollLeft(this.interactionProxy, this.horizontalScroller.scrollLeft);
+            this.notifyScroll();
         };
         this.onVerticalScroll = () => {
-            if (this.isSyncingScroll) return;
-            if (this.verticalScroller.scrollTop === this.interactionProxy.scrollTop) return;
-            this.isSyncingScroll = true;
-            this.interactionProxy.scrollTop = this.verticalScroller.scrollTop;
-            this.isSyncingScroll = false;
+            this.setScrollTop(this.interactionProxy, this.verticalScroller.scrollTop);
+            this.notifyScroll();
         };
         this.interactionProxy.addEventListener("scroll", this.onProxyScroll, { passive: true });
         this.verticalScroller.addEventListener("scroll", this.onVerticalScroll, { passive: true });
@@ -170,13 +142,13 @@ export class AlignmentView {
         return this.verticalScroller.scrollTop;
     }
 
-    getVerticalScrollbarThickness() {
+    getVScrollbarWidth() {
         return Math.max(0, this.verticalScroller.offsetWidth - this.verticalScroller.clientWidth);
     }
 
     getViewportWidthCss() {
         const shellWidth = this.alignmentShell.clientWidth || this.horizontalScroller.clientWidth || this.contentColumn.clientWidth || 0;
-        return Math.max(1, shellWidth - this.getVerticalScrollbarThickness());
+        return Math.max(1, shellWidth - this.getVScrollbarWidth());
     }
 
     getViewportHeightCss() {
@@ -188,7 +160,7 @@ export class AlignmentView {
         return {
             left: bounds.left,
             top: bounds.top,
-            width: Math.max(1, (this.alignmentShell.clientWidth || bounds.width) - this.getVerticalScrollbarThickness()),
+            width: Math.max(1, (this.alignmentShell.clientWidth || bounds.width) - this.getVScrollbarWidth()),
             height: Math.max(1, this.verticalScroller.clientHeight || bounds.height),
         };
     }
@@ -197,16 +169,18 @@ export class AlignmentView {
         return this.interactionProxy;
     }
 
-    getHorizontalScrollbarThickness() {
+    getHScrollbarHeight() {
         return Math.max(0, this.horizontalScroller.offsetHeight - this.horizontalScroller.clientHeight);
     }
 
     applyContentSize() {
         this.contentStack.style.width = `${Math.max(1, this.contentWidth, this.horizontalScroller.clientWidth || 0)}px`;
-        this.spacer.style.width = `${Math.max(1, this.contentWidth) }px`;
-        this.spacer.style.height = `${this.contentHeight}px`;
-        this.proxySpacer.style.width = `${Math.max(1, this.contentWidth) }px`;
-        this.proxySpacer.style.height = `${this.contentHeight}px`;
+        const spacerWidth = `${Math.max(1, this.contentWidth)}px`;
+        const spacerHeight = `${this.contentHeight}px`;
+        for (const spacer of [this.spacer, this.proxySpacer]) {
+            spacer.style.width = spacerWidth;
+            spacer.style.height = spacerHeight;
+        }
     }
 
     syncViewportChrome() {
@@ -396,37 +370,33 @@ export class AlignmentView {
     }
 
     syncSurfaceSize() {
-        const horizontalScrollbarThickness = this.getHorizontalScrollbarThickness();
+        const hScrollbarHeight = this.getHScrollbarHeight();
         const trackStackHeight = this.trackBodySlot.hidden ? 0 : this.trackBodySlot.offsetHeight;
         const availableHeight = Math.max(
             1,
             (this.bodyRow.clientHeight || this.root.clientHeight || 0) - trackStackHeight,
         );
         const shellWidth = Math.max(1, this.contentColumn.clientWidth || this.horizontalScroller.clientWidth || this.root.clientWidth || 0);
-        const viewportWidth = Math.max(1, shellWidth - this.getVerticalScrollbarThickness());
+        const viewportWidth = Math.max(1, shellWidth - this.getVScrollbarWidth());
 
         this.alignmentShell.style.width = `${shellWidth}px`;
         this.alignmentShell.style.height = `${availableHeight}px`;
         this.verticalScroller.style.width = `${shellWidth}px`;
         this.verticalScroller.style.height = `${availableHeight}px`;
         this.trackBodySlot.style.width = `${viewportWidth}px`;
-        this.trackBodySlot.style.paddingBottom = `${horizontalScrollbarThickness}px`;
+        this.trackBodySlot.style.paddingBottom = `${hScrollbarHeight}px`;
         this.headerSlot.style.height = `${availableHeight}px`;
         this.contentStack.style.paddingBottom = "0px";
         this.applyContentSize();
 
-        this.canvas.style.left = "0";
-        this.canvas.style.top = "0";
-        this.motifOverlay.style.left = "0";
-        this.motifOverlay.style.top = "0";
-        this.overlay.style.left = "0";
-        this.overlay.style.top = "0";
-        this.canvas.style.width = `${viewportWidth}px`;
-        this.canvas.style.height = `${availableHeight}px`;
-        this.motifOverlay.style.width = `${viewportWidth}px`;
-        this.motifOverlay.style.height = `${availableHeight}px`;
-        this.overlay.style.width = `${viewportWidth}px`;
-        this.overlay.style.height = `${availableHeight}px`;
+        const canvasWidth = `${viewportWidth}px`;
+        const canvasHeight = `${availableHeight}px`;
+        for (const canvas of [this.canvas, this.motifOverlay, this.overlay]) {
+            canvas.style.left = "0";
+            canvas.style.top = "0";
+            canvas.style.width = canvasWidth;
+            canvas.style.height = canvasHeight;
+        }
 
         const width = Math.max(1, Math.floor(viewportWidth * window.devicePixelRatio));
         const height = Math.max(1, Math.floor(availableHeight * window.devicePixelRatio));
@@ -463,5 +433,6 @@ export class AlignmentView {
         this.verticalScroller.scrollTop = top;
         this.interactionProxy.scrollLeft = left;
         this.interactionProxy.scrollTop = top;
+        this.notifyScroll();
     }
 }

@@ -224,9 +224,9 @@ export class AlignmentOverlayPainter {
     }
 
     getSelectionStrokeStyle() {
-        const docTheme = document.documentElement.dataset.theme;
-        const rootTheme = this.root?.getRootNode?.()?.host?.dataset?.theme;
-        const isDark = rootTheme === "dark" || (rootTheme == null && docTheme === "dark");
+        const rootTheme = this.root?.getRootNode?.()?.host?.dataset?.theme
+            ?? this.root?.dataset?.theme;
+        const isDark = rootTheme === "dark";
         return isDark ? "rgb(20, 70, 96)" : "rgb(0, 122, 178)";
     }
 }

@@ -1,14 +1,17 @@
 {
   "name": "msa-webgpu",
-  "version": "0.1.0",
+  "version": "0.0.1",
   "description": "WebGPU MSA Viewer for large alignments.",
-  "private": true,
   "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./index.d.ts",
+  "sideEffects": false,
   "author": "Cameron L.M. Gilchrist",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/gamcil/msaviewer-webgpu.git"
+    "url": "git+https://github.com/gamcil/msaviewer-webgpu.git"
   },
   "bugs": {
     "url": "https://github.com/gamcil/msaviewer-webgpu/issues"
@@ -22,10 +25,16 @@
     "viewer"
   ],
   "exports": {
-    ".": "./dist/index.js"
+    ".": {
+      "types": "./index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
   },
   "files": [
     "dist",
+    "index.d.ts",
     "README.md",
     "LICENSE"
   ],

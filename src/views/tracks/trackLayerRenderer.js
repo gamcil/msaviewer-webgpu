@@ -8,7 +8,14 @@ import {
     buildConsensusLogoColumns,
     buildVisibleConsensusColumns,
 } from "../models/consensusRenderModel.js";
-import { getDefaultGlyphFillStyle, getThemedStyleValue, isNumericTrackData } from "./trackRuntime.js";
+import { defaultGlyphFill, isNumericData, themedStyle } from "./trackRuntime.js";
+
+const RENDER_TRACK_LAYER = {
+    bar: renderBars,
+    line: renderLine,
+    glyph: renderGlyphs,
+    logo: renderSequenceLogo,
+};
 
 function getTrackGlyphFontFamily(theme) {
     return theme?.uiFontFamily ?? "\"IBM Plex Sans\", sans-serif";
@@ -18,25 +25,21 @@ function getTrackLogoFont(theme) {
     return `bold 100px ${getTrackGlyphFontFamily(theme)}`;
 }
 
-function getTrackLaneGeometries(layout, totalHeightPx) {
-    const lanes = Array.isArray(layout?.lanes) ? layout.lanes : [];
+function getTrackLaneGeometries(lanes, totalHeightPx) {
+    lanes = Array.isArray(lanes) ? lanes : [];
     if (!lanes.length) {
         return [{ topPx: 0, heightPx: totalHeightPx }];
     }
-    const totalHeight = layout?.totalHeight ?? 0;
+    const totalHeight = lanes.reduce((sum, lane) => sum + Math.max(0, lane.height ?? 0), 0);
     const scale = totalHeight > 0 ? totalHeightPx / totalHeight : 1;
-    const gapPx = (layout?.gap ?? 0) * scale;
-    let cursorPx = (layout?.paddingTop ?? 0) * scale;
-    return lanes.map((lane, laneIndex) => {
+    let cursorPx = 0;
+    return lanes.map((lane) => {
         const nextHeightPx = Math.max(1, (lane.height ?? 0) * scale);
         const geometry = {
             topPx: cursorPx,
             heightPx: nextHeightPx,
         };
         cursorPx += nextHeightPx;
-        if (laneIndex < lanes.length - 1) {
-            cursorPx += gapPx;
-        }
         return geometry;
     });
 }
@@ -88,15 +91,15 @@ function buildConsensusBarLayer(layer, cache, renderContext, theme) {
             cellWidthPx: renderContext.cellWidthPx,
             localScrollLeftPx: renderContext.localScrollLeftPx,
             canvasHeight: renderContext.heightPx,
-            fillStyle: getThemedStyleValue(layer.colors, "fillStyle", layer.style?.fillStyle, theme),
-            strokeStyle: getThemedStyleValue(layer.colors, "strokeStyle", layer.style?.strokeStyle ?? null, theme),
+            fillStyle: themedStyle(layer.colors, "fillStyle", layer.style?.fillStyle, theme),
+            strokeStyle: themedStyle(layer.colors, "strokeStyle", layer.style?.strokeStyle ?? null, theme),
             lineWidth: layer.style?.lineWidth ?? Math.max(1, Math.round(renderContext.dpr)),
         },
     };
 }
 
 function buildLineLayer(layer, data, renderContext, normalizeValue) {
-    if (!data || !isNumericTrackData(data)) return null;
+    if (!data || !isNumericData(data)) return null;
     const lineWidth = layer.style.lineWidth ?? Math.max(1, Math.round(renderContext.dpr));
     const points = buildLinePoints(data, {
         visibleStart: renderContext.visibleStart,
@@ -126,14 +129,15 @@ function buildLineLayer(layer, data, renderContext, normalizeValue) {
 }
 
 function buildGlyphLayer(layer, cache, data, renderContext, theme, track, trackState, viewport) {
+    const style = layer.style ?? {};
+    if (renderContext.cellWidthPx < style.minCellWidth) {
+        return null;
+    }
+    let glyphs = [];
     if (typeof layer.getGlyph === "function") {
-        if (renderContext.cellWidthPx < layer.style.minCellWidth) {
-            return null;
-        }
         const renderColumns = cache?.renderColumns;
         if (!renderColumns) return null;
-        const fontPx = Math.max(10, Math.round((layer.style.fontSize ?? 14) * renderContext.dpr));
-        const { glyphs } = buildBarVisibleSlice(renderColumns, {
+        ({ glyphs } = buildBarVisibleSlice(renderColumns, {
             visibleStart: renderContext.visibleStart,
             visibleEnd: renderContext.visibleEnd,
             columnVisibility: renderContext.columnVisibility,
@@ -152,33 +156,16 @@ function buildGlyphLayer(layer, cache, data, renderContext, theme, track, trackS
                     ? { ...glyphSpec, y: glyphSpec.y ?? renderContext.heightPx }
                     : null;
             },
+        }));
+    } else {
+        glyphs = buildVisibleGlyphs(data, {
+            visibleStart: renderContext.visibleStart,
+            visibleEnd: renderContext.visibleEnd,
+            columnVisibility: renderContext.columnVisibility,
         });
-        if (glyphs.length === 0) return null;
-        return {
-            type: "glyph",
-            props: {
-                glyphs,
-                cellWidthPx: renderContext.cellWidthPx,
-                localScrollLeftPx: renderContext.localScrollLeftPx,
-                canvasHeight: renderContext.heightPx,
-                font: `${fontPx}px ${getTrackGlyphFontFamily(theme)}`,
-                fillStyle: layer.style.fillStyle ?? getDefaultGlyphFillStyle(theme),
-                textAlign: "center",
-                textBaseline: "bottom",
-            },
-        };
     }
-
-    if (renderContext.cellWidthPx < layer.style.minCellWidth) {
-        return null;
-    }
-    const glyphs = buildVisibleGlyphs(data, {
-        visibleStart: renderContext.visibleStart,
-        visibleEnd: renderContext.visibleEnd,
-        columnVisibility: renderContext.columnVisibility,
-    });
     if (glyphs.length === 0) return null;
-    const fontPx = Math.max(10, Math.round((layer.style.fontSize ?? 14) * renderContext.dpr));
+    const fontPx = Math.max(10, Math.round((style.fontSize ?? 14) * renderContext.dpr));
     return {
         type: "glyph",
         props: {
@@ -187,7 +174,7 @@ function buildGlyphLayer(layer, cache, data, renderContext, theme, track, trackS
             localScrollLeftPx: renderContext.localScrollLeftPx,
             canvasHeight: renderContext.heightPx,
             font: `${fontPx}px ${getTrackGlyphFontFamily(theme)}`,
-            fillStyle: layer.style.fillStyle ?? getDefaultGlyphFillStyle(theme),
+            fillStyle: style.fillStyle ?? defaultGlyphFill(theme),
             textAlign: "center",
             textBaseline: "bottom",
         },
@@ -204,10 +191,10 @@ function buildConsensusGlyphLayer(layer, cache, renderContext, theme) {
         renderContext.columnVisibility
     );
     if (!columns.length) return null;
-    const fillStyle = getThemedStyleValue(
+    const fillStyle = themedStyle(
         layer.colors,
         "fillStyle",
-        layer.style?.fillStyle ?? getDefaultGlyphFillStyle(theme),
+        layer.style?.fillStyle ?? defaultGlyphFill(theme),
         theme
     );
     const glyphs = buildConsensusGlyphs(columns, {
@@ -267,7 +254,7 @@ function buildLogoLayer(layer, cache, renderContext, theme) {
 export function buildRenderedTrackLayers({
     source,
     data,
-    layout,
+    lanes,
     layers,
     layerCaches,
     theme,
@@ -278,7 +265,7 @@ export function buildRenderedTrackLayers({
     renderContext,
 }) {
     const renderedLayers = [];
-    const laneGeometries = getTrackLaneGeometries(layout, renderContext.heightPx);
+    const laneGeometries = getTrackLaneGeometries(lanes, renderContext.heightPx);
     for (let index = 0; index < layers.length; index += 1) {
         const layer = layers[index];
         const cache = layerCaches[index];
@@ -290,18 +277,20 @@ export function buildRenderedTrackLayers({
             ...renderContext,
             heightPx: laneGeometry.heightPx,
         };
+        const layerSource = cache?.source ?? layer.source ?? source;
+        const layerData = cache && "data" in cache ? cache.data : data;
         let renderedLayer = null;
-        if (layer.type === "bar" && source?.type === "consensus") {
+        if (layer.type === "bar" && layerSource?.type === "consensus") {
             renderedLayer = buildConsensusBarLayer(layer, cache, laneRenderContext, theme);
         } else if (layer.type === "bar") {
             renderedLayer = buildBarLayer(layer, cache, laneRenderContext);
         } else if (layer.type === "line") {
-            renderedLayer = buildLineLayer(layer, data, laneRenderContext, normalizeValue);
+            renderedLayer = buildLineLayer(layer, layerData, laneRenderContext, normalizeValue);
         } else if (layer.type === "glyph") {
-            if (source?.type === "consensus") {
+            if (layerSource?.type === "consensus") {
                 renderedLayer = buildConsensusGlyphLayer(layer, cache, laneRenderContext, theme);
             } else {
-                renderedLayer = buildGlyphLayer(layer, cache, data, laneRenderContext, theme, track, trackState, viewport);
+                renderedLayer = buildGlyphLayer(layer, cache, layerData, laneRenderContext, theme, track, trackState, viewport);
             }
         } else if (layer.type === "logo") {
             renderedLayer = buildLogoLayer(layer, cache, laneRenderContext, theme);
@@ -318,19 +307,5 @@ export function buildRenderedTrackLayers({
 
 export function renderTrackLayer(context, layer) {
     if (!layer) return;
-    if (layer.type === "bar") {
-        renderBars(context, layer.props);
-        return;
-    }
-    if (layer.type === "line") {
-        renderLine(context, layer.props);
-        return;
-    }
-    if (layer.type === "glyph") {
-        renderGlyphs(context, layer.props);
-        return;
-    }
-    if (layer.type === "logo") {
-        renderSequenceLogo(context, layer.props);
-    }
+    RENDER_TRACK_LAYER[layer.type]?.(context, layer.props);
 }

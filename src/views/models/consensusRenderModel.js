@@ -51,15 +51,6 @@ export function collectConsensusLogoGlyphPairs(renderColumns = []) {
     return glyphColorPairs;
 }
 
-export function resolveConsensusPalette(darkMode, colors) {
-    const palette = darkMode ? colors.dark : colors.light;
-    return {
-        histogramFillStyle: palette.histogramFillStyle,
-        histogramStrokeStyle: palette.histogramStrokeStyle,
-        consensusFillStyle: palette.consensusFillStyle,
-    };
-}
-
 export function buildVisibleConsensusColumns(renderColumns, visibleStart, visibleEnd, columnVisibility) {
     if (!renderColumns?.length) {
         return [];

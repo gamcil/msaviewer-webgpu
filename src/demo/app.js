@@ -1,11 +1,6 @@
-import { MSAViewer } from "../viewer/MSAViewer.js";
-import { defaultAlphabetRegistry } from "../alphabets/index.js";
+import { MSAViewer, defaultAlphabetRegistry } from "../index.js";
 
-const DEMO_VIEWER_OPTIONS = {
-    data: {
-        representations: [],
-        activeRepresentationId: null,
-    },
+const DEMO_CONFIG = {
     theme: {
         mode: "auto",
         typography: {
@@ -38,11 +33,11 @@ const DEMO_VIEWER_OPTIONS = {
             height: 16,
         },
     },
-    tracks: {
+    tracks: [],
+    trackDisplay: {
         defaults: "active-only",
         variants: [],
         order: null,
-        definitions: {},
     },
     behavior: {
         selectionMode: "column",
@@ -64,13 +59,13 @@ function inferAlphabetId(fileName) {
     return "aa";
 }
 
-function toRepresentationId(fileName, fallbackIndex) {
+function toRepId(fileName, fallbackIndex) {
     const stem = fileName.replace(/\.[^.]+$/, "");
     const slug = stem.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
     return slug || `representation-${fallbackIndex + 1}`;
 }
 
-function populateSchemeOptions(schemeSelect, schemes, selectedSchemeKey, selectedRepresentationId = null) {
+function fillSchemeOptions(schemeSelect, schemes, selectedSchemeKey, selectedRepId = null) {
     schemeSelect.replaceChildren();
     let currentGroup = null;
     let optgroup = null;
@@ -93,7 +88,7 @@ function populateSchemeOptions(schemeSelect, schemes, selectedSchemeKey, selecte
     if (!schemeSelect.disabled) {
         const selectedOption = [...schemeSelect.options].find((option) =>
             option.value === selectedSchemeKey
-            && (option.dataset.representationId || null) === selectedRepresentationId
+            && (option.dataset.representationId || null) === selectedRepId
         );
         if (selectedOption) {
             schemeSelect.selectedIndex = selectedOption.index;
@@ -101,7 +96,7 @@ function populateSchemeOptions(schemeSelect, schemes, selectedSchemeKey, selecte
     }
 }
 
-function populateRepresentationOptions(representationSelect, representations) {
+function fillRepOptions(representationSelect, representations) {
     representationSelect.replaceChildren();
     for (const representation of representations) {
         const option = document.createElement("option");
@@ -118,13 +113,16 @@ function setStatus(statusEl, message) {
 }
 
 function syncSelectionButtons(clearButton, exportButton, selectionCount) {
+    const br = document.createElement("br");
+    const label = selectionCount > 0
+        ? [`Clear ${selectionCount}`, br, `selection${selectionCount === 1 ? "" : "s"}`]
+        : ["Clear", br, "selection"];
+    clearButton.replaceChildren(...label);
     if (selectionCount > 0) {
-        clearButton.innerHTML = `Clear ${selectionCount}<br>selection${selectionCount === 1 ? "" : "s"}`;
         clearButton.disabled = false;
         exportButton.disabled = false;
         return;
     }
-    clearButton.innerHTML = "Clear<br>selection";
     clearButton.disabled = true;
     exportButton.disabled = true;
 }
@@ -140,21 +138,23 @@ function downloadTextFile(text, fileName, mimeType = "text/plain;charset=utf-8")
 }
 
 function syncUI({ viewer, representationSelect, schemeSelect, backendSelect, selectionModeSelect, hideInsertionsCheckbox, gapThresholdInput, motifSearchButton }) {
+    const config = viewer.getConfig();
     const representations = viewer.getRepresentations();
-    const activeRepresentationId = viewer.getActiveRepresentation()?.id ?? representations[0]?.id ?? "";
-    populateRepresentationOptions(representationSelect, representations);
-    representationSelect.value = activeRepresentationId;
-    populateSchemeOptions(
+    const activeId = viewer.getActiveRepresentation()?.id ?? representations[0]?.id ?? "";
+    const schemeSourceId = config.rendering.schemeSourceRepresentationId ?? activeId;
+    fillRepOptions(representationSelect, representations);
+    representationSelect.value = activeId;
+    fillSchemeOptions(
         schemeSelect,
-        viewer.getAvailableSchemeOptions(),
-        viewer.state.getSnapshot().scheme.key,
-        viewer.getSchemeSourceRepresentation()?.id ?? null
+        viewer.getSchemes(),
+        config.rendering.scheme,
+        schemeSourceId || null
     );
-    const masking = viewer.getColumnMasking();
+    const masking = config.behavior.masking;
     hideInsertionsCheckbox.checked = masking.hideInsertionColumns === true;
     gapThresholdInput.value = masking.gapThreshold == null ? "" : String(masking.gapThreshold);
-    backendSelect.value = viewer.getOptions().rendering.backend;
-    selectionModeSelect.value = viewer.getSelectionMode();
+    backendSelect.value = config.rendering.backend;
+    selectionModeSelect.value = config.behavior.selectionMode;
     motifSearchButton.disabled = !(representationSelect.disabled !== true && representationSelect.value !== "");
 }
 
@@ -191,8 +191,11 @@ async function main() {
     };
     const alphabetOptions = defaultAlphabetRegistry.list();
     let pendingFiles = [];
-    const viewer = new MSAViewer({ root, ...DEMO_VIEWER_OPTIONS });
-    await viewer.init();
+    let motifQuery = "";
+    const viewer = new MSAViewer({
+        root,
+        config: DEMO_CONFIG,
+    });
     viewer.addEventListener("sequenceclick", (event) => {
         setStatus(status, `Clicked sequence ${event.detail.record.name} in ${event.detail.representationId} at row ${event.detail.rowIndex}.`);
     });
@@ -211,8 +214,9 @@ async function main() {
     const renderTrackToggles = () => {
         if (!trackToggleList) return;
         trackToggleList.replaceChildren();
-        const displayMode = viewer.getTrackDisplayMode();
-        for (const track of viewer.getAvailableTrackOptions()) {
+        const displayMode = viewer.getConfig().trackDisplay.defaults;
+        const availableTracks = viewer.getTracks();
+        for (const track of availableTracks) {
             const name = document.createElement("div");
             name.className = "track-popover-name";
             name.textContent = track.label;
@@ -226,7 +230,7 @@ async function main() {
                 input.type = "checkbox";
                 input.checked = variant.enabled === true;
                 input.addEventListener("change", async () => {
-                    await viewer.setTrackVariantEnabled({
+                    await viewer.setTrackEnabled({
                         trackId: variant.trackId,
                         representation: variant.representation,
                     }, input.checked);
@@ -263,7 +267,6 @@ async function main() {
             resetTrackDefaultsButton.setAttribute("aria-hidden", showReset ? "false" : "true");
         }
         if (trackMenuButton) {
-            const availableTracks = viewer.getAvailableTrackOptions();
             const enabledCount = availableTracks
                 .flatMap((track) => track.variants)
                 .filter((variant) => variant.enabled === true).length;
@@ -275,7 +278,7 @@ async function main() {
     const applyMasking = () => {
         const gapThresholdValue = gapThresholdInput.value.trim();
         const parsedGapThreshold = gapThresholdValue === "" ? null : Number(gapThresholdValue);
-        void viewer.setOptions({
+        void viewer.setConfig({
             behavior: {
                 masking: {
                     hideInsertionColumns: hideInsertionsCheckbox.checked,
@@ -343,12 +346,10 @@ async function main() {
         if (trackMenuPanel.contains(event.target) || trackMenuButton?.contains(event.target)) return;
         trackMenuPanel.hidden = true;
     });
-    window.addEventListener("resize", () => {
-        positionTrackMenuPanel();
-    });
+    window.addEventListener("resize", positionTrackMenuPanel);
     schemeSelect.addEventListener("change", async (event) => {
         const selectedOption = event.target.selectedOptions[0] ?? null;
-        await viewer.setOptions({
+        await viewer.setConfig({
             rendering: {
                 scheme: event.target.value,
                 schemeSourceRepresentationId: selectedOption?.dataset.representationId || null,
@@ -358,17 +359,15 @@ async function main() {
     backendSelect.addEventListener("change", async (event) => {
         const requestedBackend = event.target.value;
         try {
-            await viewer.setOptions({
+            await viewer.setConfig({
                 rendering: {
                     backend: requestedBackend,
                 },
             });
             syncUI({ viewer, ...ui });
             renderTrackToggles();
-            const actualBackend = requestedBackend === "auto"
-                ? ` (${viewer.renderBackend})`
-                : "";
-            setStatus(status, `Rendering backend: ${requestedBackend}${actualBackend}`);
+            const resolvedBackend = requestedBackend === "auto" ? ` (${viewer.getBackend()})` : "";
+            setStatus(status, `Rendering backend: ${requestedBackend}${resolvedBackend}`);
         } catch (error) {
             syncUI({ viewer, ...ui });
             setStatus(status, error.message);
@@ -384,11 +383,7 @@ async function main() {
     representationSelect.addEventListener("change", async (event) => {
         if (!event.target.value) return;
         try {
-            await viewer.setOptions({
-                data: {
-                    activeRepresentationId: event.target.value,
-                },
-            });
+            await viewer.setActiveRepresentation(event.target.value);
             renderTrackToggles();
             syncUI({ viewer, ...ui });
             setStatus(status, `Switched to ${event.target.selectedOptions[0].textContent}`);
@@ -398,7 +393,7 @@ async function main() {
         }
     });
     selectionModeSelect.addEventListener("change", (event) => {
-        void viewer.setOptions({
+        void viewer.setConfig({
             behavior: {
                 selectionMode: event.target.value,
             },
@@ -409,7 +404,7 @@ async function main() {
         const files = Array.from(event.target.files ?? []);
         if (files.length === 0) return;
         pendingFiles = files.map((file, index) => ({
-            id: toRepresentationId(file.name, index),
+            id: toRepId(file.name, index),
             file,
             alphabetId: inferAlphabetId(file.name),
         }));
@@ -422,17 +417,13 @@ async function main() {
         if (pendingFiles.length === 0) return;
         try {
             setStatus(status, `Loading ${pendingFiles.length} alignment file${pendingFiles.length === 1 ? "" : "s"}...`);
-            const representations = await viewer.loadFiles(
+            const { active, representations } = await viewer.loadData(
                 pendingFiles.map((pendingFile) => ({
                     file: pendingFile.file,
                     id: pendingFile.id,
                     label: pendingFile.file.name,
                     alphabetId: pendingFile.alphabetId,
-                })),
-                {
-                    activate: "first",
-                    replace: true,
-                }
+                }))
             );
 
             syncUI({ viewer, ...ui });
@@ -441,8 +432,8 @@ async function main() {
             pendingFiles = [];
             renderPendingFiles();
 
-            const { totalRows, totalCols } = representations[0].store;
-            setStatus(status, `Loaded ${representations.length} representations. Active: ${representations[0].label} (${totalRows} sequences x ${totalCols} columns)`);
+            const { totalRows, totalCols } = active;
+            setStatus(status, `Loaded ${representations.length} representations. Active: ${active.label} (${totalRows} sequences x ${totalCols} columns)`);
         } catch (error) {
             setStatus(status, error.message);
             console.error(error);
@@ -450,7 +441,12 @@ async function main() {
     });
 
     resetTrackDefaultsButton?.addEventListener("click", async () => {
-        await viewer.setTrackDisplayMode("active-only", { clearVariants: true });
+        await viewer.setConfig({
+            trackDisplay: {
+                defaults: "active-only",
+                variants: [],
+            },
+        });
         renderTrackToggles();
         if (trackMenuPanel) {
             trackMenuPanel.hidden = true;
@@ -458,7 +454,8 @@ async function main() {
         setStatus(status, "Track defaults reset to active-only.");
     });
 
-    viewer.onSelectionChange((selection) => {
+    viewer.addEventListener("selectionchange", (event) => {
+        const { selection } = event.detail;
         const selectionCount = selection?.componentCount ?? 0;
         syncSelectionButtons(clearButton, exportFastaButton, selectionCount);
     });
@@ -485,18 +482,19 @@ async function main() {
     });
 
     motifSearchButton.addEventListener("click", async () => {
-        const currentQuery = viewer.motifController?.query ?? "";
-        const nextQuery = window.prompt("Motif query", currentQuery);
+        const nextQuery = window.prompt("Motif query", motifQuery);
         if (nextQuery === null) return;
         const trimmedQuery = nextQuery.trim();
         try {
             if (!trimmedQuery) {
-                await viewer.clearMotifQuery();
+                await viewer.setMotifQuery("");
+                motifQuery = "";
                 setStatus(status, "Motif search cleared.");
                 return;
             }
-            await viewer.setMotifQuery(trimmedQuery);
-            setStatus(status, `Motif search: ${trimmedQuery} (${viewer.getMotifMatchCount()} matches)`);
+            const matchCount = await viewer.setMotifQuery(trimmedQuery);
+            motifQuery = trimmedQuery;
+            setStatus(status, `Motif search: ${trimmedQuery} (${matchCount} matches)`);
         } catch (error) {
             setStatus(status, error.message);
             console.error(error);

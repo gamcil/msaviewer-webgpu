@@ -1,5 +1,4 @@
-import { prepareColorRamp, resolveInterpolatedColor } from "../renderers/trackRenderers.js";
-import { createColorRamp } from "../trackStyles.js";
+import { createColorRamp, prepareColorRamp, resolveInterpolatedColor } from "../renderers/trackRenderers.js";
 import { buildProjectedVisibleColumns } from "./visibleColumnModel.js";
 
 export function createPreparedLineColorRamp(colorRamp) {

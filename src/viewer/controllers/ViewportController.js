@@ -33,8 +33,9 @@ export class ViewportController {
         this.onSetScrolling = onSetScrolling;
         this.resizeObserver = null;
         this.resizeFrameHandle = 0;
-        this.scrollSyncFrameHandle = 0;
+        this.scrollFrameHandle = 0;
         this.scrollEndTimeoutHandle = 0;
+        this.scrolling = false;
         this.lastObservedWidth = -1;
         this.lastObservedHeight = -1;
     }
@@ -60,41 +61,28 @@ export class ViewportController {
         const verticalScrollElement = this.alignmentView.getVerticalScrollElement?.() ?? this.alignmentView.scroller;
         const horizontalScrollElement = this.alignmentView.getHorizontalScrollElement?.() ?? this.alignmentView.scroller;
 
-        this.onScroll = () => {
-            this.onSetScrolling?.(true);
-            if (this.scrollEndTimeoutHandle) {
-                window.clearTimeout(this.scrollEndTimeoutHandle);
-            }
-            this.scrollEndTimeoutHandle = window.setTimeout(() => {
-                this.scrollEndTimeoutHandle = 0;
-                this.onSetScrolling?.(false);
-            }, 120);
-            this.onHoverReset?.();
-            this.state.setViewportScroll(
-                this.getScrollLeft(),
-                this.getScrollTop(),
-            );
-            if (this.getAlignmentStore()) {
-                void this.uploadVisibleWindow?.();
-            }
-            this.requestRender?.();
-            this.scheduleScrollSync();
-        };
+        this.onScroll = () => this.scheduleScrollFrame();
 
         this.onScrollEnd = () => {
             if (this.scrollEndTimeoutHandle) {
                 window.clearTimeout(this.scrollEndTimeoutHandle);
                 this.scrollEndTimeoutHandle = 0;
             }
-            this.onSetScrolling?.(false);
+            this.setScrolling(false);
         };
 
         this.onResize = () => this.refreshLayout();
 
-        verticalScrollElement?.addEventListener("scroll", this.onScroll);
+        if (typeof this.alignmentView.onScroll === "function") {
+            this.unsubscribeScroll = this.alignmentView.onScroll(this.onScroll);
+        } else {
+            verticalScrollElement?.addEventListener("scroll", this.onScroll);
+            if (horizontalScrollElement && horizontalScrollElement !== verticalScrollElement) {
+                horizontalScrollElement.addEventListener("scroll", this.onScroll);
+            }
+        }
         verticalScrollElement?.addEventListener("scrollend", this.onScrollEnd);
         if (horizontalScrollElement && horizontalScrollElement !== verticalScrollElement) {
-            horizontalScrollElement.addEventListener("scroll", this.onScroll);
             horizontalScrollElement.addEventListener("scrollend", this.onScrollEnd);
         }
         window.addEventListener("resize", this.onResize);
@@ -151,15 +139,36 @@ export class ViewportController {
         });
     }
 
-    scheduleScrollSync() {
-        if (this.scrollSyncFrameHandle) return;
-        this.scrollSyncFrameHandle = window.requestAnimationFrame(() => {
-            this.scrollSyncFrameHandle = 0;
+    setScrolling(scrolling) {
+        if (this.scrolling === scrolling) return;
+        this.scrolling = scrolling;
+        this.onSetScrolling?.(scrolling);
+    }
+
+    scheduleScrollFrame() {
+        this.setScrolling(true);
+        if (this.scrollFrameHandle) return;
+        this.scrollFrameHandle = window.requestAnimationFrame(() => {
+            this.scrollFrameHandle = 0;
+            this.onHoverReset?.();
+            this.state.setViewportScroll(this.getScrollLeft(), this.getScrollTop());
+            if (this.getAlignmentStore()) {
+                void this.uploadVisibleWindow?.();
+            }
+            this.requestRender?.();
             this.alignmentView.renderOverlays?.();
             this.headerView?.syncScroll?.(this.getScrollTop());
             this.syncMinimapViewportRect();
             this.syncRulerViewport();
             this.syncTracksViewport();
+
+            if (this.scrollEndTimeoutHandle) {
+                window.clearTimeout(this.scrollEndTimeoutHandle);
+            }
+            this.scrollEndTimeoutHandle = window.setTimeout(() => {
+                this.scrollEndTimeoutHandle = 0;
+                this.setScrolling(false);
+            }, 120);
         });
     }
 
@@ -190,14 +199,17 @@ export class ViewportController {
     destroy() {
         const verticalScrollElement = this.alignmentView?.getVerticalScrollElement?.() ?? this.alignmentView?.scroller ?? null;
         const horizontalScrollElement = this.alignmentView?.getHorizontalScrollElement?.() ?? this.alignmentView?.scroller ?? null;
-        if (verticalScrollElement && this.onScroll) {
+        if (this.unsubscribeScroll) {
+            this.unsubscribeScroll();
+            this.unsubscribeScroll = null;
+        } else if (verticalScrollElement && this.onScroll) {
             verticalScrollElement.removeEventListener("scroll", this.onScroll);
+            if (horizontalScrollElement && horizontalScrollElement !== verticalScrollElement) {
+                horizontalScrollElement.removeEventListener("scroll", this.onScroll);
+            }
         }
         if (verticalScrollElement && this.onScrollEnd) {
             verticalScrollElement.removeEventListener("scrollend", this.onScrollEnd);
-        }
-        if (horizontalScrollElement && horizontalScrollElement !== verticalScrollElement && this.onScroll) {
-            horizontalScrollElement.removeEventListener("scroll", this.onScroll);
         }
         if (horizontalScrollElement && horizontalScrollElement !== verticalScrollElement && this.onScrollEnd) {
             horizontalScrollElement.removeEventListener("scrollend", this.onScrollEnd);
@@ -213,9 +225,9 @@ export class ViewportController {
             window.cancelAnimationFrame(this.resizeFrameHandle);
             this.resizeFrameHandle = 0;
         }
-        if (this.scrollSyncFrameHandle) {
-            window.cancelAnimationFrame(this.scrollSyncFrameHandle);
-            this.scrollSyncFrameHandle = 0;
+        if (this.scrollFrameHandle) {
+            window.cancelAnimationFrame(this.scrollFrameHandle);
+            this.scrollFrameHandle = 0;
         }
         if (this.scrollEndTimeoutHandle) {
             window.clearTimeout(this.scrollEndTimeoutHandle);

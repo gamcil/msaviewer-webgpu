@@ -1,34 +1,59 @@
-const LOGO_MEASURE_CANVAS = document.createElement("canvas");
-LOGO_MEASURE_CANVAS.width = 256;
-LOGO_MEASURE_CANVAS.height = 256;
-const LOGO_MEASURE_CONTEXT = LOGO_MEASURE_CANVAS.getContext("2d", { willReadFrequently: true });
+let logoMeasureCanvas = null;
+let logoMeasureContext = undefined;
 const LOGO_GLYPH_METRIC_CACHE = new Map();
 const LOGO_GLYPH_ALPHA_CACHE = new Map();
 const LOGO_GLYPH_RASTER_CACHE = new Map();
-const COLOR_PARSE_CANVAS = document.createElement("canvas");
-COLOR_PARSE_CANVAS.width = 1;
-COLOR_PARSE_CANVAS.height = 1;
-const COLOR_PARSE_CONTEXT = COLOR_PARSE_CANVAS.getContext("2d", { willReadFrequently: true });
+let colorParseCanvas = null;
+let colorParseContext = undefined;
 const COLOR_PARSE_CACHE = new Map();
 
 function clamp01(value) {
     return Math.max(0, Math.min(1, value));
 }
 
+function createCanvas(width, height) {
+    if (typeof document === "undefined") {
+        return null;
+    }
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    return canvas;
+}
+
+function getLogoMeasureResources() {
+    if (logoMeasureContext !== undefined) {
+        return logoMeasureContext ? { canvas: logoMeasureCanvas, context: logoMeasureContext } : null;
+    }
+    logoMeasureCanvas = createCanvas(256, 256);
+    logoMeasureContext = logoMeasureCanvas?.getContext("2d", { willReadFrequently: true }) ?? null;
+    return logoMeasureContext ? { canvas: logoMeasureCanvas, context: logoMeasureContext } : null;
+}
+
+function getColorParseContext() {
+    if (colorParseContext !== undefined) {
+        return colorParseContext;
+    }
+    colorParseCanvas = createCanvas(1, 1);
+    colorParseContext = colorParseCanvas?.getContext("2d", { willReadFrequently: true }) ?? null;
+    return colorParseContext;
+}
+
 function parseCssColor(color) {
     if (COLOR_PARSE_CACHE.has(color)) {
         return COLOR_PARSE_CACHE.get(color);
     }
-    if (!COLOR_PARSE_CONTEXT) {
+    const ctx = getColorParseContext();
+    if (!ctx) {
         const fallback = [0, 0, 0, 255];
         COLOR_PARSE_CACHE.set(color, fallback);
         return fallback;
     }
-    COLOR_PARSE_CONTEXT.clearRect(0, 0, 1, 1);
-    COLOR_PARSE_CONTEXT.fillStyle = "#000";
-    COLOR_PARSE_CONTEXT.fillStyle = color;
-    COLOR_PARSE_CONTEXT.fillRect(0, 0, 1, 1);
-    const parsed = Array.from(COLOR_PARSE_CONTEXT.getImageData(0, 0, 1, 1).data);
+    ctx.clearRect(0, 0, 1, 1);
+    ctx.fillStyle = "#000";
+    ctx.fillStyle = color;
+    ctx.fillRect(0, 0, 1, 1);
+    const parsed = Array.from(ctx.getImageData(0, 0, 1, 1).data);
     COLOR_PARSE_CACHE.set(color, parsed);
     return parsed;
 }
@@ -36,6 +61,17 @@ function parseCssColor(color) {
 function formatRgbaColor([r, g, b, a]) {
     const alpha = Math.round((a / 255) * 1000) / 1000;
     return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+export function createColorRamp(overrides = {}) {
+    return {
+        minScore: 0,
+        maxScore: 1,
+        minColor: null,
+        maxColor: null,
+        target: "fill",
+        ...overrides,
+    };
 }
 
 export function prepareColorRamp(ramp) {
@@ -92,9 +128,22 @@ function getLogoGlyphMetrics(font, glyph) {
         return cached;
     }
 
-    const ctx = LOGO_MEASURE_CONTEXT;
-    const width = LOGO_MEASURE_CANVAS.width;
-    const height = LOGO_MEASURE_CANVAS.height;
+    const resources = getLogoMeasureResources();
+    if (!resources) {
+        return {
+            left: 0,
+            top: 0,
+            right: 63,
+            bottom: 99,
+            width: 64,
+            height: 100,
+            ascent: 80,
+        };
+    }
+
+    const { canvas, context: ctx } = resources;
+    const width = canvas.width;
+    const height = canvas.height;
     const baselineY = 200;
     const drawX = width / 2;
 
@@ -157,17 +206,25 @@ function getLogoGlyphAlpha(font, glyph) {
         return cached;
     }
 
+    const resources = getLogoMeasureResources();
+    if (!resources) {
+        return null;
+    }
     const metrics = getLogoGlyphMetrics(font, glyph);
-    const alphaCanvas = document.createElement("canvas");
-    alphaCanvas.width = Math.max(1, Math.ceil(metrics.width));
-    alphaCanvas.height = Math.max(1, Math.ceil(metrics.height));
+    const alphaCanvas = createCanvas(
+        Math.max(1, Math.ceil(metrics.width)),
+        Math.max(1, Math.ceil(metrics.height))
+    );
+    if (!alphaCanvas) {
+        return null;
+    }
     const alphaContext = alphaCanvas.getContext("2d");
     if (!alphaContext) {
         return null;
     }
     alphaContext.clearRect(0, 0, alphaCanvas.width, alphaCanvas.height);
     alphaContext.drawImage(
-        LOGO_MEASURE_CANVAS,
+        resources.canvas,
         metrics.left,
         metrics.top,
         metrics.width,
@@ -193,9 +250,10 @@ function getLogoGlyphRaster(font, glyph, color = "#333") {
         return null;
     }
 
-    const rasterCanvas = document.createElement("canvas");
-    rasterCanvas.width = alphaCanvas.width;
-    rasterCanvas.height = alphaCanvas.height;
+    const rasterCanvas = createCanvas(alphaCanvas.width, alphaCanvas.height);
+    if (!rasterCanvas) {
+        return null;
+    }
     const rasterContext = rasterCanvas.getContext("2d");
     if (!rasterContext) {
         return null;

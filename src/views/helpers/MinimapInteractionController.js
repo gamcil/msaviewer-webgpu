@@ -15,6 +15,8 @@ export class MinimapInteractionController {
         this.dragPointerId = 0;
         this.dragOffsetX = 0;
         this.dragOffsetY = 0;
+        this.pendingDrag = null;
+        this.dragFrame = 0;
 
         this.handlePointerDown = this.handlePointerDown.bind(this);
         this.handlePointerMove = this.handlePointerMove.bind(this);
@@ -55,11 +57,30 @@ export class MinimapInteractionController {
     }
 
     handlePointerMove(event) {
-        const viewportRect = this.getViewportRect?.();
-        if (!viewportRect || !this.isDragging || event.pointerId !== this.dragPointerId) {
+        if (!this.isDragging || event.pointerId !== this.dragPointerId) {
             return;
         }
-        const { x: pointerX, y: pointerY } = this.getLocalCoordinates(event.clientX, event.clientY);
+        this.pendingDrag = {
+            clientX: event.clientX,
+            clientY: event.clientY,
+        };
+        if (this.dragFrame) return;
+        this.dragFrame = requestAnimationFrame(() => {
+            this.dragFrame = 0;
+            const pending = this.pendingDrag;
+            this.pendingDrag = null;
+            if (pending) {
+                this.emitDrag(pending.clientX, pending.clientY);
+            }
+        });
+    }
+
+    emitDrag(clientX, clientY) {
+        const viewportRect = this.getViewportRect?.();
+        if (!viewportRect || !this.isDragging) {
+            return;
+        }
+        const { x: pointerX, y: pointerY } = this.getLocalCoordinates(clientX, clientY);
         const { width: minimapWidth, height: minimapHeight } = this.getViewportSize();
         const { width: rectWidth, height: rectHeight } = viewportRect;
         const rectLeft = Math.max(0, Math.min(pointerX - this.dragOffsetX, minimapWidth - rectWidth));
@@ -79,6 +100,11 @@ export class MinimapInteractionController {
     clearDragState() {
         this.isDragging = false;
         this.dragPointerId = 0;
+        this.pendingDrag = null;
+        if (this.dragFrame) {
+            cancelAnimationFrame(this.dragFrame);
+            this.dragFrame = 0;
+        }
     }
 
     destroy() {

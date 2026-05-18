@@ -124,10 +124,6 @@ export function isSchemeSupportedForAlphabet(schemeKey, alphabet) {
     return typeof scheme.supports === "function" ? scheme.supports(alphabet) : true;
 }
 
-export function getSupportedSchemeKeysForAlphabet(alphabet) {
-    return Object.keys(SCHEMES).filter((schemeKey) => isSchemeSupportedForAlphabet(schemeKey, alphabet));
-}
-
 export function getDefaultSchemeKeyForAlphabet(alphabet) {
     for (const schemeKey of DEFAULT_SCHEME_ORDER) {
         if (isSchemeSupportedForAlphabet(schemeKey, alphabet)) {

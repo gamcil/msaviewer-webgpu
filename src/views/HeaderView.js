@@ -24,7 +24,7 @@ export class HeaderView {
         this.root.style.setProperty("--row-height", `${this.rowHeight}px`);
         this.applyStyles();
         this.bindEvents();
-        this.setOnRowClick(this.onRowClick);
+        this.track.style.cursor = this.onRowClick ? "pointer" : "";
     }
     applyStyles() {
         this.root.style.setProperty("--msa-header-view-width", `${this.width}px`);
@@ -42,10 +42,6 @@ export class HeaderView {
             this.onRowClick?.(rowIndex, event);
         };
         this.track.addEventListener("click", this.onClick);
-    }
-    setOnRowClick(onRowClick) {
-        this.onRowClick = typeof onRowClick === "function" ? onRowClick : null;
-        this.track.style.cursor = this.onRowClick ? "pointer" : "";
     }
     setRowHeight(rowHeight) { 
         if (this.rowHeight === rowHeight) return;

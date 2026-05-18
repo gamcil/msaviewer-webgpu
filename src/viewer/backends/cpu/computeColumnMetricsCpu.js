@@ -125,6 +125,9 @@ function calculateQuality(counts, offset, alphabet, totalRows) {
     return Math.max(0, (quality / totalPairs) * occupancy);
 }
 
+// Compute column conservation via AMAS, similar to the implementation in Jalview
+// Livingstone, C. D., & Barton, G. J. (1993). Protein sequence alignments: a strategy for the hierarchical analysis of residue conservation. Bioinformatics, 9(6), 745-756
+// Waterhouse, A.M., Procter, J.B., Martin, D.M.A, Clamp, M. and Barton, G. J. (2009) Jalview Version 2 - a multiple sequence alignment editor and analysis workbench. Bioinformatics 25 (9) 1189-1191
 function calculateConservation(counts, offset, alphabet, totalRows) {
     if (alphabet.id !== "aa" || totalRows === 0) {
         return { score: 0, mask: 0 };

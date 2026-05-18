@@ -79,9 +79,3 @@ export class TrackStateBuilder {
         };
     }
 }
-
-const defaultTrackStateBuilder = new TrackStateBuilder();
-
-export function buildTrackState(columnMetrics, numSequences, alphabet = aminoAcidAlphabet) {
-    return defaultTrackStateBuilder.build(columnMetrics, numSequences, alphabet);
-}

@@ -1,25 +1,11 @@
 import { DEFAULT_VIEWER_OPTIONS } from "./defaultViewerOptions.js";
-import { normalizeRepresentationInputs } from "../representations/representationInputSchema.js";
 import { normalizeRenderingBackend } from "../backends/backendRuntime.js";
+import { isPlainObject, mergeObjects } from "../../util.js";
+import { SCHEMES } from "../../schemes/registry.js";
 
-function isObject(value) {
-    return value != null && typeof value === "object" && !Array.isArray(value);
-}
-
-function mergeObjects(base, override) {
-    if (!isObject(override)) {
-        return { ...base };
-    }
-    const result = { ...base };
-    for (const [key, value] of Object.entries(override)) {
-        if (isObject(value) && isObject(base[key])) {
-            result[key] = mergeObjects(base[key], value);
-        } else {
-            result[key] = value;
-        }
-    }
-    return result;
-}
+const THEME_MODES = new Set(["auto", "dark", "light"]);
+const SELECTION_MODES = new Set(["cell", "column", "row"]);
+const TRACK_DEFAULTS = new Set(["active-only", "all-supported", "none"]);
 
 export function mergeViewerOptions(base, override) {
     return mergeObjects(base, override);
@@ -32,28 +18,23 @@ function normalizeVisibilityOption(value, defaults) {
     if (value === true || value == null) {
         return { ...defaults };
     }
-    if (isObject(value)) {
+    if (isPlainObject(value)) {
         return mergeObjects(defaults, value);
     }
     return { ...defaults };
 }
 
-function normalizeTrackDefinitions(definitions = {}) {
-    if (!isObject(definitions)) {
-        return {};
+function normalizeTracks(tracks = []) {
+    if (!Array.isArray(tracks)) {
+        return [];
     }
-    const normalized = {};
-    for (const [id, definition] of Object.entries(definitions)) {
-        if (!isObject(definition)) continue;
-        normalized[id] = mergeObjects({}, definition);
-    }
-    return normalized;
+    return tracks
+        .filter(isPlainObject)
+        .map((track) => mergeObjects({}, track));
 }
 
 function normalizeTrackDefaults(value) {
-    return value === "none" || value === "all-supported" || value === "active-only"
-        ? value
-        : "active-only";
+    return TRACK_DEFAULTS.has(value) ? value : DEFAULT_VIEWER_OPTIONS.trackDisplay.defaults;
 }
 
 function normalizeTrackVariants(variants = []) {
@@ -65,7 +46,6 @@ function normalizeTrackVariants(variants = []) {
         .map((variant) => ({
             trackId: variant.trackId,
             representation: variant.representation ?? "active",
-            alphabetId: variant.alphabetId ?? null,
             enabled: variant.enabled !== false,
         }));
 }
@@ -103,9 +83,6 @@ export function deriveViewerOptions(options) {
             headerFontSize: options.theme.typography.headerFontSize,
         },
         cssVariables: {
-            "--msa-left-chrome-width": options.layout.header.visible === false
-                ? "0px"
-                : `${options.layout.header.width}px`,
             "--msa-minimap-offset-left": (options.layout.minimap.fullWidth === true || options.layout.header.visible === false)
                 ? "0px"
                 : `${options.layout.header.width}px`,
@@ -134,13 +111,13 @@ export function deriveViewerOptions(options) {
 }
 
 export function normalizeViewerOptions(rawOptions = {}) {
-    const legacyLayout = isObject(rawOptions.layout) ? rawOptions.layout : {};
+    const rawLayout = isPlainObject(rawOptions.layout) ? rawOptions.layout : {};
     const normalizedLayout = {
-        header: normalizeVisibilityOption(legacyLayout.header, DEFAULT_VIEWER_OPTIONS.layout.header),
-        ruler: normalizeVisibilityOption(legacyLayout.ruler, DEFAULT_VIEWER_OPTIONS.layout.ruler),
-        minimap: normalizeVisibilityOption(legacyLayout.minimap, DEFAULT_VIEWER_OPTIONS.layout.minimap),
-        tracks: normalizeVisibilityOption(legacyLayout.tracks, DEFAULT_VIEWER_OPTIONS.layout.tracks),
-        cell: mergeObjects(DEFAULT_VIEWER_OPTIONS.layout.cell, legacyLayout.cell),
+        header: normalizeVisibilityOption(rawLayout.header, DEFAULT_VIEWER_OPTIONS.layout.header),
+        ruler: normalizeVisibilityOption(rawLayout.ruler, DEFAULT_VIEWER_OPTIONS.layout.ruler),
+        minimap: normalizeVisibilityOption(rawLayout.minimap, DEFAULT_VIEWER_OPTIONS.layout.minimap),
+        tracks: normalizeVisibilityOption(rawLayout.tracks, DEFAULT_VIEWER_OPTIONS.layout.tracks),
+        cell: mergeObjects(DEFAULT_VIEWER_OPTIONS.layout.cell, rawLayout.cell),
     };
 
     normalizedLayout.header.width = Math.max(60, normalizedLayout.header.width ?? DEFAULT_VIEWER_OPTIONS.layout.header.width);
@@ -153,34 +130,40 @@ export function normalizeViewerOptions(rawOptions = {}) {
     normalizedLayout.cell.height = Math.max(1, normalizedLayout.cell.height ?? DEFAULT_VIEWER_OPTIONS.layout.cell.height);
 
     const normalizedTheme = mergeObjects(DEFAULT_VIEWER_OPTIONS.theme, rawOptions.theme);
+    normalizedTheme.typography = mergeObjects(DEFAULT_VIEWER_OPTIONS.theme.typography, normalizedTheme.typography);
+    normalizedTheme.mode = THEME_MODES.has(normalizedTheme.mode) ? normalizedTheme.mode : DEFAULT_VIEWER_OPTIONS.theme.mode;
     normalizedTheme.typography.uiFontSize = Math.max(1, normalizedTheme.typography.uiFontSize);
     normalizedTheme.typography.headerFontSize = Math.max(1, normalizedTheme.typography.headerFontSize);
 
     const normalizedBehavior = mergeObjects(DEFAULT_VIEWER_OPTIONS.behavior, rawOptions.behavior);
+    normalizedBehavior.masking = mergeObjects(DEFAULT_VIEWER_OPTIONS.behavior.masking, normalizedBehavior.masking);
+    normalizedBehavior.selectionMode = SELECTION_MODES.has(normalizedBehavior.selectionMode)
+        ? normalizedBehavior.selectionMode
+        : DEFAULT_VIEWER_OPTIONS.behavior.selectionMode;
+    normalizedBehavior.masking.hideInsertionColumns = normalizedBehavior.masking.hideInsertionColumns === true;
+    normalizedBehavior.masking.gapThreshold = Number.isFinite(normalizedBehavior.masking.gapThreshold)
+        ? normalizedBehavior.masking.gapThreshold
+        : null;
     const normalizedInteractions = mergeObjects(DEFAULT_VIEWER_OPTIONS.interactions, rawOptions.interactions);
     const normalizedRendering = mergeObjects(DEFAULT_VIEWER_OPTIONS.rendering, rawOptions.rendering);
     normalizedRendering.backend = normalizeRenderingBackend(rawOptions.rendering?.backend ?? normalizedRendering.backend);
+    normalizedRendering.scheme = SCHEMES[normalizedRendering.scheme]
+        ? normalizedRendering.scheme
+        : DEFAULT_VIEWER_OPTIONS.rendering.scheme;
     normalizedRendering.schemeSourceRepresentationId = rawOptions.rendering?.schemeSourceRepresentationId ?? normalizedRendering.schemeSourceRepresentationId ?? null;
-    const normalizedTracks = mergeObjects(DEFAULT_VIEWER_OPTIONS.tracks, rawOptions.tracks);
-    normalizedTracks.definitions = normalizeTrackDefinitions(rawOptions.tracks?.definitions);
-    normalizedTracks.defaults = normalizeTrackDefaults(rawOptions.tracks?.defaults ?? normalizedTracks.defaults);
-    normalizedTracks.variants = normalizeTrackVariants(rawOptions.tracks?.variants ?? normalizedTracks.variants);
+    const normalizedTrackDisplay = mergeObjects(DEFAULT_VIEWER_OPTIONS.trackDisplay, rawOptions.trackDisplay);
+    normalizedTrackDisplay.defaults = normalizeTrackDefaults(rawOptions.trackDisplay?.defaults ?? normalizedTrackDisplay.defaults);
+    normalizedTrackDisplay.variants = normalizeTrackVariants(rawOptions.trackDisplay?.variants ?? normalizedTrackDisplay.variants);
+    normalizedTrackDisplay.order = Array.isArray(rawOptions.trackDisplay?.order) ? [...rawOptions.trackDisplay.order] : null;
 
-    const normalized = {
+    return {
         alphabet: rawOptions.alphabet ?? DEFAULT_VIEWER_OPTIONS.alphabet,
-        data: {
-            representations: Array.isArray(rawOptions.data?.representations) && rawOptions.data.representations.length > 0
-                ? normalizeRepresentationInputs(rawOptions.data.representations)
-                : DEFAULT_VIEWER_OPTIONS.data.representations,
-            activeRepresentationId: rawOptions.data?.activeRepresentationId ?? DEFAULT_VIEWER_OPTIONS.data.activeRepresentationId,
-        },
         layout: normalizedLayout,
         theme: normalizedTheme,
-        tracks: normalizedTracks,
+        tracks: normalizeTracks(rawOptions.tracks),
+        trackDisplay: normalizedTrackDisplay,
         behavior: normalizedBehavior,
         interactions: normalizedInteractions,
         rendering: normalizedRendering,
     };
-
-    return normalized;
 }

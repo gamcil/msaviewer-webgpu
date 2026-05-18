@@ -16,6 +16,8 @@ export class SelectionController {
         this.dragMode = null;
         this.isDragging = false;
         this.windowDragListenersAttached = false;
+        this.pointerPoint = null;
+        this.pointerFrame = 0;
     }
 
     bind() {
@@ -24,31 +26,25 @@ export class SelectionController {
 
         this.onMouseMove = (event) => {
             if (this.isDragging || this.getIsScrolling?.()) return;
-            const coords = this.getCoordsFromEvent(event);
-            if (!coords) {
-                this.clearHover();
-                return;
-            }
-            const [col, row] = coords;
-            this.setHoveredCell(col, row);
+            this.queuePointer(event);
         };
 
         this.onMouseLeave = () => {
-            if (!this.isDragging) {
-                this.clearHover();
-            }
+            if (this.isDragging) return;
+            this.cancelPointerFrame();
+            this.clearHover();
         };
 
         this.onMouseDown = (event) => {
             if (event.button !== 0 || this.getIsScrolling?.()) return;
             const coords = this.getCoordsFromEvent(event);
             if (!coords) return;
-            this.startDrag(event);
+            this.startDrag(coords);
         };
 
         this.onWindowMouseMove = (event) => {
             if (!this.isDragging) return;
-            this.updatePreviewFromPointer(event);
+            this.queuePointer(event);
         };
 
         this.onWindowMouseUp = (event) => {
@@ -70,6 +66,38 @@ export class SelectionController {
         interactionTarget.removeEventListener("mouseleave", this.onMouseLeave);
         interactionTarget.removeEventListener("mousedown", this.onMouseDown);
         this.detachWindowDragListeners();
+        this.cancelPointerFrame();
+    }
+
+    queuePointer(event) {
+        this.pointerPoint = { clientX: event.clientX, clientY: event.clientY };
+        if (this.pointerFrame) return;
+        this.pointerFrame = window.requestAnimationFrame(() => {
+            this.pointerFrame = 0;
+            const point = this.pointerPoint;
+            this.pointerPoint = null;
+            if (!point) return;
+            if (this.isDragging) {
+                this.updatePreviewFromPointer(point);
+                return;
+            }
+            if (this.getIsScrolling?.()) return;
+            const coords = this.getCoordsFromEvent(point);
+            if (!coords) {
+                this.clearHover();
+                return;
+            }
+            const [col, row] = coords;
+            this.setHoveredCell(col, row);
+        });
+    }
+
+    cancelPointerFrame() {
+        this.pointerPoint = null;
+        if (this.pointerFrame) {
+            window.cancelAnimationFrame(this.pointerFrame);
+            this.pointerFrame = 0;
+        }
     }
 
     attachWindowDragListeners() {
@@ -86,10 +114,8 @@ export class SelectionController {
         this.windowDragListenersAttached = false;
     }
 
-    startDrag(event) {
-        const coords = this.getCoordsFromEvent(event);
-        if (!coords) return;
-        const [col, row] = coords;
+    startDrag([col, row]) {
+        this.cancelPointerFrame();
         const { totalCols, totalRows } = this.state.getAlignmentBounds();
         this.dragAnchor = { col, row };
         this.dragBounds = { totalCols, totalRows };
@@ -116,6 +142,7 @@ export class SelectionController {
 
     resetDrag() {
         this.detachWindowDragListeners();
+        this.cancelPointerFrame();
         this.setPreviewRange(null);
         this.dragAnchor = null;
         this.dragBounds = null;
@@ -168,31 +195,5 @@ export class SelectionController {
         if (this.hoveredCell === null) return;
         this.hoveredCell = null;
         this.syncOverlay();
-    }
-
-    getSelection() {
-        return this.state.getSelectionSnapshot();
-    }
-
-    setSelection({ mode, ranges } = {}) {
-        if (mode != null) {
-            this.state.setSelectionMode(mode);
-        }
-        if (ranges != null) {
-            this.state.setSelectionRanges(ranges);
-        }
-    }
-
-    clearSelection() {
-        this.state.clearSelection();
-    }
-
-    setSelectionMode(mode) {
-        this.state.setSelectionMode(mode);
-        this.resetDrag();
-    }
-
-    onSelectionChange(callback) {
-        return this.state.subscribeSelection(callback);
     }
 }

@@ -14,19 +14,6 @@ export class VisibleWindowController {
         this.state = null;
     }
 
-    async materializeVisibleWindow(alignmentStore, rowStart, rowCount, colStart, colCount, columnVisibility) {
-        return materializeProjectedWindow({
-            alignmentStore,
-            rowStart,
-            rowCount,
-            colStart,
-            colCount,
-            columnVisibility,
-            decodedTileCache: this.decodedTileCache,
-            includeRetainedTiles: true,
-        });
-    }
-
     async update({
         alignmentStore,
         bounds,
@@ -52,41 +39,43 @@ export class VisibleWindowController {
             columnMap,
             rawTextureCols,
             retainedTiles,
-        } = await this.materializeVisibleWindow(
+        } = await materializeProjectedWindow({
             alignmentStore,
             rowStart,
             rowCount,
             colStart,
             colCount,
-            columnVisibility
-        );
+            columnVisibility,
+            decodedTileCache: this.decodedTileCache,
+            includeRetainedTiles: true,
+        });
 
-        const previousTexture = this.state?.texture ?? null;
-        const previousVisibleColumnMapBuffer = this.state?.visibleColumnMapBuffer ?? null;
-        const needsNewTexture =
-            !previousTexture ||
+        const prevTexture = this.state?.texture ?? null;
+        const prevColumnMapBuffer = this.state?.visibleColumnMapBuffer ?? null;
+        const resizeTexture =
+            !prevTexture ||
             this.state.rowCount !== rowCount ||
             this.state.rawTextureCols !== rawTextureCols;
-        const needsNewVisibleColumnMapBuffer =
-            !previousVisibleColumnMapBuffer ||
+        const resizeColumnMap =
+            !prevColumnMapBuffer ||
             this.state.colCount !== colCount;
 
         const texture = this.backend === "webgpu"
-            ? (needsNewTexture
+            ? (resizeTexture
                 ? this.device.createTexture({
                     size: [Math.max(1, rawTextureCols), Math.max(1, rowCount), 1],
                     format: "r8uint",
                     usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
                 })
-                : previousTexture)
+                : prevTexture)
             : null;
-        const visibleColumnMapBuffer = this.backend === "webgpu"
-            ? (needsNewVisibleColumnMapBuffer
+        const columnMapBuffer = this.backend === "webgpu"
+            ? (resizeColumnMap
                 ? this.device.createBuffer({
                     size: Math.max(1, colCount * 2) * Uint32Array.BYTES_PER_ELEMENT,
                     usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
                 })
-                : previousVisibleColumnMapBuffer)
+                : prevColumnMapBuffer)
             : null;
 
         if (this.backend === "webgpu") {
@@ -100,7 +89,7 @@ export class VisibleWindowController {
                 },
                 [Math.max(1, rawTextureCols), Math.max(1, rowCount), 1]
             );
-            this.device.queue.writeBuffer(visibleColumnMapBuffer, 0, columnMap);
+            this.device.queue.writeBuffer(columnMapBuffer, 0, columnMap);
         }
 
         this.state = {
@@ -111,17 +100,17 @@ export class VisibleWindowController {
             colCount,
             rawTextureCols,
             texture,
-            visibleColumnMapBuffer,
+            visibleColumnMapBuffer: columnMapBuffer,
             data,
             columnMap,
         };
         this.decodedTileCache.retain(retainedTiles);
 
-        if (needsNewTexture && previousTexture) {
-            previousTexture.destroy();
+        if (resizeTexture && prevTexture) {
+            prevTexture.destroy();
         }
-        if (needsNewVisibleColumnMapBuffer && previousVisibleColumnMapBuffer) {
-            previousVisibleColumnMapBuffer.destroy();
+        if (resizeColumnMap && prevColumnMapBuffer) {
+            prevColumnMapBuffer.destroy();
         }
 
         return this.state;

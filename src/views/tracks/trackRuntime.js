@@ -1,15 +1,39 @@
-import { createBarTrackStyle, createGlyphTrackStyle, createLineTrackStyle } from "../trackStyles.js";
 import { createBarColorRamps } from "../models/barRenderModel.js";
 import { prepareColorRamp } from "../renderers/trackRenderers.js";
 import { createPreparedLineColorRamp } from "../models/lineRenderModel.js";
 import { resolveSymbolColor } from "../../schemes/symbolColorResolver.js";
 import { buildConsensusState } from "../../viewer/TrackStateBuilder.js";
 
-export function getDefaultGlyphFillStyle(theme) {
+const BAR_STYLE = {
+    fillStyle: "rgba(89, 211, 255, 0.25)",
+    strokeStyle: "rgb(0, 122, 178)",
+    lineWidth: null,
+};
+
+const GLYPH_STYLE = {
+    showGlyphs: false,
+    fillStyle: null,
+    fontSize: 14,
+    minCellWidth: 10,
+};
+
+const LINE_STYLE = {
+    strokeStyle: "rgb(0, 122, 178)",
+    fillStyle: "rgba(89, 211, 255, 0.25)",
+    lineWidth: null,
+    showPoints: true,
+    pointRadius: 5,
+    pointFillStyle: null,
+    pointStrokeStyle: null,
+    pointLineWidth: null,
+    skipZeroPoints: true,
+};
+
+export function defaultGlyphFill(theme) {
     return theme?.darkMode ? "#e6e6e6" : "#333";
 }
 
-export function getThemeColor(colors, key, theme) {
+function themedColor(colors, key, theme) {
     if (!colors) return undefined;
     const themeColors = theme?.darkMode ? colors.dark : colors.light;
     if (!themeColors || !(key in themeColors)) {
@@ -18,8 +42,8 @@ export function getThemeColor(colors, key, theme) {
     return themeColors[key];
 }
 
-export function getThemedStyleValue(colors, key, fallback, theme) {
-    const themed = getThemeColor(colors, key, theme);
+export function themedStyle(colors, key, fallback, theme) {
+    const themed = themedColor(colors, key, theme);
     return themed === undefined ? fallback : themed;
 }
 
@@ -28,21 +52,21 @@ export function normalizeTrackLayers(layers = []) {
         if (layer.type === "bar") {
             return {
                 ...layer,
-                style: createBarTrackStyle(layer.style),
+                style: { ...BAR_STYLE, ...layer.style },
                 colorRamps: layer.colorRamps ? createBarColorRamps(layer.colorRamps, prepareColorRamp) : { fill: null, stroke: null, glyph: null },
             };
         }
         if (layer.type === "line") {
             return {
                 ...layer,
-                style: createLineTrackStyle(layer.style),
+                style: { ...LINE_STYLE, ...layer.style },
                 colorRamp: createPreparedLineColorRamp(layer.colorRamp),
             };
         }
         if (layer.type === "glyph") {
             return {
                 ...layer,
-                style: createGlyphTrackStyle(layer.style),
+                style: { ...GLYPH_STYLE, ...layer.style },
                 colorRamps: layer.colorRamps ? createBarColorRamps(layer.colorRamps, prepareColorRamp) : { fill: null, stroke: null, glyph: null },
             };
         }
@@ -50,7 +74,7 @@ export function normalizeTrackLayers(layers = []) {
     });
 }
 
-export function isNumericTrackData(data) {
+export function isNumericData(data) {
     if (!data || typeof data.length !== "number") {
         return false;
     }
@@ -62,52 +86,43 @@ export function isNumericTrackData(data) {
     return true;
 }
 
-function resolveTrackRepresentationId(source, trackContext) {
-    const representationRef = source?.representation ?? "active";
-    if (representationRef === "active" || representationRef == null) {
-        return trackContext?.activeRepresentationId ?? null;
-    }
-    return representationRef;
+function getTrackRepresentation(trackContext, ref = "active") {
+    const id = ref === "active" || ref == null
+        ? trackContext?.activeRepresentationId ?? null
+        : ref;
+    if (!id) return null;
+    return trackContext?.getRepresentation?.(id) ?? null;
 }
 
-export function resolveTrackSourceRepresentation(source, trackContext) {
-    const representationId = resolveTrackRepresentationId(source, trackContext);
-    if (!representationId) return null;
-    return trackContext?.getRepresentation?.(representationId) ?? null;
-}
-
-export function resolveTrackSourceTrackState(source, trackContext) {
+export function resolveTrackState(source, trackContext) {
     if (!source || !trackContext) return null;
-    const representationRef = source.representation ?? "active";
-    const representation = resolveTrackSourceRepresentation(source, trackContext);
-    if (representation) {
-        return representation.trackState ?? null;
-    }
-    if (representationRef === "active" || representationRef == null) {
-        return trackContext.activeTrackState ?? null;
-    }
-    return null;
+    const ref = source.representation ?? "active";
+    const rep = getTrackRepresentation(trackContext, ref);
+    return rep?.trackState
+        ?? ((ref === "active" || ref == null) ? trackContext.activeTrackState ?? null : null);
 }
 
-export function resolveTrackSourceData(source, trackContext) {
+export function resolveTrackData(source, trackContext) {
     if (!source) {
         return undefined;
     }
-    const representation = resolveTrackSourceRepresentation(source, trackContext);
-    const trackState = resolveTrackSourceTrackState(source, trackContext);
+    const ref = source.representation ?? "active";
+    const rep = getTrackRepresentation(trackContext, ref);
+    const trackState = rep?.trackState
+        ?? ((ref === "active" || ref == null) ? trackContext?.activeTrackState ?? null : null);
     if (source.type === "metric" && source.metric) {
-        if (representation?.columnMetrics?.[source.metric]) {
-            return representation.columnMetrics[source.metric];
+        if (rep?.columnMetrics?.[source.metric]) {
+            return rep.columnMetrics[source.metric];
         }
         return trackState?.metrics?.[source.metric] ?? null;
     }
     if (source.type === "consensus") {
-        if (representation?.columnMetrics && representation?.store) {
-            const alphabet = trackContext?.getAlphabet?.(representation.alphabetId) ?? null;
+        if (rep?.columnMetrics && rep?.store) {
+            const alphabet = trackContext?.getAlphabet?.(rep.alphabetId) ?? null;
             if (alphabet) {
                 return buildConsensusState(
-                    representation.columnMetrics,
-                    representation.store.totalRows,
+                    rep.columnMetrics,
+                    rep.store.totalRows,
                     alphabet
                 );
             }
@@ -120,26 +135,17 @@ export function resolveTrackSourceData(source, trackContext) {
     return undefined;
 }
 
-export function resolveTrackColorAlphabet(coloring, source, trackContext) {
-    const alphabetId = coloring?.alphabet;
-    if (alphabetId) {
-        return trackContext?.getAlphabet?.(alphabetId) ?? null;
+export function resolveGlyphColor(coloring, source, trackContext) {
+    let colorAlphabet = null;
+    if (coloring?.alphabet) {
+        colorAlphabet = trackContext?.getAlphabet?.(coloring.alphabet) ?? null;
+    } else {
+        const ref = coloring?.representation ?? source?.representation ?? "active";
+        const rep = getTrackRepresentation(trackContext, ref);
+        colorAlphabet = rep
+            ? trackContext?.getAlphabet?.(rep.alphabetId) ?? null
+            : ((ref === "active" || ref == null) ? trackContext?.getActiveAlphabet?.() ?? null : null);
     }
-
-    const representationRef = coloring?.representation ?? source?.representation ?? "active";
-    if (representationRef === "active" || representationRef == null) {
-        const activeRepresentation = trackContext?.getRepresentation?.(trackContext?.activeRepresentationId);
-        if (!activeRepresentation) return trackContext?.getActiveAlphabet?.() ?? null;
-        return trackContext?.getAlphabet?.(activeRepresentation.alphabetId) ?? null;
-    }
-
-    const representation = trackContext?.getRepresentation?.(representationRef) ?? null;
-    if (!representation) return null;
-    return trackContext?.getAlphabet?.(representation.alphabetId) ?? null;
-}
-
-export function resolveTrackSymbolColorResolver(coloring, source, trackContext) {
-    const colorAlphabet = resolveTrackColorAlphabet(coloring, source, trackContext);
     const scheme = coloring?.scheme ?? null;
     if (!colorAlphabet) return null;
     if (!scheme) {
