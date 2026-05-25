@@ -1,14 +1,13 @@
 import { createRepresentation } from "./representation.js";
+import { COLUMN_PROFILE_BYTES_PER_COLUMN } from "../../schemes/registry.js";
 
 export class RepresentationStore {
     constructor({
         device,
         alphabetRegistry,
-        getProfileStride,
     }) {
         this.device = device;
         this.alphabetRegistry = alphabetRegistry;
-        this.getProfileStride = getProfileStride;
         this.representations = new Map();
     }
 
@@ -41,7 +40,7 @@ export class RepresentationStore {
         if (this.device && (!colProfileBuffer || previous?.alignmentState?.totalCols !== totalCols)) {
             colProfileBuffer?.destroy?.();
             colProfileBuffer = this.device.createBuffer({
-                size: totalCols * this.getProfileStride(),
+                size: totalCols * COLUMN_PROFILE_BYTES_PER_COLUMN,
                 usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
             });
         } else if (!this.device) {

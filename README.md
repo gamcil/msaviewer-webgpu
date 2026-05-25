@@ -76,6 +76,7 @@ const viewer = new MSAViewer({ root, config });
 await viewer.loadData(input, { activeId });
 await viewer.setConfig(config);
 await viewer.setActiveRepresentation(id);
+await viewer.registerColorScheme(key, options);
 await viewer.setTrackEnabled(track, enabled);
 await viewer.setMotifQuery(query);
 
@@ -95,9 +96,37 @@ viewer.addEventListener("sequenceclick", handler);
 viewer.destroy();
 ```
 
+## Custom Color Schemes
+
+Register column-driven schemes before selecting them in the viewer config. Custom schemes compile the input values into one packed color per column, so the original values are not retained. If data is already loaded, the `values` length must match the active alignment column count.
+
+```js
+import { MSAViewer } from "msa-webgpu";
+
+const viewer = new MSAViewer({ root });
+const values = [0.1, 0.4, -1, 1.0];
+
+await viewer.registerColorScheme("myScores", {
+  label: "My Scores",
+  values,
+  min: 0,
+  max: 1,
+  colormap: "viridis",
+  missingValue: -1,
+});
+
+await viewer.setConfig({
+  rendering: { scheme: "myScores" },
+});
+```
+
+Use a two-stop `colormap` for a two-color gradient. Built-in colormap names include `viridis`, `magma`, `inferno`, and `plasma`; `colormap` also accepts an array of color stops.
+
 ## Declarative Tracks
 
 Tracks are configured with a source plus one or more lanes. Each lane contains render layers such as bars, lines, glyphs, or logos. Layers inherit the track source unless they define their own. Lane height is derived from the tallest layer in that lane.
+
+Numeric bar, line, and glyph layers can use color ramps with the same colormap model as custom color schemes. `missingValue` leaves that mark on the layer's default style.
 
 ```js
 await viewer.setConfig({
@@ -122,11 +151,25 @@ await viewer.setConfig({
             height: 32,
             source: { type: "metric", metric: "quality" },
             style: { strokeStyle: "#007ab2", lineWidth: 2, showPoints: false },
+            colorRamp: {
+              min: 0,
+              max: 1,
+              colormap: "viridis",
+              target: "points",
+            },
           },
           {
             type: "glyph",
             source: { type: "metric", metric: "quality" },
             style: { fontSize: 12, minCellWidth: 14, fillStyle: "#202226" },
+            colorRamps: {
+              glyph: {
+                min: 0,
+                max: 1,
+                colormap: ["#202226", "#d95f02"],
+                missingValue: -1,
+              },
+            },
             getGlyph: ({ value }) => value > 0.8 ? { glyph: "H" } : null,
           },
         ],

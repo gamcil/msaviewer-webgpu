@@ -49,6 +49,7 @@ export class MinimapController {
         pipelineRegistry,
         minimapView,
         decodedTileCache,
+        schemes,
     }) {
         this.backend = backend;
         this.device = device;
@@ -56,6 +57,7 @@ export class MinimapController {
         this.pipelineRegistry = pipelineRegistry;
         this.minimapView = minimapView;
         this.decodedTileCache = decodedTileCache;
+        this.schemes = schemes;
         this.chunkResources = [];
     }
 
@@ -333,6 +335,7 @@ export class MinimapController {
                             schemeAlphabet: alphabet,
                             schemeProfileData: alignmentState.colProfileData,
                             darkMode,
+                            schemes: this.schemes,
                         });
                         const pixelOffset = (y * minimapWidth + x) * 4;
                         minimapPixels[pixelOffset + 0] = parseInt(color.slice(1, 3), 16);

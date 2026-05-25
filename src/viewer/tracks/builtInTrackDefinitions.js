@@ -174,10 +174,9 @@ export const BUILT_IN_TRACK_DEFINITIONS = {
                     style: { strokeStyle: "#063306" },
                     colorRamps: {
                         fill: {
-                            minScore: 0,
-                            maxScore: 1,
-                            minColor: "#063306",
-                            maxColor: "#77ca8f",
+                            min: 0,
+                            max: 1,
+                            colormap: ["#063306", "#77ca8f"],
                         },
                     },
                 }],
@@ -210,7 +209,7 @@ export const BUILT_IN_TRACK_DEFINITIONS = {
                         height: 60,
                         style: { strokeStyle: "#080947" },
                         colorRamps: {
-                            fill: { minScore: 0, maxScore: 11, minColor: "#080947", maxColor: "#87a7f3" },
+                            fill: { min: 0, max: 11, colormap: ["#080947", "#87a7f3"] },
                         },
                     },
                 ],
@@ -221,7 +220,7 @@ export const BUILT_IN_TRACK_DEFINITIONS = {
                         type: "glyph",
                         style: { showGlyphs: true, fontSize: 16 },
                         colorRamps: {
-                            glyph: { minScore: 0, maxScore: 11, minColor: "#080947", maxColor: "#87a7f3" },
+                            glyph: { min: 0, max: 11, colormap: ["#080947", "#87a7f3"] },
                         },
                         getGlyph: buildConservationGlyph,
                     },
@@ -255,10 +254,9 @@ export const BUILT_IN_TRACK_DEFINITIONS = {
                     style: { strokeStyle: "#3e2709" },
                     colorRamps: {
                         fill: {
-                            minScore: 0,
-                            maxScore: 1,
-                            minColor: "#3e2709",
-                            maxColor: "#d4b080",
+                            min: 0,
+                            max: 1,
+                            colormap: ["#3e2709", "#d4b080"],
                         },
                     },
                 }],

@@ -1,7 +1,7 @@
 import { DEFAULT_VIEWER_OPTIONS } from "./defaultViewerOptions.js";
 import { normalizeRenderingBackend } from "../backends/backendRuntime.js";
 import { isPlainObject, mergeObjects } from "../../util.js";
-import { SCHEMES } from "../../schemes/registry.js";
+import { BUILT_IN_COLOR_SCHEMES } from "../../schemes/registry.js";
 
 const THEME_MODES = new Set(["auto", "dark", "light"]);
 const SELECTION_MODES = new Set(["cell", "column", "row"]);
@@ -110,7 +110,7 @@ export function deriveViewerOptions(options) {
     };
 }
 
-export function normalizeViewerOptions(rawOptions = {}) {
+export function normalizeViewerOptions(rawOptions = {}, { schemes = BUILT_IN_COLOR_SCHEMES } = {}) {
     const rawLayout = isPlainObject(rawOptions.layout) ? rawOptions.layout : {};
     const normalizedLayout = {
         header: normalizeVisibilityOption(rawLayout.header, DEFAULT_VIEWER_OPTIONS.layout.header),
@@ -147,7 +147,7 @@ export function normalizeViewerOptions(rawOptions = {}) {
     const normalizedInteractions = mergeObjects(DEFAULT_VIEWER_OPTIONS.interactions, rawOptions.interactions);
     const normalizedRendering = mergeObjects(DEFAULT_VIEWER_OPTIONS.rendering, rawOptions.rendering);
     normalizedRendering.backend = normalizeRenderingBackend(rawOptions.rendering?.backend ?? normalizedRendering.backend);
-    normalizedRendering.scheme = SCHEMES[normalizedRendering.scheme]
+    normalizedRendering.scheme = schemes[normalizedRendering.scheme]
         ? normalizedRendering.scheme
         : DEFAULT_VIEWER_OPTIONS.rendering.scheme;
     normalizedRendering.schemeSourceRepresentationId = rawOptions.rendering?.schemeSourceRepresentationId ?? normalizedRendering.schemeSourceRepresentationId ?? null;

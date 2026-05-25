@@ -1,6 +1,7 @@
-import { SCHEMES } from "../schemes/registry.js";
 import { materializeWindowFromTiles } from "../alignment/tiledStorage.js";
 import { computeColumnProfileDataCpu } from "./backends/cpu/computeColumnProfileCpu.js";
+import { computeCustomSchemeProfileData } from "../schemes/customColorScheme.js";
+import { COLUMN_PROFILE_BYTES_PER_COLUMN } from "../schemes/registry.js";
 
 export class ColumnProfileService {
     constructor({
@@ -9,12 +10,14 @@ export class ColumnProfileService {
         gpuResources,
         pipelineRegistry,
         decodedTileCache,
+        schemes,
     }) {
         this.backend = backend;
         this.device = device;
         this.gpuResources = gpuResources;
         this.pipelineRegistry = pipelineRegistry;
         this.decodedTileCache = decodedTileCache;
+        this.schemes = schemes;
     }
 
     async compute({
@@ -24,18 +27,31 @@ export class ColumnProfileService {
         columnMetrics = null,
         alphabet = null,
     }) {
-        const activeScheme = SCHEMES[schemeKey];
+        const activeScheme = this.schemes[schemeKey];
+        if (activeScheme?.mode === "scalar-column") {
+            const profileData = computeCustomSchemeProfileData({
+                scheme: activeScheme,
+                totalCols: alignmentState.totalCols,
+            });
+            alignmentState.colProfileData = profileData;
+            if (this.backend !== "cpu" && alignmentState.colProfileBuffer) {
+                this.device.queue.writeBuffer(alignmentState.colProfileBuffer, 0, profileData);
+            }
+            return;
+        }
         if (this.backend === "cpu") {
-            alignmentState.colProfileData = activeScheme.type === "columnStatistic"
+            alignmentState.colProfileData = activeScheme.profileKind !== "none"
                 ? computeColumnProfileDataCpu({
                     columnMetrics,
                     alphabet,
                     schemeKey,
+                    schemes: this.schemes,
+                    totalCols: alignmentState.totalCols,
                 })
                 : new Uint32Array(alignmentState.totalCols);
             return;
         }
-        if (activeScheme.type !== "columnStatistic") {
+        if (activeScheme.profileKind === "none") {
             this.device.queue.writeBuffer(
                 alignmentState.colProfileBuffer,
                 0,
@@ -94,7 +110,7 @@ export class ColumnProfileService {
             }
 
             const chunkBuffer = this.gpuResources.getOrCreateGrowableBuffer("profileChunkBuffer", {
-                minSize: colsInChunk * activeScheme.profileStride,
+                minSize: colsInChunk * COLUMN_PROFILE_BYTES_PER_COLUMN,
                 usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
             });
             const commandEncoder = this.device.createCommandEncoder();
@@ -110,8 +126,8 @@ export class ColumnProfileService {
                 chunkBuffer,
                 0,
                 alignmentState.colProfileBuffer,
-                colStart * activeScheme.profileStride,
-                colsInChunk * activeScheme.profileStride
+                colStart * COLUMN_PROFILE_BYTES_PER_COLUMN,
+                colsInChunk * COLUMN_PROFILE_BYTES_PER_COLUMN
             );
             this.device.queue.submit([commandEncoder.finish()]);
             chunkTexture.destroy();

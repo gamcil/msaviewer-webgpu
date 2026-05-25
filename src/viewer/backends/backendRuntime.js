@@ -87,6 +87,7 @@ export function createAlignmentRenderResources({
     schemeWindowState = windowState,
     sources,
     schemeKey,
+    schemes,
     darkMode,
 }) {
     const {
@@ -108,6 +109,7 @@ export function createAlignmentRenderResources({
             activeAlphabet,
             schemeAlphabet,
             schemeKey,
+            schemes,
             darkMode,
             schemeColumnMetrics: schemeRepresentation.columnMetrics,
             schemeProfileData: schemeAlignmentState?.colProfileData ?? null,
@@ -139,14 +141,13 @@ function createBackendServices({
     pipelineRegistry,
     decodedTileCache,
     alphabetRegistry,
-    getProfileStride,
     getMetricUniformBuffer,
+    schemes,
 }) {
     return {
         representationStore: new RepresentationStore({
             device,
             alphabetRegistry,
-            getProfileStride,
         }),
         columnMetricService: new ColumnMetricService({
             backend,
@@ -162,6 +163,7 @@ function createBackendServices({
             gpuResources,
             pipelineRegistry,
             decodedTileCache,
+            schemes,
         }),
         windowController: new VisibleWindowController({
             backend,
@@ -238,7 +240,7 @@ export function createBackendRuntime({
     computeShaderCodes = {},
     decodedTileCache,
     alphabetRegistry,
-    getProfileStride,
+    schemes,
 }) {
     const { gpuResources, pipelineRegistry } = backend === "webgpu"
         ? createGpuRuntime({ device, format, atlasBitmap, computeShaderCodes })
@@ -254,7 +256,7 @@ export function createBackendRuntime({
             pipelineRegistry,
             decodedTileCache,
             alphabetRegistry,
-            getProfileStride,
+            schemes,
             getMetricUniformBuffer: () => gpuResources?.getSingleton("metricUniformBuffer") ?? null,
         }),
     };
@@ -267,6 +269,7 @@ export function createBackendMinimapController({
     pipelineRegistry,
     minimapView,
     decodedTileCache,
+    schemes,
 }) {
     if (!minimapView) {
         return null;
@@ -278,5 +281,6 @@ export function createBackendMinimapController({
         pipelineRegistry,
         minimapView,
         decodedTileCache,
+        schemes,
     });
 }

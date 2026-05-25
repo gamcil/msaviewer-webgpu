@@ -5,6 +5,8 @@ export type ResolvedBackend = "webgpu" | "cpu";
 export type ThemeMode = "auto" | "dark" | "light";
 export type SelectionMode = "cell" | "column" | "row";
 export type TrackDisplayDefaults = "active-only" | "all-supported" | "none";
+export type ColorValue = string | readonly number[];
+export type ColormapValue = string | readonly ColorValue[];
 
 export interface AlphabetDefinition {
   id: AlphabetId;
@@ -27,6 +29,24 @@ export const aminoAcidAlphabet: AlphabetDefinition;
 export const nucleotideAlphabet: AlphabetDefinition;
 export const threeDIAlphabet: AlphabetDefinition;
 export const defaultAlphabetRegistry: AlphabetRegistry;
+
+export interface RegisteredColorScheme {
+  key: string;
+  label: string;
+  min: number;
+  max: number;
+  missingValue: number | null;
+  columnCount: number;
+}
+
+export interface RegisterCustomColorSchemeOptions {
+  label?: string;
+  values: ArrayLike<number>;
+  min: number;
+  max: number;
+  colormap: ColormapValue;
+  missingValue?: number | null;
+}
 
 export interface AlignmentRecord {
   name: string;
@@ -107,7 +127,7 @@ export interface SchemeOption {
   key: string;
   label: string;
   group: string;
-  type?: string;
+  mode?: string;
   variants: SchemeVariant[];
 }
 
@@ -135,12 +155,28 @@ export interface TrackSource {
   [key: string]: unknown;
 }
 
+export interface TrackColorRamp {
+  min?: number;
+  max?: number;
+  colormap?: ColormapValue | null;
+  missingValue?: number | null;
+  target?: "fill" | "stroke" | "glyph" | "points" | string;
+  [key: string]: unknown;
+}
+
 export interface TrackLayer {
   type: "bar" | "line" | "glyph" | "logo" | string;
   source?: TrackSource;
   coloring?: Record<string, unknown>;
   height?: number;
   style?: Record<string, unknown>;
+  colorRamp?: TrackColorRamp;
+  colorRamps?: {
+    fill?: TrackColorRamp;
+    stroke?: TrackColorRamp;
+    glyph?: TrackColorRamp;
+    [key: string]: TrackColorRamp | undefined;
+  };
   [key: string]: unknown;
 }
 
@@ -287,6 +323,7 @@ export class MSAViewer {
   getSchemes(): SchemeOption[];
   getTracks(): TrackOption[];
   getSelection(): SelectionSnapshot;
+  registerColorScheme(key: string, options: RegisterCustomColorSchemeOptions): Promise<RegisteredColorScheme>;
 
   setConfig(config?: MSAViewerConfigInput): Promise<void>;
   loadData(input: DataInput | DataInput[], options?: { activeId?: RepresentationId | null }): Promise<LoadDataResult>;

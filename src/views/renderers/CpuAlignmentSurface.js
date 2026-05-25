@@ -204,6 +204,7 @@ export class CpuAlignmentSurface {
             schemeWindow,
             schemeAlphabet,
             schemeKey,
+            schemes,
             darkMode,
             schemeProfileData,
         } = this.renderResources;
@@ -249,6 +250,7 @@ export class CpuAlignmentSurface {
                     schemeAlphabet,
                     schemeProfileData,
                     darkMode,
+                    schemes,
                 });
                 context.fillStyle = background;
                 context.fillRect(x, y, gridPxX, gridPxY);

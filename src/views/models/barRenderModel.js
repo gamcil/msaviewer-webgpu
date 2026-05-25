@@ -1,4 +1,4 @@
-import { createColorRamp, resolveInterpolatedColor } from "../renderers/trackRenderers.js";
+import { createColorRamp, resolveScalarRampColor } from "../renderers/trackRenderers.js";
 import { buildProjectedVisibleColumns } from "./visibleColumnModel.js";
 
 export function createBarColorRamps(colorRamps = {}, prepareColorRamp) {
@@ -22,13 +22,13 @@ export function buildBarRenderColumns(data, {
     return Array.from(data, (score = 0, rawCol) => {
         const fraction = normalizeValue(score);
         const fillColor = colorRamps.fill
-            ? (resolveInterpolatedColor(score, colorRamps.fill) ?? defaultFillStyle)
+            ? (resolveScalarRampColor(score, colorRamps.fill) ?? defaultFillStyle)
             : defaultFillStyle;
         const strokeColor = colorRamps.stroke
-            ? (resolveInterpolatedColor(score, colorRamps.stroke) ?? defaultStrokeStyle)
+            ? (resolveScalarRampColor(score, colorRamps.stroke) ?? defaultStrokeStyle)
             : defaultStrokeStyle;
         const glyphColor = colorRamps.glyph
-            ? (resolveInterpolatedColor(score, colorRamps.glyph) ?? defaultGlyphFillStyle)
+            ? (resolveScalarRampColor(score, colorRamps.glyph) ?? defaultGlyphFillStyle)
             : defaultGlyphFillStyle;
         return {
             rawCol,

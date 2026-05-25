@@ -1,7 +1,6 @@
 /*
 State management for the MSA viewer.
 */
-import { SCHEMES } from "../../schemes/registry.js";
 
 function buildCellSelectionRowIntervals(ranges) {
     const rowIntervals = new Map();
@@ -406,7 +405,7 @@ export class ViewerState {
         this.emit();
     }
     setScheme(key) {
-        if (!(key in SCHEMES)) return;
+        if (typeof key !== "string" || key.length === 0) return;
         if (this.state.scheme.key === key) return;
         this.state.scheme.key = key;
         this.emit();

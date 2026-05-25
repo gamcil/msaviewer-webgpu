@@ -407,10 +407,26 @@ fn apply_3di_rules(raw_res: u32) -> vec4<f32> {
     return default_scheme_color();
 }
 
+fn unpack_custom_scheme_color(packed: u32) -> vec4<f32> {
+    let alpha = (packed >> 24u) & 0xFFu;
+    if (alpha == 0u) {
+        return default_scheme_color();
+    }
+    return vec4<f32>(
+        f32(packed & 0xFFu) / 255.0,
+        f32((packed >> 8u) & 0xFFu) / 255.0,
+        f32((packed >> 16u) & 0xFFu) / 255.0,
+        f32(alpha) / 255.0
+    );
+}
+
 fn resolve_scheme_color(raw_res: u32, mask: u32) -> vec4<f32> {
     let base_background = default_scheme_color();
-    if (is_lowercase_residue(raw_res)) {
+    if (is_lowercase_residue(raw_res) || is_gap_residue(raw_res)) {
         return base_background;
+    }
+    if (theme.colorScheme >= 1000u) {
+        return unpack_custom_scheme_color(mask);
     }
     var color = base_background;
     switch (theme.colorScheme) {

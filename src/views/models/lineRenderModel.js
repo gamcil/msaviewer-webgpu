@@ -1,4 +1,4 @@
-import { createColorRamp, prepareColorRamp, resolveInterpolatedColor } from "../renderers/trackRenderers.js";
+import { createColorRamp, prepareColorRamp, resolveScalarRampColor } from "../renderers/trackRenderers.js";
 import { buildProjectedVisibleColumns } from "./visibleColumnModel.js";
 
 export function createPreparedLineColorRamp(colorRamp) {
@@ -25,7 +25,7 @@ export function buildLinePoints(data, {
         const score = data[rawCol] ?? 0;
         const fraction = normalizeValue(score);
         const interpolatedColor = colorRamp
-            ? resolveInterpolatedColor(score, colorRamp)
+            ? resolveScalarRampColor(score, colorRamp)
             : null;
         const target = colorRamp?.target ?? "points";
         return {

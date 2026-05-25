@@ -1,5 +1,6 @@
-import { SCHEMES } from "../../../schemes/registry.js";
+import { BUILT_IN_COLOR_SCHEMES } from "../../../schemes/registry.js";
 import { resolveSymbolColor } from "../../../schemes/symbolColorResolver.js";
+import { colorToHex, unpackRgbaColor } from "../../../schemes/customColorScheme.js";
 
 const DARK_DEFAULT_BACKGROUND = "#141417";
 const LIGHT_DEFAULT_BACKGROUND = "#ffffff";
@@ -60,14 +61,17 @@ function qualityIndexForAlphabet(raw, alphabet) {
     return 0;
 }
 
-export function resolveCellSchemeColor({ rawResidue, rawCol, schemeKey, schemeAlphabet, schemeProfileData, darkMode }) {
+export function resolveCellSchemeColor({ rawResidue, rawCol, schemeKey, schemeAlphabet, schemeProfileData, darkMode, schemes = BUILT_IN_COLOR_SCHEMES }) {
     const fallback = defaultSchemeColor(darkMode);
     if (isGapResidue(rawResidue)) {
         return fallback;
     }
-    const scheme = SCHEMES[schemeKey];
+    const scheme = schemes[schemeKey];
     if (!scheme) return fallback;
-    if (scheme.type === "residueProperty") {
+    if (scheme.mode === "scalar-column") {
+        return colorToHex(unpackRgbaColor(schemeProfileData?.[rawCol] ?? 0)) ?? fallback;
+    }
+    if (scheme.mode === "residue-property") {
         return resolveSymbolColor({
             glyph: rawToGlyph(normalizeResidue(rawResidue)),
             alphabet: schemeAlphabet,

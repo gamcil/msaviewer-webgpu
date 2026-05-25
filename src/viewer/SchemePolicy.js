@@ -1,22 +1,20 @@
-import {
-    SCHEMES,
-    getDefaultSchemeKeyForAlphabet,
-    isSchemeSupportedForAlphabet,
-} from "../schemes/registry.js";
+import { getDefaultSchemeKeyForAlphabet, isSchemeSupportedForAlphabet } from "../schemes/registry.js";
 
 export class SchemePolicy {
     constructor({
         getActiveAlphabet,
+        getSchemes,
     }) {
         this.getActiveAlphabet = getActiveAlphabet;
+        this.getSchemes = getSchemes;
     }
 
     isSupported(schemeKey, alphabet = this.getActiveAlphabet()) {
-        return isSchemeSupportedForAlphabet(schemeKey, alphabet);
+        return isSchemeSupportedForAlphabet(schemeKey, alphabet, this.getSchemes());
     }
 
     getFallback(alphabet = this.getActiveAlphabet()) {
-        return getDefaultSchemeKeyForAlphabet(alphabet);
+        return getDefaultSchemeKeyForAlphabet(alphabet, this.getSchemes());
     }
 
     getCompatibleScheme(schemeKey, alphabet = this.getActiveAlphabet()) {
@@ -27,6 +25,12 @@ export class SchemePolicy {
     }
 
     requiresColumnProfile(schemeKey) {
-        return SCHEMES[schemeKey]?.type === "columnStatistic";
+        const scheme = this.getSchemes()[schemeKey];
+        return Boolean(scheme && scheme.profileKind !== "none");
+    }
+
+    requiresColumnMetrics(schemeKey) {
+        const scheme = this.getSchemes()[schemeKey];
+        return scheme?.requiresColumnMetrics === true;
     }
 }

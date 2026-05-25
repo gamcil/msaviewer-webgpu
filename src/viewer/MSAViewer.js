@@ -4,7 +4,9 @@ import { HeaderView } from "../views/HeaderView.js";
 import { AlignmentView } from "../views/AlignmentView.js";
 import { RulerView } from "../views/RulerView.js";
 import {
-    SCHEMES,
+    createSchemeRegistry,
+    publicColorSchemeDescriptor,
+    registerCustomColorScheme,
 } from "../schemes/registry.js";
 import { loadImageBitmap } from "../util.js";
 import { TileCache } from "../alignment/tiledStorage.js";
@@ -109,7 +111,8 @@ export class MSAViewer {
         this.format = runtime.format ?? null;
         this.themeMedia = runtime.themeMedia ?? window.matchMedia("(prefers-color-scheme: dark)");
         this.alphabetRegistry = runtime.alphabetRegistry ?? defaultAlphabetRegistry;
-        this.options = normalizeViewerOptions(config);
+        this.schemes = createSchemeRegistry();
+        this.options = normalizeViewerOptions(config, { schemes: this.schemes });
         this.dataOptions = { representations: [], activeRepresentationId: null };
         this.options.rendering.schemeSourceRepresentationId = normalizeSchemeSource(
             this.options,
@@ -171,6 +174,7 @@ export class MSAViewer {
         this.schemeWindowController = null;
         this.schemePolicy = new SchemePolicy({
             getActiveAlphabet: () => this.#activeAlphabet(),
+            getSchemes: () => this.schemes,
         });
         this.decodedTileCache = new TileCache(64 * 1024 * 1024);
         this.viewportOverscanRows = 8;
@@ -273,7 +277,7 @@ export class MSAViewer {
 
     getSchemes() {
         return buildSchemeOptions({
-            schemes: SCHEMES,
+            schemes: this.schemes,
             representations: this.getRepresentations(),
             activeAlphabet: this.#activeAlphabet(),
             getAlphabet: (id) => this.alphabetRegistry.get(id),
@@ -281,17 +285,47 @@ export class MSAViewer {
         });
     }
 
+    async registerColorScheme(key, options = {}) {
+        this.#assertLive();
+        const expectedColumnCount = this.#activeStore()?.totalCols ?? null;
+        const scheme = registerCustomColorScheme(this.schemes, key, options, { expectedColumnCount });
+        if (this.state.getSchemeKey() === key) {
+            const { schemeRepresentation } = this.#renderSources();
+            if (schemeRepresentation?.id) {
+                this.representationStore?.setProfileSchemeKey(schemeRepresentation.id, null);
+                this.representationStore?.setMinimapCache(this.#activeRepresentation()?.id, null);
+            }
+            if (this.initialized) {
+                await this.#applyScheme(key);
+            }
+        }
+        return publicColorSchemeDescriptor(scheme);
+    }
+
     #renderSources() {
         const active = this.#activeRepresentation();
+        const activeAlphabet = active
+            ? this.alphabetRegistry.get(active.alphabetId)
+            : this.#activeAlphabet();
+        if (this.schemes[this.state.getSchemeKey()]?.scope === "viewer") {
+            return {
+                activeRepresentation: active,
+                schemeRepresentation: active,
+                activeAlphabet,
+                schemeAlphabet: activeAlphabet,
+                activeAlignmentStore: active?.store ?? null,
+                activeAlignmentState: active?.alignmentState ?? null,
+                schemeAlignmentStore: active?.store ?? null,
+                schemeAlignmentState: active?.alignmentState ?? null,
+                usesSeparateColorSource: false,
+            };
+        }
         const scheme = this.#getRepresentation(
             this.options.rendering.schemeSourceRepresentationId
                 ?? active?.id
                 ?? this.dataOptions.activeRepresentationId
                 ?? null
         ) ?? active;
-        const activeAlphabet = active
-            ? this.alphabetRegistry.get(active.alphabetId)
-            : this.#activeAlphabet();
         const schemeAlphabet = scheme
             ? this.alphabetRegistry.get(scheme.alphabetId)
             : activeAlphabet;
@@ -470,6 +504,7 @@ export class MSAViewer {
         if (
             nextOptions.rendering.scheme !== previousOptions.rendering.scheme
             || nextOptions.rendering.schemeSourceRepresentationId !== previousOptions.rendering.schemeSourceRepresentationId
+            || this.schemes[nextOptions.rendering.scheme]?.custom === true
         ) {
             await this.#applyScheme(nextOptions.rendering.scheme);
         }
@@ -512,7 +547,7 @@ export class MSAViewer {
 
         const changed = configChanges(partialConfig);
         const previousOptions = this.options;
-        const nextOptions = normalizeViewerOptions(mergeViewerOptions(previousOptions, partialConfig));
+        const nextOptions = normalizeViewerOptions(mergeViewerOptions(previousOptions, partialConfig), { schemes: this.schemes });
         nextOptions.rendering.schemeSourceRepresentationId = normalizeSchemeSource(nextOptions, this.dataOptions.representations);
         this.options = nextOptions;
         this.viewerConfig = deriveViewerOptions(nextOptions);
@@ -802,6 +837,7 @@ export class MSAViewer {
             pipelineRegistry: this.pipelineRegistry,
             minimapView,
             decodedTileCache: this.decodedTileCache,
+            schemes: this.schemes,
         });
         return minimapView;
     }
@@ -952,7 +988,7 @@ export class MSAViewer {
             alignmentState: schemeAlignmentState,
             alignmentStore: schemeAlignmentStore,
             alphabet: schemeAlphabet,
-            cacheToken: `${this.state.getSchemeKey()}:${schemeRepresentation.id}`,
+            cacheToken: `${this.state.getSchemeKey()}:${this.schemes[this.state.getSchemeKey()]?.version ?? 0}:${schemeRepresentation.id}`,
             schemeKey: this.state.getSchemeKey(),
             darkMode: this.state.getResolvedDarkMode(),
             themeBuffer: this.#themeBuffer,
@@ -1036,7 +1072,7 @@ export class MSAViewer {
             computeShaderCodes: this.computeShaderCodes,
             decodedTileCache: this.decodedTileCache,
             alphabetRegistry: this.alphabetRegistry,
-            getProfileStride: () => SCHEMES[this.state.getSchemeKey()].profileStride,
+            schemes: this.schemes,
         }));
     }
 
@@ -1187,10 +1223,13 @@ export class MSAViewer {
             schemeAlignmentState,
         } = this.#renderSources();
         const schemeKey = this.state.getSchemeKey();
+        const profileSchemeKey = `${schemeKey}:${this.schemes[schemeKey]?.version ?? 0}`;
         if (!schemeAlignmentStore || !schemeAlignmentState || !schemeRepresentation) return;
         if (!this.schemePolicy.requiresColumnProfile(schemeKey)) return;
-        if (schemeAlignmentState.profileSchemeKey === schemeKey) return;
-        const representation = await this.#ensureColumnMetrics(schemeRepresentation.id);
+        if (schemeAlignmentState.profileSchemeKey === profileSchemeKey) return;
+        const representation = this.schemePolicy.requiresColumnMetrics(schemeKey)
+            ? await this.#ensureColumnMetrics(schemeRepresentation.id)
+            : schemeRepresentation;
         await this.columnProfileService.compute({
             alignmentStore: schemeAlignmentStore,
             alignmentState: schemeAlignmentState,
@@ -1202,7 +1241,7 @@ export class MSAViewer {
             schemeRepresentation.id,
             schemeAlignmentState.colProfileData ?? null
         );
-        this.representationStore?.setProfileSchemeKey(schemeRepresentation.id, schemeKey);
+        this.representationStore?.setProfileSchemeKey(schemeRepresentation.id, profileSchemeKey);
     }
 
     async #ensureEnabledTrackState() {
@@ -1331,7 +1370,7 @@ export class MSAViewer {
         }
         const snapshot = this.state.getSnapshot();
         const darkMode = snapshot.theme.darkMode ? 1 : 0;
-        const colorSchemeId = SCHEMES[snapshot.scheme.key].id;
+        const colorSchemeId = this.schemes[snapshot.scheme.key].id;
         if (
             this.lastThemeUniform?.darkMode === darkMode &&
             this.lastThemeUniform?.colorSchemeId === colorSchemeId
@@ -1478,6 +1517,7 @@ export class MSAViewer {
             schemeWindowState: this.renderWindow.scheme ?? this.renderWindow.active,
             sources,
             schemeKey: this.state.getSchemeKey(),
+            schemes: this.schemes,
             darkMode: this.state.getResolvedDarkMode(),
         });
     }

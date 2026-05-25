@@ -7,15 +7,17 @@ function formatSchemeLabel(key) {
         .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
-function groupLabel(type) {
-    if (type === "columnStatistic") return "Column Statistics";
-    if (type === "residueProperty") return "Residue Properties";
+function groupLabel(mode) {
+    if (mode === "column-statistic") return "Column Statistics";
+    if (mode === "residue-property") return "Residue Properties";
+    if (mode === "scalar-column") return "Custom Schemes";
     return "Schemes";
 }
 
-function groupOrder(type) {
-    if (type === "columnStatistic") return 0;
-    if (type === "residueProperty") return 1;
+function groupOrder(mode) {
+    if (mode === "column-statistic") return 0;
+    if (mode === "residue-property") return 1;
+    if (mode === "scalar-column") return 2;
     return 2;
 }
 
@@ -44,7 +46,7 @@ function addVariant(schemeMap, scheme, variant) {
         key: scheme.key,
         label: scheme.label,
         group: scheme.group,
-        type: scheme.type,
+        mode: scheme.mode,
         variants: [variant],
     });
 }
@@ -59,12 +61,13 @@ export function buildSchemeOptions({
     const schemeMap = new Map();
     const suffixById = representationSuffixes(representations);
     const schemesFor = (alphabet) => Object.entries(schemes)
-        .filter(([key]) => isSupported(key, alphabet))
+        .filter(([key, scheme]) => scheme.scope === "viewer" || isSupported(key, alphabet))
         .map(([key, scheme]) => ({
             key,
             label: scheme.label ?? formatSchemeLabel(key),
-            group: groupLabel(scheme.type),
-            type: scheme.type,
+            group: groupLabel(scheme.mode),
+            mode: scheme.mode,
+            scope: scheme.scope,
         }));
 
     if (representations.length === 0) {
@@ -78,8 +81,16 @@ export function buildSchemeOptions({
         }
     } else {
         const multiple = representations.length > 1;
+        for (const scheme of schemesFor(activeAlphabet).filter((scheme) => scheme.scope === "viewer")) {
+            addVariant(schemeMap, scheme, {
+                representationId: null,
+                alphabetId: null,
+                alphabetShortLabel: null,
+                displayLabel: scheme.label,
+            });
+        }
         for (const representation of representations) {
-            for (const scheme of schemesFor(getAlphabet(representation.alphabetId))) {
+            for (const scheme of schemesFor(getAlphabet(representation.alphabetId)).filter((scheme) => scheme.scope !== "viewer")) {
                 addVariant(schemeMap, scheme, {
                     representationId: representation.id,
                     alphabetId: representation.alphabetId,
@@ -93,7 +104,7 @@ export function buildSchemeOptions({
     }
 
     return [...schemeMap.values()].sort((a, b) =>
-        groupOrder(a.type) - groupOrder(b.type)
+        groupOrder(a.mode) - groupOrder(b.mode)
         || a.label.localeCompare(b.label)
     );
 }

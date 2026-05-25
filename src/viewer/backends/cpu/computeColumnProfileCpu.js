@@ -1,3 +1,6 @@
+import { BUILT_IN_COLOR_SCHEMES } from "../../../schemes/registry.js";
+import { computeCustomSchemeProfileData } from "../../../schemes/customColorScheme.js";
+
 function moreThanPercent(count, total, percent) {
     return total > 0 && (count * 100) > (percent * total);
 }
@@ -106,7 +109,13 @@ function buildClustalxMask(counts, offset, alphabet) {
     return mask >>> 0;
 }
 
-export function computeColumnProfileDataCpu({ columnMetrics, alphabet, schemeKey }) {
+export function computeColumnProfileDataCpu({ columnMetrics, alphabet, schemeKey, schemes = BUILT_IN_COLOR_SCHEMES, totalCols: requestedTotalCols = null }) {
+    const scheme = schemes[schemeKey];
+    if (scheme?.mode === "scalar-column") {
+        const totalCols = requestedTotalCols ?? scheme.columnCount ?? 0;
+        return computeCustomSchemeProfileData({ scheme, totalCols });
+    }
+
     const totalCols = Math.floor((columnMetrics?.counts?.length ?? 0) / (alphabet?.bucketStride ?? 1));
     const out = new Uint32Array(totalCols);
     if (!columnMetrics?.counts || !alphabet || totalCols === 0) {

@@ -1,15 +1,10 @@
+import { resolveColormap, sampleColormap } from "../../schemes/colormaps.js";
+
 let logoMeasureCanvas = null;
 let logoMeasureContext = undefined;
 const LOGO_GLYPH_METRIC_CACHE = new Map();
 const LOGO_GLYPH_ALPHA_CACHE = new Map();
 const LOGO_GLYPH_RASTER_CACHE = new Map();
-let colorParseCanvas = null;
-let colorParseContext = undefined;
-const COLOR_PARSE_CACHE = new Map();
-
-function clamp01(value) {
-    return Math.max(0, Math.min(1, value));
-}
 
 function createCanvas(width, height) {
     if (typeof document === "undefined") {
@@ -30,45 +25,17 @@ function getLogoMeasureResources() {
     return logoMeasureContext ? { canvas: logoMeasureCanvas, context: logoMeasureContext } : null;
 }
 
-function getColorParseContext() {
-    if (colorParseContext !== undefined) {
-        return colorParseContext;
-    }
-    colorParseCanvas = createCanvas(1, 1);
-    colorParseContext = colorParseCanvas?.getContext("2d", { willReadFrequently: true }) ?? null;
-    return colorParseContext;
-}
-
-function parseCssColor(color) {
-    if (COLOR_PARSE_CACHE.has(color)) {
-        return COLOR_PARSE_CACHE.get(color);
-    }
-    const ctx = getColorParseContext();
-    if (!ctx) {
-        const fallback = [0, 0, 0, 255];
-        COLOR_PARSE_CACHE.set(color, fallback);
-        return fallback;
-    }
-    ctx.clearRect(0, 0, 1, 1);
-    ctx.fillStyle = "#000";
-    ctx.fillStyle = color;
-    ctx.fillRect(0, 0, 1, 1);
-    const parsed = Array.from(ctx.getImageData(0, 0, 1, 1).data);
-    COLOR_PARSE_CACHE.set(color, parsed);
-    return parsed;
-}
-
 function formatRgbaColor([r, g, b, a]) {
     const alpha = Math.round((a / 255) * 1000) / 1000;
-    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+    return `rgba(${Math.round(r)}, ${Math.round(g)}, ${Math.round(b)}, ${alpha})`;
 }
 
 export function createColorRamp(overrides = {}) {
     return {
-        minScore: 0,
-        maxScore: 1,
-        minColor: null,
-        maxColor: null,
+        min: 0,
+        max: 1,
+        colormap: null,
+        missingValue: null,
         target: "fill",
         ...overrides,
     };
@@ -78,47 +45,36 @@ export function prepareColorRamp(ramp) {
     if (!ramp) {
         return null;
     }
-    if (ramp.minColor == null || ramp.maxColor == null) {
+    if (ramp.colormap != null) {
+        const colormap = resolveColormap(ramp.colormap);
+        if (!colormap) {
+            throw new Error("Track color ramp colormap must be a known name or at least two valid color stops.");
+        }
         return {
             ...ramp,
-            parsedMinColor: null,
-            parsedMaxColor: null,
+            colormap,
         };
     }
-    return {
-        ...ramp,
-        parsedMinColor: parseCssColor(ramp.minColor),
-        parsedMaxColor: parseCssColor(ramp.maxColor),
-    };
+    return { ...ramp };
 }
 
-export function interpolateColor(minColor, maxColor, t) {
-    const start = Array.isArray(minColor) ? minColor : parseCssColor(minColor);
-    const end = Array.isArray(maxColor) ? maxColor : parseCssColor(maxColor);
-    const mix = clamp01(t);
-    const r = Math.round(start[0] + (end[0] - start[0]) * mix);
-    const g = Math.round(start[1] + (end[1] - start[1]) * mix);
-    const b = Math.round(start[2] + (end[2] - start[2]) * mix);
-    const a = Math.round(start[3] + (end[3] - start[3]) * mix);
-    return formatRgbaColor([r, g, b, a]);
-}
-
-export function resolveInterpolatedColor(score, {
-    minScore = 0,
-    maxScore = 1,
-    minColor,
-    maxColor,
-    parsedMinColor = null,
-    parsedMaxColor = null,
+export function resolveScalarRampColor(score, {
+    min = 0,
+    max = 1,
+    colormap = null,
+    missingValue = null,
 } = {}) {
-    if (minColor == null || maxColor == null) {
+    if (!Number.isFinite(score) || score === missingValue) {
         return null;
     }
-    if (maxScore <= minScore) {
-        return maxColor;
+    if (max <= min) {
+        return colormap ? formatRgbaColor(sampleColormap(colormap, 1)) : null;
     }
-    const t = (score - minScore) / (maxScore - minScore);
-    return interpolateColor(parsedMinColor ?? minColor, parsedMaxColor ?? maxColor, t);
+    const t = (score - min) / (max - min);
+    if (colormap) {
+        return formatRgbaColor(sampleColormap(colormap, t));
+    }
+    return null;
 }
 
 function getLogoGlyphMetrics(font, glyph) {
