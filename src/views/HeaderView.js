@@ -17,6 +17,7 @@ export class HeaderView {
         this.fontFamily = fontFamily;
         this.fontSize = fontSize;
         this.onRowClick = typeof onRowClick === "function" ? onRowClick : null;
+        this.rowStyles = new Map();
 
         this.track = document.createElement("div");
         this.track.className = "msa-headers-track";
@@ -56,6 +57,22 @@ export class HeaderView {
         if (this.root.style.height === nextHeight) return;
         this.root.style.height = nextHeight;
     }
+    setRowStyles(rowStyles = []) {
+        this.rowStyles = new Map(rowStyles.map((style) => [style.rowIndex, style]));
+        this.applyRowStyles();
+    }
+    clearRowStyles() {
+        this.rowStyles.clear();
+        this.applyRowStyles();
+    }
+    applyRowStyles() {
+        for (const rowEl of this.track.children) {
+            const rowIndex = Number.parseInt(rowEl.dataset.rowIndex ?? "", 10);
+            const style = this.rowStyles.get(rowIndex);
+            rowEl.style.backgroundColor = style?.headerBackground ?? "";
+            rowEl.style.color = style?.headerColor ?? "";
+        }
+    }
     renderRecords(records) {
         this.track.replaceChildren();
         for (const [rowIndex, record] of records.entries()) {
@@ -67,6 +84,7 @@ export class HeaderView {
         }
         const trackHeight = Math.max(1, records.length * this.rowHeight);
         this.track.style.height = `${trackHeight}px`;
+        this.applyRowStyles();
     }
     syncScroll(scrollTop) {
         this.track.style.transform = `translateY(${-scrollTop}px)`;

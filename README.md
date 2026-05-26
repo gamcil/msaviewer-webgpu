@@ -87,6 +87,8 @@ viewer.getActiveRepresentation();
 viewer.getSchemes();
 viewer.getTracks();
 viewer.getSelection();
+viewer.setRowStyles(rowStyles);
+viewer.clearRowStyles();
 viewer.setSelection({ mode, ranges });
 viewer.clearSelection();
 await viewer.exportSelectionAsFasta();
@@ -121,6 +123,22 @@ await viewer.setConfig({
 ```
 
 Use a two-stop `colormap` for a two-color gradient. Built-in colormap names include `viridis`, `magma`, `inferno`, and `plasma`; `colormap` also accepts an array of color stops.
+
+## Row Header Styles
+
+Apply lightweight row header styling for application-level sequence state, such as rows linked to an external structure viewer. This does not affect alignment selection or exported selections.
+
+```js
+viewer.setRowStyles([
+  {
+    rowIndex: 4,
+    headerBackground: "#1976d2",
+    headerColor: "#ffffff",
+  },
+]);
+
+viewer.clearRowStyles();
+```
 
 ## Declarative Tracks
 

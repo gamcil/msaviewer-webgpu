@@ -80,6 +80,23 @@ function cloneSnapshot(value) {
     );
 }
 
+function normalizeRowStyles(rowStyles = []) {
+    if (!Array.isArray(rowStyles)) {
+        throw new Error("Row styles must be an array.");
+    }
+    return rowStyles.map((style) => {
+        const rowIndex = style?.rowIndex;
+        if (!Number.isInteger(rowIndex) || rowIndex < 0) {
+            throw new Error("Row style rowIndex must be a non-negative integer.");
+        }
+        return {
+            rowIndex,
+            headerBackground: typeof style.headerBackground === "string" ? style.headerBackground : null,
+            headerColor: typeof style.headerColor === "string" ? style.headerColor : null,
+        };
+    });
+}
+
 function createRootSlots() {
     return {
         alignment: null,
@@ -150,6 +167,7 @@ export class MSAViewer {
         this.autoLayoutShell = null;
         this.roots = createRootSlots();
         this.headerView = null;
+        this.rowStyles = [];
         this.alignmentView = null;
         this.rulerView = null;
         this.minimapView = null;
@@ -377,6 +395,7 @@ export class MSAViewer {
             const records = this.#activeStore()?.records;
             if (records) {
                 this.headerView.renderRecords(records);
+                this.headerView.setRowStyles(this.rowStyles);
             }
         }
     }
@@ -440,6 +459,8 @@ export class MSAViewer {
         }
         this.alignmentView?.setMotifState?.({ motifHitsByRow: null });
         this.headerView?.renderRecords?.([]);
+        this.rowStyles = [];
+        this.headerView?.clearRowStyles?.();
         for (const trackStackView of this.trackStackViews) {
             trackStackView.clear();
         }
@@ -1015,6 +1036,16 @@ export class MSAViewer {
     getSelection() {
         return this.state.getSelectionSnapshot();
     }
+    setRowStyles(rowStyles = []) {
+        this.#assertLive();
+        this.rowStyles = normalizeRowStyles(rowStyles);
+        this.headerView?.setRowStyles(this.rowStyles);
+    }
+    clearRowStyles() {
+        this.#assertLive();
+        this.rowStyles = [];
+        this.headerView?.clearRowStyles();
+    }
     setSelection({ mode, ranges } = {}) {
         if (mode != null) {
             this.#setSelectionMode(mode);
@@ -1298,6 +1329,7 @@ export class MSAViewer {
             resetView ? 0 : previousScrollTop
         );
         this.headerView?.renderRecords(records);
+        this.headerView?.setRowStyles(this.rowStyles);
         this.selectionController?.syncOverlay(this.state.getSelectionSnapshot());
         this.#syncMinimapSelection();
         await this.#uploadWindow();

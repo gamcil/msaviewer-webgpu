@@ -192,11 +192,26 @@ async function main() {
     const alphabetOptions = defaultAlphabetRegistry.list();
     let pendingFiles = [];
     let motifQuery = "";
+    const styledRows = new Set();
     const viewer = new MSAViewer({
         root,
         config: DEMO_CONFIG,
     });
+    const syncRowStyles = () => {
+        viewer.setRowStyles([...styledRows].map((rowIndex) => ({
+            rowIndex,
+            headerBackground: "#1976d2",
+            headerColor: "#ffffff",
+        })));
+    };
     viewer.addEventListener("sequenceclick", (event) => {
+        const { rowIndex } = event.detail;
+        if (styledRows.has(rowIndex)) {
+            styledRows.delete(rowIndex);
+        } else {
+            styledRows.add(rowIndex);
+        }
+        syncRowStyles();
         setStatus(status, `Clicked sequence ${event.detail.record.name} in ${event.detail.representationId} at row ${event.detail.rowIndex}.`);
     });
 
@@ -428,6 +443,8 @@ async function main() {
 
             syncUI({ viewer, ...ui });
             renderTrackToggles();
+            styledRows.clear();
+            viewer.clearRowStyles();
 
             pendingFiles = [];
             renderPendingFiles();

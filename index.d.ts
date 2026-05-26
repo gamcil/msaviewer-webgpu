@@ -116,6 +116,12 @@ export interface SelectionSnapshot {
   componentCount: number;
 }
 
+export interface RowStyle {
+  rowIndex: number;
+  headerBackground?: string | null;
+  headerColor?: string | null;
+}
+
 export interface SchemeVariant {
   representationId: RepresentationId | null;
   alphabetId: AlphabetId | null;
@@ -329,6 +335,8 @@ export class MSAViewer {
   loadData(input: DataInput | DataInput[], options?: { activeId?: RepresentationId | null }): Promise<LoadDataResult>;
   setActiveRepresentation(id: RepresentationId): Promise<RepresentationSummary | null>;
   setTrackEnabled(track: TrackRef | TrackVariant | string, enabled: boolean): Promise<void>;
+  setRowStyles(rowStyles?: RowStyle[]): void;
+  clearRowStyles(): void;
   setSelection(selection?: { mode?: SelectionMode; ranges?: SelectionRange[] }): void;
   clearSelection(): void;
   exportSelectionAsFasta(options?: { representationId?: RepresentationId | null; lineWidth?: number }): Promise<string>;
