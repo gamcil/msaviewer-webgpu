@@ -1,6 +1,6 @@
 {
   "name": "msa-webgpu",
-  "version": "0.0.5",
+  "version": "0.0.6",
   "description": "WebGPU MSA Viewer for large alignments.",
   "type": "module",
   "main": "./dist/index.js",
