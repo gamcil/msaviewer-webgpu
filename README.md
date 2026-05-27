@@ -87,6 +87,7 @@ viewer.getActiveRepresentation();
 viewer.getSchemes();
 viewer.getTracks();
 viewer.getSelection();
+viewer.getColumnVisibility();
 viewer.setRowStyles(rowStyles);
 viewer.clearRowStyles();
 viewer.setSelection({ mode, ranges });
@@ -94,6 +95,7 @@ viewer.clearSelection();
 await viewer.exportSelectionAsFasta();
 
 viewer.addEventListener("selectionchange", handler);
+viewer.addEventListener("visibilitychange", handler);
 viewer.addEventListener("sequenceclick", handler);
 viewer.destroy();
 ```
@@ -138,6 +140,18 @@ viewer.setRowStyles([
 ]);
 
 viewer.clearRowStyles();
+```
+
+## Column Visibility
+
+Column masking is exposed as a snapshot so external views can stay aligned with the viewer's filtered columns.
+
+```js
+const visibility = viewer.getColumnVisibility();
+
+viewer.addEventListener("visibilitychange", (event) => {
+  const { visible, rawToVisible, visibleToRaw, visibleCount } = event.detail.columnVisibility;
+});
 ```
 
 ## Declarative Tracks

@@ -122,6 +122,16 @@ export interface RowStyle {
   headerColor?: string | null;
 }
 
+export interface ColumnVisibilitySnapshot {
+  mode: string;
+  visible: Uint8Array;
+  rawToVisible: Int32Array;
+  visibleToRaw: Uint32Array;
+  visibleCount: number;
+  totalCols: number;
+  signature: string | number;
+}
+
 export interface SchemeVariant {
   representationId: RepresentationId | null;
   alphabetId: AlphabetId | null;
@@ -296,6 +306,11 @@ export interface SelectionChangeDetail {
   selection: SelectionSnapshot;
 }
 
+export interface VisibilityChangeDetail {
+  columnVisibility: ColumnVisibilitySnapshot | null;
+  representationId: RepresentationId | null;
+}
+
 export interface ViewerErrorDetail {
   error: unknown;
 }
@@ -303,6 +318,7 @@ export interface ViewerErrorDetail {
 export interface MSAViewerEventMap {
   sequenceclick: CustomEvent<SequenceClickDetail>;
   selectionchange: CustomEvent<SelectionChangeDetail>;
+  visibilitychange: CustomEvent<VisibilityChangeDetail>;
   error: CustomEvent<ViewerErrorDetail>;
 }
 
@@ -329,6 +345,7 @@ export class MSAViewer {
   getSchemes(): SchemeOption[];
   getTracks(): TrackOption[];
   getSelection(): SelectionSnapshot;
+  getColumnVisibility(options?: { representationId?: RepresentationId | null }): ColumnVisibilitySnapshot | null;
   registerColorScheme(key: string, options: RegisterCustomColorSchemeOptions): Promise<RegisteredColorScheme>;
 
   setConfig(config?: MSAViewerConfigInput): Promise<void>;

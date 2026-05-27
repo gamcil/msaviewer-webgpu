@@ -97,6 +97,29 @@ function normalizeRowStyles(rowStyles = []) {
     });
 }
 
+function columnVisibilitySnapshot(columnVisibility, totalCols = 0) {
+    if (!columnVisibility) {
+        return {
+            mode: "none",
+            visible: new Uint8Array(totalCols).fill(1),
+            rawToVisible: Int32Array.from({ length: totalCols }, (_, index) => index),
+            visibleToRaw: Uint32Array.from({ length: totalCols }, (_, index) => index),
+            visibleCount: totalCols,
+            totalCols,
+            signature: "unmasked",
+        };
+    }
+    return {
+        mode: columnVisibility.mode,
+        visible: new Uint8Array(columnVisibility.visible),
+        rawToVisible: new Int32Array(columnVisibility.rawToVisible),
+        visibleToRaw: new Uint32Array(columnVisibility.visibleToRaw),
+        visibleCount: columnVisibility.visibleCount,
+        totalCols,
+        signature: columnVisibility.signature,
+    };
+}
+
 function createRootSlots() {
     return {
         alignment: null,
@@ -1037,6 +1060,16 @@ export class MSAViewer {
     getSelection() {
         return this.state.getSelectionSnapshot();
     }
+    getColumnVisibility({ representationId = null } = {}) {
+        const representation = representationId
+            ? this.#getRepresentation(representationId)
+            : this.#activeRepresentation();
+        if (!representation?.store) return null;
+        return columnVisibilitySnapshot(
+            representation.columnVisibility,
+            representation.store.totalCols
+        );
+    }
     setRowStyles(rowStyles = []) {
         this.#assertLive();
         this.rowStyles = normalizeRowStyles(rowStyles);
@@ -1462,6 +1495,10 @@ export class MSAViewer {
         );
         this.#syncMinimapSelection();
         this.minimapTask.schedule();
+        this.#emit("visibilitychange", {
+            columnVisibility: this.getColumnVisibility(),
+            representationId: active.id,
+        });
         void this.motifController?.refreshActiveRepresentation();
     }
 
