@@ -320,12 +320,12 @@ export class MSAViewer {
         return publicColorSchemeDescriptor(scheme);
     }
 
-    #renderSources() {
+    #renderSources({ schemeKey = this.state.getSchemeKey() } = {}) {
         const active = this.#activeRepresentation();
         const activeAlphabet = active
             ? this.alphabetRegistry.get(active.alphabetId)
             : this.#activeAlphabet();
-        if (this.schemes[this.state.getSchemeKey()]?.scope === "viewer") {
+        if (this.schemes[schemeKey]?.scope === "viewer") {
             return {
                 activeRepresentation: active,
                 schemeRepresentation: active,
@@ -522,12 +522,13 @@ export class MSAViewer {
             await this.#recreateBackend(nextBackend);
             return;
         }
+        const sourceChanged = nextOptions.rendering.schemeSourceRepresentationId !== previousOptions.rendering.schemeSourceRepresentationId;
         if (
             nextOptions.rendering.scheme !== previousOptions.rendering.scheme
-            || nextOptions.rendering.schemeSourceRepresentationId !== previousOptions.rendering.schemeSourceRepresentationId
+            || sourceChanged
             || this.schemes[nextOptions.rendering.scheme]?.custom === true
         ) {
-            await this.#applyScheme(nextOptions.rendering.scheme);
+            await this.#applyScheme(nextOptions.rendering.scheme, { force: sourceChanged });
         }
     }
 
@@ -1413,14 +1414,16 @@ export class MSAViewer {
         this.lastThemeUniform = { darkMode, colorSchemeId };
     }
     
-    async #applyScheme(schemeKey) {
+    async #applyScheme(schemeKey, { force = false } = {}) {
         const snapshot = this.state.getSnapshot();
-        const { schemeAlphabet } = this.#renderSources();
+        const { schemeAlphabet } = this.#renderSources({ schemeKey });
         const alphabet = schemeAlphabet;
         if (!this.schemePolicy.isSupported(schemeKey, alphabet)) {
             throw new Error(`Scheme '${schemeKey}' is not supported for alphabet '${alphabet.id}'.`);
         }
         if (
+            !force
+            &&
             snapshot.scheme.key === schemeKey
             && this.renderWindow.bindGroup
         ) {
