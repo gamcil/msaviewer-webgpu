@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import { wgslPlugin } from "./vite.wgsl.plugin.js";
 
 export default defineConfig({
+    base: "./",
     plugins: [wgslPlugin()],
     build: {
         outDir: resolve(import.meta.dirname, "dist"),

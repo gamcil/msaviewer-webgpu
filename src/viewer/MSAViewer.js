@@ -3,12 +3,13 @@ import { ViewerState } from "./state/ViewerState.js";
 import { HeaderView } from "../views/HeaderView.js";
 import { AlignmentView } from "../views/AlignmentView.js";
 import { RulerView } from "../views/RulerView.js";
+import atlasUrl from "../graphics/atlas.png?url&no-inline";
 import {
     createSchemeRegistry,
     publicColorSchemeDescriptor,
     registerCustomColorScheme,
 } from "../schemes/registry.js";
-import { loadImageBitmap } from "../util.js";
+import { loadImageSource } from "../util.js";
 import { TileCache } from "../alignment/tiledStorage.js";
 import clustalxComputeShaderCode from "../graphics/shaders/clustalx.compute.wgsl";
 import pidComputeShaderCode from "../graphics/shaders/pident.compute.wgsl";
@@ -679,7 +680,7 @@ export class MSAViewer {
         await this.#ensureGpu();
         this.#assertLive();
         if (!this.atlasBitmap) {
-            this.atlasBitmap = await loadImageBitmap(new URL("../graphics/atlas.png", import.meta.url));
+            this.atlasBitmap = await loadImageSource(atlasUrl);
         }
         this.#assertLive();
         this.#createBackend();

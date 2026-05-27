@@ -1,10 +1,16 @@
-async function loadImageBitmap(url) {
-    const response = await fetch(url);
-    if (!response.ok) {
-        throw new Error(`Failed to load ${url}: ${response.status}`);
+async function loadImageSource(url) {
+    const image = new Image();
+    image.decoding = "async";
+    image.src = String(url);
+    if (typeof image.decode === "function") {
+        await image.decode();
+        return image;
     }
-    const blob = await response.blob();
-    return createImageBitmap(blob);
+    await new Promise((resolve, reject) => {
+        image.onload = resolve;
+        image.onerror = () => reject(new Error(`Failed to load image: ${url}`));
+    });
+    return image;
 }
 
 function isPlainObject(value) {
@@ -24,4 +30,4 @@ function mergeObjects(base = {}, override = {}) {
     return result;
 }
 
-export { isPlainObject, loadImageBitmap, mergeObjects };
+export { isPlainObject, loadImageSource, mergeObjects };
