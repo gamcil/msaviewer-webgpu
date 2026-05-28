@@ -10,7 +10,7 @@ import {
     registerCustomColorScheme,
 } from "../schemes/registry.js";
 import { loadImageSource } from "../util.js";
-import { TileCache } from "../alignment/tiledStorage.js";
+import { TileCache, sequenceResidueIndexAt } from "../alignment/tiledStorage.js";
 import clustalxComputeShaderCode from "../graphics/shaders/clustalx.compute.wgsl";
 import pidComputeShaderCode from "../graphics/shaders/pident.compute.wgsl";
 import blosumComputeShaderCode from "../graphics/shaders/blosum.compute.wgsl";
@@ -164,6 +164,7 @@ export class MSAViewer {
             hasWebGPU: typeof navigator !== "undefined" && !!navigator.gpu,
         });
         this.eventTarget = new EventTarget();
+        this.cellHoverVersion = 0;
         this.cleanup = [];
         this.initialized = false;
         this.initPromise = null;
@@ -933,6 +934,10 @@ export class MSAViewer {
             alignmentView: this.alignmentView,
             getCoordsFromEvent: (event) => this.#cellFromPointer(event),
             getIsScrolling: () => this.isScrolling,
+            onHoverChange: (cell, originalEvent) => {
+                void this.#emitCellHover(cell, originalEvent)
+                    .catch((error) => this.#emit("error", { error }));
+            },
         });
         this.motifController = new MotifController({
             alignmentView: this.alignmentView,
@@ -1009,10 +1014,72 @@ export class MSAViewer {
         const cellHeight = this.alignmentView.getRenderedCellHeightCss();
         const snapshot = this.state.getSnapshot();
         const visibleCol = Math.floor(contentX / cellWidth);
+        const visibleColCount = this.#activeRepresentation()?.columnVisibility?.visibleCount ?? snapshot.alignment.totalCols;
+        const row = Math.floor(contentY / cellHeight);
+        if (visibleCol < 0 || visibleCol >= visibleColCount || row < 0 || row >= snapshot.alignment.totalRows) {
+            return null;
+        }
         const columnVisibility = this.#activeRepresentation()?.columnVisibility;
         const col = columnVisibility?.visibleToRaw?.[visibleCol] ?? visibleCol;
-        const row = Math.min(snapshot.alignment.totalRows - 1, Math.floor(contentY / cellHeight));
-        return [col, row];
+        if (!Number.isInteger(col) || col < 0 || col >= snapshot.alignment.totalCols) {
+            return null;
+        }
+        return [col, row, visibleCol];
+    }
+
+    #symbolForCell(rowIndex, visibleColumn) {
+        const activeWindow = this.renderWindow.active;
+        if (!activeWindow?.data || !activeWindow.columnMap) return null;
+        const localRow = rowIndex - activeWindow.rowStart;
+        const localVisibleCol = visibleColumn - activeWindow.colStart;
+        if (
+            localRow < 0
+            || localRow >= activeWindow.rowCount
+            || localVisibleCol < 0
+            || localVisibleCol >= activeWindow.colCount
+        ) {
+            return null;
+        }
+        const rawWindowCol = activeWindow.columnMap[(localVisibleCol * 2) + 1];
+        const raw = activeWindow.data[(localRow * activeWindow.rawTextureCols) + rawWindowCol];
+        return Number.isFinite(raw) ? String.fromCharCode(raw) : null;
+    }
+
+    async #emitCellHover(cell, originalEvent = null) {
+        const version = ++this.cellHoverVersion;
+        const active = this.#activeRepresentation();
+        const store = active?.store ?? null;
+        const rowIndex = cell?.row ?? null;
+        const rawColumn = cell?.col ?? null;
+        const visibleColumn = cell?.visibleCol ?? null;
+        const symbol = rowIndex == null || visibleColumn == null
+            ? null
+            : this.#symbolForCell(rowIndex, visibleColumn);
+        const sequenceResidueIndex = rowIndex == null || rawColumn == null
+            ? null
+            : await sequenceResidueIndexAt(store, rowIndex, rawColumn, this.decodedTileCache);
+        if (
+            rowIndex != null
+            && (
+                version !== this.cellHoverVersion
+                || this.selectionController?.hoveredCell?.row !== rowIndex
+                || this.selectionController?.hoveredCell?.col !== rawColumn
+            )
+        ) {
+            return;
+        }
+        this.#emit("cellhover", {
+            rowIndex,
+            rawColumn,
+            visibleColumn,
+            record: rowIndex == null ? null : store?.records?.[rowIndex] ?? null,
+            representationId: active?.id ?? null,
+            alphabetId: active?.alphabetId ?? null,
+            symbol,
+            sequenceResidueIndex,
+            sequenceResidueNumber: sequenceResidueIndex == null ? null : sequenceResidueIndex + 1,
+            originalEvent,
+        });
     }
 
     #setLoaded(loaded) {

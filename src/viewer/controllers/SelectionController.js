@@ -4,11 +4,13 @@ export class SelectionController {
         alignmentView,
         getCoordsFromEvent,
         getIsScrolling,
+        onHoverChange = null,
     }) {
         this.state = state;
         this.alignmentView = alignmentView;
         this.getCoordsFromEvent = getCoordsFromEvent;
         this.getIsScrolling = getIsScrolling;
+        this.onHoverChange = typeof onHoverChange === "function" ? onHoverChange : null;
         this.hoveredCell = null;
         this.previewRange = null;
         this.dragAnchor = null;
@@ -29,10 +31,10 @@ export class SelectionController {
             this.queuePointer(event);
         };
 
-        this.onMouseLeave = () => {
+        this.onMouseLeave = (event) => {
             if (this.isDragging) return;
             this.cancelPointerFrame();
-            this.clearHover();
+            this.clearHover(event);
         };
 
         this.onMouseDown = (event) => {
@@ -70,7 +72,7 @@ export class SelectionController {
     }
 
     queuePointer(event) {
-        this.pointerPoint = { clientX: event.clientX, clientY: event.clientY };
+        this.pointerPoint = { clientX: event.clientX, clientY: event.clientY, originalEvent: event };
         if (this.pointerFrame) return;
         this.pointerFrame = window.requestAnimationFrame(() => {
             this.pointerFrame = 0;
@@ -84,11 +86,11 @@ export class SelectionController {
             if (this.getIsScrolling?.()) return;
             const coords = this.getCoordsFromEvent(point);
             if (!coords) {
-                this.clearHover();
+                this.clearHover(point.originalEvent ?? null);
                 return;
             }
             const [col, row] = coords;
-            this.setHoveredCell(col, row);
+            this.setHoveredCell(col, row, coords[2] ?? col, point.originalEvent ?? null);
         });
     }
 
@@ -185,15 +187,21 @@ export class SelectionController {
         });
     }
 
-    setHoveredCell(col, row) {
-        if (this.hoveredCell?.col === col && this.hoveredCell?.row === row) return;
-        this.hoveredCell = { col, row };
+    setHoveredCell(col, row, visibleCol = col, originalEvent = null) {
+        if (
+            this.hoveredCell?.col === col
+            && this.hoveredCell?.row === row
+            && this.hoveredCell?.visibleCol === visibleCol
+        ) return;
+        this.hoveredCell = { col, row, visibleCol };
         this.syncOverlay();
+        this.onHoverChange?.(this.hoveredCell, originalEvent);
     }
 
-    clearHover() {
+    clearHover(originalEvent = null) {
         if (this.hoveredCell === null) return;
         this.hoveredCell = null;
         this.syncOverlay();
+        this.onHoverChange?.(null, originalEvent);
     }
 }

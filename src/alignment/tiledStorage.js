@@ -88,6 +88,10 @@ function encodeAsciiRow(sequence) {
     return row;
 }
 
+export function isGapRaw(raw) {
+    return raw === 0 || raw === 45 || raw === 46 || raw === 32;
+}
+
 // factory method for processing incoming rows from a3m/fasta parsers
 // creates Blobs for tiles of a given size (def. 256x512)
 export function createTiledAlignmentBuilder(totalCols, options = {}) {
@@ -104,6 +108,7 @@ export function createTiledAlignmentBuilder(totalCols, options = {}) {
     let rowsInBand = 0;
     let bandTiles = Array.from({ length: colTileCount }, () => new Uint8Array(tileRows * tileCols));
     const tiles = [];
+    const sequenceResidueTileOffsets = [];
 
     const sealCurrentBand = () => {
         if (rowsInBand === 0) return;
@@ -139,11 +144,16 @@ export function createTiledAlignmentBuilder(totalCols, options = {}) {
                 throw new Error(`Expected row length ${totalCols}, received ${rowBytes.length}.`);
             }
             const rowInBand = rowsInBand;
+            let residueCount = 0;
             for (let colTile = 0; colTile < colTileCount; colTile += 1) {
                 const colStart = colTile * tileCols;
                 const colEnd = Math.min(colStart + tileCols, totalCols);
                 const tileOffset = rowInBand * tileCols;
                 bandTiles[colTile].set(rowBytes.subarray(colStart, colEnd), tileOffset);
+                sequenceResidueTileOffsets.push(residueCount);
+                for (let col = colStart; col < colEnd; col += 1) {
+                    if (!isGapRaw(rowBytes[col])) residueCount += 1;
+                }
             }
             rowsInBand += 1;
             totalRows += 1;
@@ -161,6 +171,7 @@ export function createTiledAlignmentBuilder(totalCols, options = {}) {
                 tileCols,
                 rowTileCount: Math.ceil(totalRows / tileRows),
                 colTileCount,
+                sequenceResidueTileOffsets: Uint32Array.from(sequenceResidueTileOffsets),
                 tiles,
             };
         },
@@ -226,6 +237,44 @@ export async function loadDecodedTile(alignment, tileIndex, cache) {
         }
         throw error;
     }
+}
+
+export async function sequenceResidueIndexAt(alignment, rowIndex, rawColumn, cache = null) {
+    if (
+        !alignment?.sequenceResidueTileOffsets
+        || rowIndex == null
+        || rawColumn == null
+        || rowIndex < 0
+        || rowIndex >= alignment.totalRows
+        || rawColumn < 0
+        || rawColumn >= alignment.totalCols
+    ) {
+        return null;
+    }
+
+    const rowTile = Math.floor(rowIndex / alignment.tileRows);
+    const colTile = Math.floor(rawColumn / alignment.tileCols);
+    const tileIndex = getTileIndex(alignment, rowTile, colTile);
+    const tile = alignment.tiles[tileIndex];
+    if (!tile) return null;
+
+    const rowInTile = rowIndex - tile.rowStart;
+    const localCol = rawColumn - tile.colStart;
+    if (rowInTile < 0 || rowInTile >= tile.rowCount || localCol < 0 || localCol >= tile.colCount) {
+        return null;
+    }
+
+    const tileData = await loadDecodedTile(alignment, tileIndex, cache);
+    const rowOffset = rowInTile * alignment.tileCols;
+    if (isGapRaw(tileData[rowOffset + localCol])) {
+        return null;
+    }
+
+    let residueIndex = alignment.sequenceResidueTileOffsets[(rowIndex * alignment.colTileCount) + colTile];
+    for (let col = 0; col < localCol; col += 1) {
+        if (!isGapRaw(tileData[rowOffset + col])) residueIndex += 1;
+    }
+    return residueIndex;
 }
 
 export async function materializeWindowFromTiles(alignment, rowStart, rowCount, colStart, colCount, cache = null) {

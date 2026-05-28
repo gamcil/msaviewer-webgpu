@@ -96,6 +96,7 @@ await viewer.exportSelectionAsFasta();
 
 viewer.addEventListener("selectionchange", handler);
 viewer.addEventListener("visibilitychange", handler);
+viewer.addEventListener("cellhover", handler);
 viewer.addEventListener("sequenceclick", handler);
 viewer.destroy();
 ```
@@ -140,6 +141,27 @@ viewer.setRowStyles([
 ]);
 
 viewer.clearRowStyles();
+```
+
+## Cell Hover
+
+Listen for hovered alignment cell changes to drive application-owned tooltips. Columns are reported in both visible-column and raw-alignment coordinates. `sequenceResidueIndex` is the 0-based non-gap residue index in that alignment row, and `sequenceResidueNumber` is the 1-based equivalent; both are `null` for gaps.
+
+```js
+viewer.addEventListener("cellhover", (event) => {
+  const {
+    rowIndex,
+    rawColumn,
+    visibleColumn,
+    sequenceResidueNumber,
+    record,
+    symbol,
+  } = event.detail;
+  if (rowIndex == null) {
+    // Pointer left the alignment body.
+    return;
+  }
+});
 ```
 
 ## Column Visibility

@@ -302,6 +302,19 @@ export interface SequenceClickDetail {
   originalEvent: Event;
 }
 
+export interface CellHoverDetail {
+  rowIndex: number | null;
+  rawColumn: number | null;
+  visibleColumn: number | null;
+  record: AlignmentRecord | null;
+  representationId: RepresentationId | null;
+  alphabetId: AlphabetId | null;
+  symbol?: string | null;
+  sequenceResidueIndex: number | null;
+  sequenceResidueNumber: number | null;
+  originalEvent: MouseEvent | null;
+}
+
 export interface SelectionChangeDetail {
   selection: SelectionSnapshot;
 }
@@ -317,6 +330,7 @@ export interface ViewerErrorDetail {
 
 export interface MSAViewerEventMap {
   sequenceclick: CustomEvent<SequenceClickDetail>;
+  cellhover: CustomEvent<CellHoverDetail>;
   selectionchange: CustomEvent<SelectionChangeDetail>;
   visibilitychange: CustomEvent<VisibilityChangeDetail>;
   error: CustomEvent<ViewerErrorDetail>;
