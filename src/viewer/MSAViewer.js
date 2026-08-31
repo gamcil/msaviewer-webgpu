@@ -505,6 +505,7 @@ export class MSAViewer {
 
         this.selectionController?.destroy?.();
         this.viewportController?.destroy?.();
+        this.minimapController?.destroy?.();
         this.minimapView?.destroy?.();
         this.rulerView?.destroy?.();
         this.headerView?.destroy?.();
@@ -514,6 +515,7 @@ export class MSAViewer {
         this.alignmentView = null;
         this.rulerView = null;
         this.minimapView = null;
+        this.minimapController = null;
         this.trackStackViews = [];
         this.roots = createRootSlots();
 

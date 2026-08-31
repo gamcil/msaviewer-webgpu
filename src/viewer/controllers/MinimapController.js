@@ -443,4 +443,13 @@ export class MinimapController {
             })
         );
     }
+
+    destroy() {
+        for (const resources of this.chunkResources) {
+            resources?.texture?.destroy();
+            resources?.visibleColumnMapBuffer?.destroy();
+            resources?.paramsBuffer?.destroy();
+        }
+        this.chunkResources = [];
+    }
 }
