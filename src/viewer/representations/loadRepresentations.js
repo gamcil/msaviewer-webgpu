@@ -1,5 +1,6 @@
 import { parseA3MAlignment } from "../../alignment/a3m.js";
 import { parseFastaAlignment } from "../../alignment/fasta.js";
+import { parseAlignmentInWorker } from "../../alignment/parseInWorker.js";
 
 function normalizeRep(input, defaultAlphabetId = null) {
     if (!input?.id || !input?.store) {
@@ -27,13 +28,19 @@ function toRepId(value = "", fallback = "default") {
 }
 
 async function parseAlignment(input, format) {
+    if (format !== "a3m" && format !== "fasta") {
+        throw new Error(`Unsupported alignment format: ${format}.`);
+    }
+    const parsedInWorker = await parseAlignmentInWorker(input, format);
+    if (parsedInWorker) {
+        return parsedInWorker;
+    }
     if (format === "a3m") {
         return parseA3MAlignment(input);
     }
     if (format === "fasta") {
         return parseFastaAlignment(input);
     }
-    throw new Error(`Unsupported alignment format: ${format}.`);
 }
 
 async function loadRep({

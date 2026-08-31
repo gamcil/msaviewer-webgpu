@@ -61,6 +61,8 @@ ACD-FGHIK`;
 
 `loadData()` also accepts an array when loading multiple representations. The first item becomes active unless `activeId` is provided.
 
+When supported, imported alignment tile payloads are stored in the browser's origin-private file system (OPFS). The decoded viewport cache and alignment metadata remain in memory; replacing the data or destroying the viewer removes the temporary local copy. At viewer startup, sessions abandoned by a crash are automatically cleaned once they are 24 hours old, without removing live sessions in another tab when the browser supports origin locks. Clearing the site's browser data removes them immediately. Browsers without OPFS use the in-memory fallback.
+
 ```js
 await viewer.loadData([
   { source: sequenceFasta, id: "sequence", label: "Sequence", alphabetId: "aa" },

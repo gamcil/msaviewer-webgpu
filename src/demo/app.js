@@ -191,6 +191,7 @@ async function main() {
     };
     const alphabetOptions = defaultAlphabetRegistry.list();
     let pendingFiles = [];
+    let loadingFiles = false;
     let motifQuery = "";
     const styledRows = new Set();
     const viewer = new MSAViewer({
@@ -312,7 +313,7 @@ async function main() {
         }
 
         pendingFilesPanel.hidden = false;
-        loadFilesButton.disabled = pendingFiles.length === 0;
+        loadFilesButton.disabled = loadingFiles || pendingFiles.length === 0;
         for (const pendingFile of pendingFiles) {
             const row = document.createElement("div");
             row.className = "pending-file-row";
@@ -429,7 +430,9 @@ async function main() {
     });
 
     loadFilesButton.addEventListener("click", async () => {
-        if (pendingFiles.length === 0) return;
+        if (loadingFiles || pendingFiles.length === 0) return;
+        loadingFiles = true;
+        renderPendingFiles();
         try {
             setStatus(status, `Loading ${pendingFiles.length} alignment file${pendingFiles.length === 1 ? "" : "s"}...`);
             const { active, representations } = await viewer.loadData(
@@ -454,6 +457,9 @@ async function main() {
         } catch (error) {
             setStatus(status, error.message);
             console.error(error);
+        } finally {
+            loadingFiles = false;
+            renderPendingFiles();
         }
     });
 

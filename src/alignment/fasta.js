@@ -8,7 +8,7 @@ export async function parseFastaAlignment(input, options = {}) {
     let builder = null;
     let totalCols = null;
 
-    const finalizeCurrentRecord = () => {
+    const finalizeCurrentRecord = async () => {
         if (currentName === null) {
             return;
         }
@@ -17,43 +17,48 @@ export async function parseFastaAlignment(input, options = {}) {
         }
         if (totalCols === null) {
             totalCols = currentSequence.length;
-            builder = createTiledAlignmentBuilder(totalCols, options);
+            builder = await createTiledAlignmentBuilder(totalCols, options);
         } else if (currentSequence.length !== totalCols) {
             throw new Error("All FASTA sequences must have the same aligned length.");
         }
 
-        builder.appendRow(currentSequence);
+        await builder.appendRow(currentSequence);
         records.push({ name: currentName });
     };
 
-    for await (const rawLine of iterateLines(input, "FASTA")) {
-        const line = rawLine.trim();
-        if (!line) {
-            continue;
+    try {
+        for await (const rawLine of iterateLines(input, "FASTA")) {
+            const line = rawLine.trim();
+            if (!line) {
+                continue;
+            }
+
+            if (line.startsWith("#")) {
+                continue;
+            }
+
+            if (line.startsWith(">")) {
+                await finalizeCurrentRecord();
+                currentName = line.slice(1).trim() || `sequence_${records.length + 1}`;
+                currentSequence = "";
+                continue;
+            }
+
+            if (currentName === null) {
+                throw new Error("FASTA parsing failed: sequence data appeared before the first header.");
+            }
+
+            currentSequence += line.replace(/\s+/g, "");
         }
 
-        if (line.startsWith("#")) {
-            continue;
-        }
+        await finalizeCurrentRecord();
 
-        if (line.startsWith(">")) {
-            finalizeCurrentRecord();
-            currentName = line.slice(1).trim() || `sequence_${records.length + 1}`;
-            currentSequence = "";
-            continue;
+        if (records.length === 0 || !builder) {
+            throw new Error("No FASTA records were found.");
         }
-
-        if (currentName === null) {
-            throw new Error("FASTA parsing failed: sequence data appeared before the first header.");
-        }
-
-        currentSequence += line.replace(/\s+/g, "");
+        return await builder.finalize(records);
+    } catch (error) {
+        await builder?.abort?.();
+        throw error;
     }
-
-    finalizeCurrentRecord();
-
-    if (records.length === 0 || !builder) {
-        throw new Error("No FASTA records were found.");
-    }
-    return builder.finalize(records);
 }

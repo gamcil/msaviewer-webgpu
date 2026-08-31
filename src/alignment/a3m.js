@@ -196,44 +196,49 @@ export async function parseA3MAlignment(input, options = {}) {
         totalCols += insertionWidths[slot];
     }
 
-    const builder = createTiledAlignmentBuilder(totalCols, options);
+    const builder = await createTiledAlignmentBuilder(totalCols, options);
     let encodedRows = 0;
     currentName = null;
     currentSequence = "";
 
-    const finalizeSecondPassRecord = () => {
+    const finalizeSecondPassRecord = async () => {
         if (currentName === null) {
             return;
         }
 
         const parsed = splitA3MSequence(currentSequence);
-        builder.appendRow(encodeA3MRow(parsed, totalCols, leadingWidth, insertionWidths, trailingWidth));
+        await builder.appendRow(encodeA3MRow(parsed, totalCols, leadingWidth, insertionWidths, trailingWidth));
         encodedRows += 1;
     };
 
-    for await (const rawLine of lineSource()) {
-        const line = rawLine.trim();
-        if (!line || line.startsWith("#")) continue;
-        if (line.startsWith(">")) {
-            finalizeSecondPassRecord();
-            currentName = line.slice(1).trim() || `sequence_${encodedRows + 1}`;
-            currentSequence = "";
-            continue;
+    try {
+        for await (const rawLine of lineSource()) {
+            const line = rawLine.trim();
+            if (!line || line.startsWith("#")) continue;
+            if (line.startsWith(">")) {
+                await finalizeSecondPassRecord();
+                currentName = line.slice(1).trim() || `sequence_${encodedRows + 1}`;
+                currentSequence = "";
+                continue;
+            }
+            if (currentName === null) {
+                throw new Error("A3M parsing failed: sequence data appeared before the first header.");
+            }
+            currentSequence += line.replace(/\s+/g, "");
         }
-        if (currentName === null) {
-            throw new Error("A3M parsing failed: sequence data appeared before the first header.");
-        }
-        currentSequence += line.replace(/\s+/g, "");
-    }
-    finalizeSecondPassRecord();
+        await finalizeSecondPassRecord();
 
-    const alignment = builder.finalize(records);
-    alignment.columnMetadata = buildA3MColumnMetadata(
-        totalCols,
-        leadingWidth,
-        coreLength,
-        insertionWidths,
-        trailingWidth
-    );
-    return alignment;
+        const alignment = await builder.finalize(records);
+        alignment.columnMetadata = buildA3MColumnMetadata(
+            totalCols,
+            leadingWidth,
+            coreLength,
+            insertionWidths,
+            trailingWidth
+        );
+        return alignment;
+    } catch (error) {
+        await builder.abort();
+        throw error;
+    }
 }

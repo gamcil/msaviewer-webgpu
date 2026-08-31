@@ -10,7 +10,7 @@ import {
     registerCustomColorScheme,
 } from "../schemes/registry.js";
 import { loadImageSource } from "../util.js";
-import { TileCache, sequenceResidueIndexAt } from "../alignment/tiledStorage.js";
+import { cleanupStaleTileStorage, TileCache, sequenceResidueIndexAt } from "../alignment/tiledStorage.js";
 import clustalxComputeShaderCode from "../graphics/shaders/clustalx.compute.wgsl";
 import pidComputeShaderCode from "../graphics/shaders/pident.compute.wgsl";
 import blosumComputeShaderCode from "../graphics/shaders/blosum.compute.wgsl";
@@ -705,6 +705,7 @@ export class MSAViewer {
         }
         if (!this.initPromise) {
             this.initPromise = (async () => {
+                void cleanupStaleTileStorage();
                 this.renderBackend = resolveRenderingBackendKind(this.options.rendering.backend, {
                     hasWebGPU: typeof navigator !== "undefined" && !!navigator.gpu,
                 });

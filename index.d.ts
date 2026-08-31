@@ -61,7 +61,11 @@ export interface AlignmentTile {
   rowCount: number;
   colStart: number;
   colCount: number;
-  blob: Blob;
+  /** Present only when OPFS is unavailable. */
+  blob?: Blob;
+  /** Byte range in the viewer-managed OPFS alignment file. */
+  byteOffset?: number;
+  byteLength?: number;
 }
 
 export interface AlignmentStore {

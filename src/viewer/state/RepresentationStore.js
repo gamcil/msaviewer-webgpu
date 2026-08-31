@@ -136,9 +136,18 @@ export class RepresentationStore {
     }
 
     destroy() {
+        const ephemeralTileStores = new Set();
         for (const representation of this.representations.values()) {
             representation.alignmentState?.colProfileBuffer?.destroy?.();
+            const tileStorage = representation.store?.tileStorage;
+            if (tileStorage?.ephemeral) {
+                ephemeralTileStores.add(tileStorage);
+            }
         }
         this.representations.clear();
+        for (const tileStorage of ephemeralTileStores) {
+            const cleanup = tileStorage.destroy?.();
+            cleanup?.catch(() => {});
+        }
     }
 }

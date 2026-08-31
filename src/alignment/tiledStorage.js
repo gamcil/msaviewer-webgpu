@@ -1,5 +1,310 @@
 export const DEFAULT_TILE_ROWS = 256;
 export const DEFAULT_TILE_COLS = 512;
+const OPFS_DIRECTORY_NAME = "msa-viewer";
+const OPFS_SESSION_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
+function supportsOpfs() {
+    return typeof navigator !== "undefined"
+        && typeof navigator.storage?.getDirectory === "function";
+}
+
+function createSessionId() {
+    if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+        return `session-${Date.now()}-${crypto.randomUUID()}`;
+    }
+    return `session-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function getSessionCreatedAt(sessionName) {
+    const match = /^session-(\d+)-/.exec(sessionName);
+    const createdAt = Number(match?.[1]);
+    return Number.isFinite(createdAt) ? createdAt : null;
+}
+
+function getSessionLockName(sessionName) {
+    return `${OPFS_DIRECTORY_NAME}:${sessionName}`;
+}
+
+async function acquireSessionLock(sessionName) {
+    if (typeof navigator === "undefined" || typeof navigator.locks?.request !== "function") {
+        return null;
+    }
+    let release;
+    let acquired;
+    const released = new Promise((resolve) => {
+        release = resolve;
+    });
+    const acquiredPromise = new Promise((resolve) => {
+        acquired = resolve;
+    });
+    let lockError = null;
+    const lockPromise = navigator.locks.request(getSessionLockName(sessionName), async () => {
+        acquired();
+        await released;
+    }).catch((error) => {
+        lockError = error;
+        acquired();
+    });
+    await acquiredPromise;
+    if (lockError) {
+        return null;
+    }
+    return {
+        async release() {
+            release();
+            await lockPromise;
+        },
+    };
+}
+
+async function removeStaleSessions(viewerDirectory) {
+    if (typeof navigator === "undefined" || typeof navigator.locks?.request !== "function") {
+        return;
+    }
+    const cutoff = Date.now() - OPFS_SESSION_MAX_AGE_MS;
+    for await (const [sessionName, entry] of viewerDirectory.entries()) {
+        if (entry.kind !== "directory" || (getSessionCreatedAt(sessionName) ?? Infinity) > cutoff) {
+            continue;
+        }
+        await navigator.locks.request(
+            getSessionLockName(sessionName),
+            { ifAvailable: true },
+            async (lock) => {
+                if (lock) {
+                    await viewerDirectory.removeEntry(sessionName, { recursive: true }).catch(() => {});
+                }
+            }
+        ).catch(() => {});
+    }
+}
+
+function createOpfsTileReader() {
+    if (typeof Worker === "undefined") {
+        return null;
+    }
+
+    let worker;
+    try {
+        worker = new Worker(new URL("./opfsTileReader.worker.js", import.meta.url), { type: "module" });
+    } catch {
+        return null;
+    }
+    const pending = new Map();
+    let nextRequestId = 1;
+    let closed = false;
+
+    const rejectPending = (error) => {
+        for (const { reject } of pending.values()) {
+            reject(error);
+        }
+        pending.clear();
+    };
+
+    worker.onmessage = ({ data }) => {
+        const request = pending.get(data.id);
+        if (!request) return;
+        pending.delete(data.id);
+        if (data.error) {
+            request.reject(new Error(data.error));
+        } else {
+            request.resolve(data);
+        }
+    };
+    worker.onerror = (event) => {
+        rejectPending(event.error ?? new Error(event.message || "OPFS tile reader failed."));
+    };
+
+    const request = (type, payload = {}) => {
+        if (closed) {
+            return Promise.reject(new Error("OPFS tile reader has been closed."));
+        }
+        const id = nextRequestId;
+        nextRequestId += 1;
+        return new Promise((resolve, reject) => {
+            pending.set(id, { resolve, reject });
+            worker.postMessage({ id, type, ...payload });
+        });
+    };
+
+    return {
+        async open(fileHandle) {
+            try {
+                await request("open", { fileHandle });
+                return true;
+            } catch {
+                await this.destroy();
+                return false;
+            }
+        },
+        async read(tile) {
+            const { buffer } = await request("read", {
+                byteOffset: tile.byteOffset,
+                byteLength: tile.byteLength,
+            });
+            return new Uint8Array(buffer);
+        },
+        async destroy() {
+            if (closed) return;
+            try {
+                await request("close");
+            } catch {
+                // Terminating the worker also releases its access handle.
+            }
+            closed = true;
+            worker.terminate();
+            rejectPending(new Error("OPFS tile reader has been closed."));
+        },
+    };
+}
+
+function createOpfsTileStorage({
+    viewerDirectory,
+    sessionName,
+    fileHandle,
+    writable,
+    sessionLock = null,
+    createReader = true,
+    releaseLockOnFinalize = false,
+}) {
+    let byteOffset = 0;
+    let closed = !writable;
+    let file = null;
+    let tileReader = null;
+
+    const releaseLock = async () => {
+        await sessionLock?.release();
+        sessionLock = null;
+    };
+
+    const close = async () => {
+        if (closed) return;
+        await writable.close();
+        closed = true;
+    };
+
+    return {
+        ephemeral: true,
+        async write(bytes) {
+            if (closed || !writable) {
+                throw new Error("Cannot write to a finalized OPFS alignment store.");
+            }
+            const offset = byteOffset;
+            await writable.write({ type: "write", position: offset, data: bytes });
+            byteOffset += bytes.byteLength;
+            return { byteOffset: offset, byteLength: bytes.byteLength };
+        },
+        async finalize() {
+            await close();
+            if (createReader) {
+                const nextTileReader = createOpfsTileReader();
+                if (nextTileReader && await nextTileReader.open(fileHandle)) {
+                    tileReader = nextTileReader;
+                }
+            }
+            if (releaseLockOnFinalize) {
+                await releaseLock();
+            }
+        },
+        async read(tile) {
+            if (tileReader) {
+                return tileReader.read(tile);
+            }
+            file ??= await fileHandle.getFile();
+            return new Uint8Array(
+                await file.slice(tile.byteOffset, tile.byteOffset + tile.byteLength).arrayBuffer()
+            );
+        },
+        async destroy() {
+            try {
+                await tileReader?.destroy();
+                tileReader = null;
+                if (!closed) {
+                    await writable.abort?.();
+                    closed = true;
+                }
+            } finally {
+                try {
+                    await viewerDirectory.removeEntry(sessionName, { recursive: true });
+                } finally {
+                    await releaseLock();
+                }
+            }
+        },
+        describe() {
+            return { type: "opfs", viewerDirectory, sessionName, fileHandle };
+        },
+    };
+}
+
+async function createOpfsTileStorageForWrite({
+    createReader = true,
+    releaseLockOnFinalize = false,
+} = {}) {
+    const root = await navigator.storage.getDirectory();
+    const viewerDirectory = await root.getDirectoryHandle(OPFS_DIRECTORY_NAME, { create: true });
+    const sessionName = createSessionId();
+    const sessionLock = await acquireSessionLock(sessionName);
+    try {
+        const sessionDirectory = await viewerDirectory.getDirectoryHandle(sessionName, { create: true });
+        const fileHandle = await sessionDirectory.getFileHandle("alignment.bin", { create: true });
+        const writable = await fileHandle.createWritable();
+        return createOpfsTileStorage({
+            viewerDirectory,
+            sessionName,
+            fileHandle,
+            writable,
+            sessionLock,
+            createReader,
+            releaseLockOnFinalize,
+        });
+    } catch (error) {
+        await sessionLock?.release();
+        await viewerDirectory.removeEntry(sessionName, { recursive: true }).catch(() => {});
+        throw error;
+    }
+}
+
+async function createTileStorage(options) {
+    if (!supportsOpfs()) {
+        return null;
+    }
+    try {
+        return await createOpfsTileStorageForWrite(options);
+    } catch (error) {
+        if (error?.name === "NotSupportedError" || error?.name === "SecurityError") {
+            return null;
+        }
+        throw error;
+    }
+}
+
+export async function cleanupStaleTileStorage() {
+    if (!supportsOpfs()) {
+        return;
+    }
+    try {
+        const root = await navigator.storage.getDirectory();
+        const viewerDirectory = await root.getDirectoryHandle(OPFS_DIRECTORY_NAME);
+        await removeStaleSessions(viewerDirectory);
+    } catch {
+        // Cleanup is best-effort and must not affect viewer startup.
+    }
+}
+
+export async function restoreTileStorage(descriptor) {
+    if (!descriptor || descriptor.type !== "opfs") {
+        return null;
+    }
+    const sessionLock = await acquireSessionLock(descriptor.sessionName);
+    const tileStorage = createOpfsTileStorage({ ...descriptor, sessionLock, createReader: true });
+    try {
+        await tileStorage.finalize();
+        return tileStorage;
+    } catch (error) {
+        await tileStorage.destroy().catch(() => {});
+        throw error;
+    }
+}
 
 
 // Cache decoded tiles and keep the current viewport window resident.
@@ -92,9 +397,9 @@ export function isGapRaw(raw) {
     return raw === 0 || raw === 45 || raw === 46 || raw === 32;
 }
 
-// factory method for processing incoming rows from a3m/fasta parsers
-// creates Blobs for tiles of a given size (def. 256x512)
-export function createTiledAlignmentBuilder(totalCols, options = {}) {
+// Factory method for processing incoming rows from A3M/FASTA parsers.
+// Tile payloads are stored in OPFS when available, with Blob storage as a fallback.
+export async function createTiledAlignmentBuilder(totalCols, options = {}) {
     if (!Number.isInteger(totalCols) || totalCols <= 0) {
         throw new Error("Tiled alignment builder requires a positive total column count.");
     }
@@ -109,8 +414,12 @@ export function createTiledAlignmentBuilder(totalCols, options = {}) {
     let bandTiles = Array.from({ length: colTileCount }, () => new Uint8Array(tileRows * tileCols));
     const tiles = [];
     const sequenceResidueTileOffsets = [];
+    const tileStorage = await createTileStorage({
+        createReader: options.createOpfsReader !== false,
+        releaseLockOnFinalize: options.releaseOpfsLockOnFinalize === true,
+    });
 
-    const sealCurrentBand = () => {
+    const sealCurrentBand = async () => {
         if (rowsInBand === 0) return;
         const rowTile = Math.floor(currentBandRowStart / tileRows);
         for (let colTile = 0; colTile < colTileCount; colTile += 1) {
@@ -118,7 +427,7 @@ export function createTiledAlignmentBuilder(totalCols, options = {}) {
             const colStart = colTile * tileCols;
             const colCount = Math.min(tileCols, totalCols - colStart);
             const usedBytes = rowsInBand * tileCols;
-            tiles.push({
+            const tileMeta = {
                 key: `${rowTile}:${colTile}`,
                 rowTile,
                 colTile,
@@ -126,8 +435,14 @@ export function createTiledAlignmentBuilder(totalCols, options = {}) {
                 rowCount: rowsInBand,
                 colStart,
                 colCount,
-                blob: new Blob([tile.subarray(0, usedBytes)], { type: "application/octet-stream" }),
-            });
+            };
+            const tileBytes = tile.subarray(0, usedBytes);
+            if (tileStorage) {
+                Object.assign(tileMeta, await tileStorage.write(tileBytes));
+            } else {
+                tileMeta.blob = new Blob([tileBytes], { type: "application/octet-stream" });
+            }
+            tiles.push(tileMeta);
         }
         currentBandRowStart = totalRows;
         rowsInBand = 0;
@@ -135,7 +450,7 @@ export function createTiledAlignmentBuilder(totalCols, options = {}) {
     };
 
     return {
-        appendRow(row) {
+        async appendRow(row) {
             const rowBytes = typeof row === "string" ? encodeAsciiRow(row) : row;
             if (!(rowBytes instanceof Uint8Array)) {
                 throw new Error("Alignment rows must be strings or Uint8Array instances.");
@@ -158,11 +473,12 @@ export function createTiledAlignmentBuilder(totalCols, options = {}) {
             rowsInBand += 1;
             totalRows += 1;
             if (rowsInBand === tileRows) {
-                sealCurrentBand();
+                await sealCurrentBand();
             }
         },
-        finalize(records) {
-            sealCurrentBand();
+        async finalize(records) {
+            await sealCurrentBand();
+            await tileStorage?.finalize();
             return {
                 records,
                 totalRows,
@@ -173,7 +489,11 @@ export function createTiledAlignmentBuilder(totalCols, options = {}) {
                 colTileCount,
                 sequenceResidueTileOffsets: Uint32Array.from(sequenceResidueTileOffsets),
                 tiles,
+                tileStorage,
             };
+        },
+        async abort() {
+            await tileStorage?.destroy();
         },
     };
 }
@@ -221,8 +541,10 @@ export async function loadDecodedTile(alignment, tileIndex, cache) {
         throw new Error(`Tile index ${tileIndex} is out of range.`);
     }
 
-    const pending = tile.blob.arrayBuffer().then((buffer) => {
-        const decoded = new Uint8Array(buffer);
+    const pending = (alignment.tileStorage
+        ? alignment.tileStorage.read(tile)
+        : tile.blob.arrayBuffer().then((buffer) => new Uint8Array(buffer))
+    ).then((decoded) => {
         cache?.set(cacheKey, decoded, decoded.byteLength);
         return decoded;
     });
