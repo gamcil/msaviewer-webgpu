@@ -64,9 +64,27 @@ async function loadRep({
     }, defaultAlphabetId);
 }
 
-export function loadRepresentations(input, options = {}) {
-    return Promise.all(
-        (Array.isArray(input) ? input : [input])
-            .map((entry, index) => loadRep(entry, index, options))
+export async function destroyRepresentations(representations) {
+    const tileStores = new Set(
+        representations
+            .map((representation) => representation.store?.tileStorage)
+            .filter((tileStorage) => tileStorage?.ephemeral)
     );
+    await Promise.allSettled([...tileStores].map((tileStorage) => tileStorage.destroy()));
+}
+
+export async function loadRepresentations(input, options = {}) {
+    const loads = (Array.isArray(input) ? input : [input])
+        .map((entry, index) => loadRep(entry, index, options));
+    try {
+        return await Promise.all(loads);
+    } catch (error) {
+        const results = await Promise.allSettled(loads);
+        await destroyRepresentations(
+            results
+                .filter((result) => result.status === "fulfilled")
+                .map((result) => result.value)
+        );
+        throw error;
+    }
 }

@@ -25,7 +25,7 @@ import { MotifController } from "./controllers/MotifController.js";
 import { defaultAlphabetRegistry } from "../alphabets/index.js";
 import { buildColumnVisibility } from "./buildColumnVisibility.js";
 import { deriveViewerOptions, mergeViewerOptions, normalizeViewerOptions } from "./config/viewerOptionSchema.js";
-import { loadRepresentations } from "./representations/loadRepresentations.js";
+import { destroyRepresentations, loadRepresentations } from "./representations/loadRepresentations.js";
 import { buildSchemeOptions } from "./schemes/buildSchemeOptions.js";
 import { createRafTask } from "./rafTask.js";
 import { AUTO_LAYOUT_CSS } from "./viewerStyles.js";
@@ -141,6 +141,12 @@ function createRenderWindowState() {
     };
 }
 
+function createSupersededLoadError() {
+    const error = new Error("This load was superseded by a newer request.");
+    error.name = "AbortError";
+    return error;
+}
+
 export class MSAViewer {
     constructor(options = {}) {
         const { root, runtime = {}, config = {} } = options ?? {};
@@ -165,6 +171,7 @@ export class MSAViewer {
         });
         this.eventTarget = new EventTarget();
         this.cellHoverVersion = 0;
+        this.loadRequestId = 0;
         this.cleanup = [];
         this.initialized = false;
         this.initPromise = null;
@@ -1459,9 +1466,16 @@ export class MSAViewer {
         };
     }
 
-    async #setRepresentations(representations, { activeId = null, resetView = true } = {}) {
+    async #setRepresentations(representations, {
+        activeId = null,
+        resetView = true,
+        shouldApply = null,
+    } = {}) {
         this.#assertLive();
         await this.#init();
+        if (shouldApply && !shouldApply()) {
+            return null;
+        }
 
         const nextActiveId = activeId ?? representations[0]?.id ?? null;
         this.#clearData({
@@ -1495,10 +1509,23 @@ export class MSAViewer {
     }
 
     async loadData(input, { activeId = null } = {}) {
+        const requestId = ++this.loadRequestId;
         const representations = await loadRepresentations(input, {
             defaultAlphabetId: this.options.alphabet,
         });
-        return this.#setRepresentations(representations, { activeId });
+        if (requestId !== this.loadRequestId || this.destroyed) {
+            await destroyRepresentations(representations);
+            throw createSupersededLoadError();
+        }
+        const result = await this.#setRepresentations(representations, {
+            activeId,
+            shouldApply: () => requestId === this.loadRequestId && !this.destroyed,
+        });
+        if (result) {
+            return result;
+        }
+        await destroyRepresentations(representations);
+        throw createSupersededLoadError();
     }
 
     #syncThemeBuffer() {
@@ -1710,6 +1737,7 @@ export class MSAViewer {
             return;
         }
         this.destroyed = true;
+        this.loadRequestId += 1;
         this.initialized = false;
         this.initPromise = null;
 
