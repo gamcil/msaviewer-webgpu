@@ -34,6 +34,23 @@ export function buildVisibleColumnMap(colStart, colCount, columnVisibility) {
     };
 }
 
+function compactVisibleColumns(data, rowCount, rawColCount, columnMap) {
+    const colCount = columnMap.length / 2;
+    const compactData = new Uint8Array(rowCount * colCount);
+    for (let row = 0; row < rowCount; row += 1) {
+        const sourceRowOffset = row * rawColCount;
+        const targetRowOffset = row * colCount;
+        for (let col = 0; col < colCount; col += 1) {
+            const mapOffset = col * 2;
+            compactData[targetRowOffset + col] = data[sourceRowOffset + columnMap[mapOffset + 1]];
+        }
+    }
+    for (let col = 0; col < colCount; col += 1) {
+        columnMap[(col * 2) + 1] = col;
+    }
+    return compactData;
+}
+
 export function getProjectedChunkColCount(totalCols, colStart, maxVisibleChunkCols, maxTextureDim, columnVisibility) {
     const remainingCols = totalCols - colStart;
     if (remainingCols <= 0) return 0;
@@ -108,7 +125,7 @@ export async function materializeProjectedWindow({
         };
     }
 
-    const data = await materializeWindowFromTiles(
+    const rawData = await materializeWindowFromTiles(
         alignmentStore,
         rowStart,
         rowCount,
@@ -118,9 +135,9 @@ export async function materializeProjectedWindow({
     );
 
     return {
-        data,
+        data: compactVisibleColumns(rawData, rowCount, rawColCount, columnMap),
         columnMap,
-        rawTextureCols: rawColCount,
+        rawTextureCols: colCount,
         retainedTiles: includeRetainedTiles
             ? getTileCacheKeysForWindow(alignmentStore, rowStart, rowCount, minRawCol, rawColCount)
             : null,
