@@ -112,6 +112,8 @@ function createOpfsTileReader() {
         }
     };
     worker.onerror = (event) => {
+        closed = true;
+        worker.terminate();
         rejectPending(event.error ?? new Error(event.message || "OPFS tile reader failed."));
     };
 

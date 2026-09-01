@@ -332,11 +332,23 @@ export interface ViewerErrorDetail {
   error: unknown;
 }
 
+export interface ZoomAnchor {
+  clientX?: number;
+  clientY?: number;
+}
+
+export interface ZoomChangeDetail {
+  zoom: number;
+  cellWidth: number;
+  cellHeight: number;
+}
+
 export interface MSAViewerEventMap {
   sequenceclick: CustomEvent<SequenceClickDetail>;
   cellhover: CustomEvent<CellHoverDetail>;
   selectionchange: CustomEvent<SelectionChangeDetail>;
   visibilitychange: CustomEvent<VisibilityChangeDetail>;
+  zoomchange: CustomEvent<ZoomChangeDetail>;
   error: CustomEvent<ViewerErrorDetail>;
 }
 
@@ -357,6 +369,7 @@ export class MSAViewer {
   removeEventListener(type: string, listener: EventListenerOrEventListenerObject, options?: boolean | EventListenerOptions): void;
 
   getConfig(): MSAViewerConfig;
+  getZoom(): number;
   getBackend(): ResolvedBackend;
   getRepresentations(): RepresentationSummary[];
   getActiveRepresentation(): RepresentationSummary | null;
@@ -367,6 +380,9 @@ export class MSAViewer {
   registerColorScheme(key: string, options: RegisterCustomColorSchemeOptions): Promise<RegisteredColorScheme>;
 
   setConfig(config?: MSAViewerConfigInput): Promise<void>;
+  setZoom(zoom: number, anchor?: ZoomAnchor): number;
+  zoomIn(anchor?: ZoomAnchor): number;
+  zoomOut(anchor?: ZoomAnchor): number;
   loadData(input: DataInput | DataInput[], options?: { activeId?: RepresentationId | null }): Promise<LoadDataResult>;
   setActiveRepresentation(id: RepresentationId): Promise<RepresentationSummary | null>;
   setTrackEnabled(track: TrackRef | TrackVariant | string, enabled: boolean): Promise<void>;
