@@ -158,11 +158,7 @@ function createBackendServices({
             getMetricUniformBuffer,
         }),
         columnProfileService: new ColumnProfileService({
-            backend,
             device,
-            gpuResources,
-            pipelineRegistry,
-            decodedTileCache,
             schemes,
         }),
         windowController: new VisibleWindowController({
@@ -184,7 +180,6 @@ function createGpuRuntime({
     device,
     format,
     atlasBitmap,
-    computeShaderCodes,
 }) {
     const gpuResources = new GpuResourceManager(device);
     gpuResources.createSingletonBuffer("uniformBuffer", {
@@ -226,7 +221,6 @@ function createGpuRuntime({
             device,
             format,
             gpuResources,
-            computeShaderCodes,
             getDummyStorageBuffer: () => gpuResources.getSingleton("dummyStorageBuffer") ?? null,
         }),
     };
@@ -237,13 +231,12 @@ export function createBackendRuntime({
     device,
     format,
     atlasBitmap,
-    computeShaderCodes = {},
     decodedTileCache,
     alphabetRegistry,
     schemes,
 }) {
     const { gpuResources, pipelineRegistry } = backend === "webgpu"
-        ? createGpuRuntime({ device, format, atlasBitmap, computeShaderCodes })
+        ? createGpuRuntime({ device, format, atlasBitmap })
         : { gpuResources: null, pipelineRegistry: null };
 
     return {

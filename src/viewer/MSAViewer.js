@@ -11,9 +11,6 @@ import {
 } from "../schemes/registry.js";
 import { loadImageSource } from "../util.js";
 import { cleanupStaleTileStorage, TileCache, sequenceResidueIndexAt } from "../alignment/tiledStorage.js";
-import clustalxComputeShaderCode from "../graphics/shaders/clustalx.compute.wgsl";
-import pidComputeShaderCode from "../graphics/shaders/pident.compute.wgsl";
-import blosumComputeShaderCode from "../graphics/shaders/blosum.compute.wgsl";
 import { MinimapView } from "../views/MinimapView.js";
 import { TrackStackView } from "../views/TrackStackView.js";
 import { TrackView } from "../views/tracks/TrackView.js";
@@ -209,7 +206,6 @@ export class MSAViewer {
         this.pipelineRegistry = null;
         this.renderWindow = createRenderWindowState();
 
-        this.computeShaderCodes = {};
         this.representationStore = null;
         this.trackStateBuilder = new TrackStateBuilder();
         this.trackCatalog = null;
@@ -696,9 +692,6 @@ export class MSAViewer {
         this.#createBackend();
         this.#createViews();
         this.#applyViewerFrame();
-        if (this.renderBackend === "webgpu") {
-            this.#loadStaticAssets();
-        }
         if (bindEvents) {
             this.#bindEvents();
         } else {
@@ -1212,22 +1205,10 @@ export class MSAViewer {
             device: this.device,
             format: this.format,
             atlasBitmap: this.atlasBitmap,
-            computeShaderCodes: this.computeShaderCodes,
             decodedTileCache: this.decodedTileCache,
             alphabetRegistry: this.alphabetRegistry,
             schemes: this.schemes,
         }));
-    }
-
-    #loadStaticAssets() {
-        this.computeShaderCodes = {
-            clustalx: clustalxComputeShaderCode,
-            pid: pidComputeShaderCode,
-            similarity: blosumComputeShaderCode,
-        };
-        if (this.pipelineRegistry) {
-            this.pipelineRegistry.computeShaderCodes = this.computeShaderCodes;
-        }
     }
 
     #bindEvents() {
@@ -1374,7 +1355,6 @@ export class MSAViewer {
             ? await this.#ensureColumnMetrics(schemeRepresentation.id)
             : schemeRepresentation;
         await this.columnProfileService.compute({
-            alignmentStore: schemeAlignmentStore,
             alignmentState: schemeAlignmentState,
             schemeKey,
             columnMetrics: representation?.columnMetrics ?? null,

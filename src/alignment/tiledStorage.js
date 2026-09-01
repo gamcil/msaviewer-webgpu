@@ -1,6 +1,7 @@
 export const DEFAULT_TILE_ROWS = 256;
 export const DEFAULT_TILE_COLS = 512;
 const OPFS_DIRECTORY_NAME = "msa-viewer";
+const OPFS_ALIGNMENT_FILE_NAME = "alignment.bin";
 const OPFS_SESSION_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
 function supportsOpfs() {
@@ -231,7 +232,7 @@ function createOpfsTileStorage({
             }
         },
         describe() {
-            return { type: "opfs", viewerDirectory, sessionName, fileHandle };
+            return { type: "opfs", sessionName };
         },
     };
 }
@@ -246,7 +247,7 @@ async function createOpfsTileStorageForWrite({
     const sessionLock = await acquireSessionLock(sessionName);
     try {
         const sessionDirectory = await viewerDirectory.getDirectoryHandle(sessionName, { create: true });
-        const fileHandle = await sessionDirectory.getFileHandle("alignment.bin", { create: true });
+        const fileHandle = await sessionDirectory.getFileHandle(OPFS_ALIGNMENT_FILE_NAME, { create: true });
         const writable = await fileHandle.createWritable();
         return createOpfsTileStorage({
             viewerDirectory,
@@ -296,12 +297,27 @@ export async function restoreTileStorage(descriptor) {
         return null;
     }
     const sessionLock = await acquireSessionLock(descriptor.sessionName);
-    const tileStorage = createOpfsTileStorage({ ...descriptor, sessionLock, createReader: true });
+    let tileStorage = null;
     try {
+        const root = await navigator.storage.getDirectory();
+        const viewerDirectory = await root.getDirectoryHandle(OPFS_DIRECTORY_NAME);
+        const sessionDirectory = await viewerDirectory.getDirectoryHandle(descriptor.sessionName);
+        const fileHandle = await sessionDirectory.getFileHandle(OPFS_ALIGNMENT_FILE_NAME);
+        tileStorage = createOpfsTileStorage({
+            viewerDirectory,
+            sessionName: descriptor.sessionName,
+            fileHandle,
+            sessionLock,
+            createReader: true,
+        });
         await tileStorage.finalize();
         return tileStorage;
     } catch (error) {
-        await tileStorage.destroy().catch(() => {});
+        if (tileStorage) {
+            await tileStorage.destroy().catch(() => {});
+        } else {
+            await sessionLock?.release();
+        }
         throw error;
     }
 }

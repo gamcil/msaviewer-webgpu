@@ -1,7 +1,6 @@
 import { MSARenderer } from "./pipelines/MSARenderer.js";
 import { MinimapCompute } from "./pipelines/MinimapCompute.js";
 import { ColumnMetricCompute } from "./pipelines/ColumnMetricCompute.js";
-import { ColumnProfileCompute } from "./pipelines/ColumnProfileCompute.js";
 import { buildMetricShaderCode } from "./shaders/buildMetricShader.js";
 import { buildMSARenderShaderCode } from "./shaders/buildMSARenderShader.js";
 import { buildMinimapShaderCode } from "./shaders/buildMinimapShader.js";
@@ -11,13 +10,11 @@ export class PipelineRegistry {
         device,
         format,
         gpuResources,
-        computeShaderCodes,
         getDummyStorageBuffer,
     }) {
         this.device = device;
         this.format = format;
         this.gpuResources = gpuResources;
-        this.computeShaderCodes = computeShaderCodes;
         this.getDummyStorageBuffer = getDummyStorageBuffer;
     }
 
@@ -40,12 +37,6 @@ export class PipelineRegistry {
                 buildMetricShaderCode(alphabet),
                 this.getQualityMatrixBuffer(alphabet)
             )
-        );
-    }
-
-    getColumnProfilePipeline(schemeKey) {
-        return this.gpuResources.getOrCreateKeyed("columnProfilePipelines", schemeKey, () =>
-            new ColumnProfileCompute(this.device, this.computeShaderCodes[schemeKey])
         );
     }
 
