@@ -53,20 +53,75 @@ export function projectSelectionRowIntervals(ranges, columnVisibility, visibleCo
     }
 
     for (const [row, intervals] of rows.entries()) {
-        intervals.sort((a, b) => a.colStart - b.colStart || a.colEnd - b.colEnd);
-        const merged = [];
-        for (const interval of intervals) {
-            const last = merged[merged.length - 1];
-            if (last && interval.colStart <= last.colEnd) {
-                last.colEnd = Math.max(last.colEnd, interval.colEnd);
-            } else {
-                merged.push({ ...interval });
-            }
-        }
-        rows.set(row, merged);
+        rows.set(row, mergeIntervals(intervals));
     }
 
     return rows;
+}
+
+function mergeIntervals(intervals) {
+    const merged = [];
+    for (const interval of intervals.sort((a, b) => a.colStart - b.colStart || a.colEnd - b.colEnd)) {
+        const last = merged[merged.length - 1];
+        if (last && interval.colStart <= last.colEnd) {
+            last.colEnd = Math.max(last.colEnd, interval.colEnd);
+        } else {
+            merged.push({ ...interval });
+        }
+    }
+    return merged;
+}
+
+function areIntervalsEqual(left, right) {
+    return left.length === right.length && left.every((interval, index) =>
+        interval.colStart === right[index].colStart && interval.colEnd === right[index].colEnd
+    );
+}
+
+// Compact the union of projected selection rectangles into vertical row bands.
+// A band covers many adjacent rows with the same set of selected column intervals.
+export function projectSelectionRowBands(ranges, columnVisibility, visibleColStart, visibleColEnd, visibleRowStart, visibleRowEnd) {
+    const events = new Map();
+    for (const rect of projectSelectionRects(
+        ranges,
+        columnVisibility,
+        visibleColStart,
+        visibleColEnd,
+        visibleRowStart,
+        visibleRowEnd,
+    )) {
+        const starts = events.get(rect.rowStart) ?? { add: [], remove: [] };
+        starts.add.push(rect);
+        events.set(rect.rowStart, starts);
+        const ends = events.get(rect.rowEnd) ?? { add: [], remove: [] };
+        ends.remove.push(rect);
+        events.set(rect.rowEnd, ends);
+    }
+
+    const rowEdges = [...events.keys()].sort((a, b) => a - b);
+    const activeRects = new Set();
+    const bands = [];
+    for (let index = 0; index < rowEdges.length - 1; index += 1) {
+        const rowStart = rowEdges[index];
+        const { add, remove } = events.get(rowStart);
+        for (const rect of remove) activeRects.delete(rect);
+        for (const rect of add) activeRects.add(rect);
+
+        const rowEnd = rowEdges[index + 1];
+        if (activeRects.size === 0 || rowStart >= rowEnd) continue;
+        const intervals = mergeIntervals([...activeRects].map(({ colStart, colEnd }) => ({ colStart, colEnd })));
+        const previous = bands[bands.length - 1];
+        if (previous?.rowEnd === rowStart && areIntervalsEqual(previous.intervals, intervals)) {
+            previous.rowEnd = rowEnd;
+            continue;
+        }
+        bands.push({
+            rowStart,
+            rowEnd,
+            intervals,
+        });
+    }
+    return bands;
 }
 
 export function buildOverlayGeometry({

@@ -1,5 +1,5 @@
 import { getProjectedChunkColCount, materializeProjectedWindow } from "../projectedWindow.js";
-import { projectSelectionRowIntervals } from "../../views/models/alignmentOverlayGeometry.js";
+import { projectSelectionRowBands } from "../../views/models/alignmentOverlayGeometry.js";
 import { defaultSchemeColor, isGapResidue, resolveCellSchemeColor } from "../backends/cpu/schemeColorCpu.js";
 
 function finalizeMinimapPixels(outPixels, readback, darkMode) {
@@ -25,10 +25,10 @@ function finalizeMinimapPixels(outPixels, readback, darkMode) {
 
 function buildSelectionBands({ selection, totalRows, totalCols, columnVisibility = null }) {
     if (!selection?.ranges?.length || totalRows <= 0 || totalCols <= 0) {
-        return { rowIntervals: new Map(), totalRows, totalCols };
+        return { rowBands: [], totalRows, totalCols };
     }
     return {
-        rowIntervals: projectSelectionRowIntervals(
+        rowBands: projectSelectionRowBands(
             selection.ranges,
             columnVisibility,
             0,

@@ -125,3 +125,74 @@ export function drawSelectionUnion({
     context.stroke();
     context.setLineDash([]);
 }
+
+export function drawSelectionBands({
+    context,
+    rowBands,
+    getBandY,
+    getBandHeight,
+    getIntervalX,
+    getIntervalWidth,
+    washFillStyle,
+    fillStyle,
+    strokeStyle,
+    lineWidth = 1,
+    lineDash = [],
+}) {
+    if (!context || !Array.isArray(rowBands) || rowBands.length === 0) {
+        return;
+    }
+
+    const fillBlocks = rowBands.flatMap((band) =>
+        band.intervals.map((interval) => ({
+            x: getIntervalX(interval),
+            y: getBandY(band),
+            width: getIntervalWidth(interval),
+            height: getBandHeight(band),
+        }))
+    );
+
+    context.fillStyle = washFillStyle;
+    for (const block of fillBlocks) {
+        context.fillRect(block.x, block.y, block.width, block.height);
+    }
+    context.fillStyle = fillStyle;
+    for (const block of fillBlocks) {
+        context.fillRect(block.x, block.y, block.width, block.height);
+    }
+
+    context.strokeStyle = strokeStyle;
+    context.lineWidth = lineWidth;
+    context.setLineDash(lineDash);
+    context.beginPath();
+    for (let index = 0; index < rowBands.length; index += 1) {
+        const band = rowBands[index];
+        const previous = rowBands[index - 1];
+        const next = rowBands[index + 1];
+        const previousIntervals = previous?.rowEnd === band.rowStart ? previous.intervals : [];
+        const nextIntervals = next?.rowStart === band.rowEnd ? next.intervals : [];
+        const y = getBandY(band);
+        const height = getBandHeight(band);
+
+        for (const interval of band.intervals) {
+            const x = getIntervalX(interval);
+            const width = getIntervalWidth(interval);
+            context.moveTo(x + 0.5, y);
+            context.lineTo(x + 0.5, y + height);
+            context.moveTo(x + width - 0.5, y);
+            context.lineTo(x + width - 0.5, y + height);
+        }
+        for (const span of getIntervalDifference(band.intervals, previousIntervals)) {
+            const x = getIntervalX(span);
+            context.moveTo(x, y + 0.5);
+            context.lineTo(x + getIntervalWidth(span), y + 0.5);
+        }
+        for (const span of getIntervalDifference(band.intervals, nextIntervals)) {
+            const x = getIntervalX(span);
+            context.moveTo(x, y + height - 0.5);
+            context.lineTo(x + getIntervalWidth(span), y + height - 0.5);
+        }
+    }
+    context.stroke();
+    context.setLineDash([]);
+}

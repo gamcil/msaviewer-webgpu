@@ -3,13 +3,13 @@ Minimap
 */
 import { SizedCanvas2D } from "./helpers/SizedCanvas2D.js";
 import { MinimapInteractionController } from "./helpers/MinimapInteractionController.js";
-import { drawSelectionUnion } from "./renderers/selectionUnionRenderer.js";
+import { drawSelectionBands } from "./renderers/selectionUnionRenderer.js";
 
 export class MinimapView {
     constructor({ root }) {
         this.root = root;
         this.viewportRect = null;
-        this.selectionGeometry = { rowIntervals: new Map(), totalRows: 0, totalCols: 0 };
+        this.selectionGeometry = { rowBands: [], totalRows: 0, totalCols: 0 };
         this.imageData = null;
         this.selectionOverlayDirty = true;
         
@@ -106,8 +106,8 @@ export class MinimapView {
         this.drawOverlay();
     }
 
-    setSelectionBands(selectionGeometry = { rowIntervals: new Map(), totalRows: 0, totalCols: 0 }) {
-        this.selectionGeometry = selectionGeometry ?? { rowIntervals: new Map(), totalRows: 0, totalCols: 0 };
+    setSelectionBands(selectionGeometry = { rowBands: [], totalRows: 0, totalCols: 0 }) {
+        this.selectionGeometry = selectionGeometry ?? { rowBands: [], totalRows: 0, totalCols: 0 };
         this.selectionOverlayDirty = true;
         this.drawOverlay();
     }
@@ -120,7 +120,7 @@ export class MinimapView {
     clear() {
         this.imageData = null;
         this.viewportRect = null;
-        this.selectionGeometry = { rowIntervals: new Map(), totalRows: 0, totalCols: 0 };
+        this.selectionGeometry = { rowBands: [], totalRows: 0, totalCols: 0 };
         this.selectionOverlayDirty = true;
         this.minimap.width = 0;
         this.minimap.height = 0;
@@ -130,18 +130,18 @@ export class MinimapView {
         this.selectionOverlay.height = 0;
     }
 
-    drawSelectionUnion(context, width, height) {
-        const { rowIntervals, totalRows, totalCols } = this.selectionGeometry ?? {};
-        if (!(rowIntervals instanceof Map) || rowIntervals.size === 0 || totalRows <= 0 || totalCols <= 0) {
+    drawSelectionBands(context, width, height) {
+        const { rowBands, totalRows, totalCols } = this.selectionGeometry ?? {};
+        if (!Array.isArray(rowBands) || rowBands.length === 0 || totalRows <= 0 || totalCols <= 0) {
             return;
         }
 
         const rowHeightPx = height / totalRows;
-        drawSelectionUnion({
+        drawSelectionBands({
             context,
-            rowIntervals,
-            getRowY: (row) => row * rowHeightPx,
-            getRowHeight: () => rowHeightPx,
+            rowBands,
+            getBandY: (band) => band.rowStart * rowHeightPx,
+            getBandHeight: (band) => (band.rowEnd - band.rowStart) * rowHeightPx,
             getIntervalX: (interval) => (interval.colStart / totalCols) * width,
             getIntervalWidth: (interval) => ((interval.colEnd - interval.colStart) / totalCols) * width,
             washFillStyle: "rgba(255, 255, 255, 0.35)",
@@ -159,7 +159,7 @@ export class MinimapView {
             this.selectionOverlay.height = height;
         }
         this.selectionOverlayContext.clearRect(0, 0, width, height);
-        this.drawSelectionUnion(this.selectionOverlayContext, width, height);
+        this.drawSelectionBands(this.selectionOverlayContext, width, height);
         this.selectionOverlayDirty = false;
     }
 
