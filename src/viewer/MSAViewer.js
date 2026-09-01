@@ -37,6 +37,17 @@ import {
     resolveRenderingBackendKind,
 } from "./backends/backendRuntime.js";
 
+const MIN_ALIGNMENT_ZOOM = 0.25;
+const MAX_ALIGNMENT_ZOOM = 4;
+const ALIGNMENT_ZOOM_LEVELS = [0.25, 0.5, 0.75, 0.9, 1, 1.25, 1.5, 1.75, 2, 2.5, 3, 4];
+
+function nextAlignmentZoom(zoom, direction) {
+    if (direction > 0) {
+        return ALIGNMENT_ZOOM_LEVELS.find((level) => level > zoom + Number.EPSILON) ?? MAX_ALIGNMENT_ZOOM;
+    }
+    return [...ALIGNMENT_ZOOM_LEVELS].reverse().find((level) => level < zoom - Number.EPSILON) ?? MIN_ALIGNMENT_ZOOM;
+}
+
 function writeThemeUniformBuffer(device, buffer, darkMode, colorScheme) {
     const data = new Uint32Array([darkMode, colorScheme]);
     device.queue.writeBuffer(buffer, 0, data);
@@ -295,6 +306,66 @@ export class MSAViewer {
         return cloneSnapshot(this.options);
     }
 
+    getZoom() {
+        const { cellWidth } = this.state.getCellSize();
+        return cellWidth / this.viewerConfig.layout.cell.width;
+    }
+
+    setZoom(zoom, { clientX, clientY } = {}) {
+        this.#assertLive();
+        if (!Number.isFinite(zoom)) return this.getZoom();
+        const nextZoom = Math.max(MIN_ALIGNMENT_ZOOM, Math.min(MAX_ALIGNMENT_ZOOM, zoom));
+        const { cellWidth, cellHeight } = this.state.getCellSize();
+        const nextCellWidth = Math.max(1, this.viewerConfig.layout.cell.width * nextZoom);
+        const nextCellHeight = Math.max(1, this.viewerConfig.layout.cell.height * nextZoom);
+        if (cellWidth === nextCellWidth && cellHeight === nextCellHeight) return this.getZoom();
+
+        const alignmentView = this.alignmentView;
+        const renderedCellWidth = alignmentView?.getRenderedCellWidthCss?.() ?? cellWidth;
+        const renderedCellHeight = alignmentView?.getRenderedCellHeightCss?.() ?? cellHeight;
+        const bounds = alignmentView?.getViewportBounds?.();
+        const viewportWidth = bounds?.width ?? alignmentView?.getViewportWidthCss?.() ?? 0;
+        const viewportHeight = bounds?.height ?? alignmentView?.getViewportHeightCss?.() ?? 0;
+        const offsetX = Number.isFinite(clientX) && bounds
+            ? Math.max(0, Math.min(viewportWidth, clientX - bounds.left))
+            : viewportWidth / 2;
+        const offsetY = Number.isFinite(clientY) && bounds
+            ? Math.max(0, Math.min(viewportHeight, clientY - bounds.top))
+            : viewportHeight / 2;
+        const contentX = (alignmentView?.getScrollLeft?.() ?? 0) + offsetX;
+        const contentY = (alignmentView?.getScrollTop?.() ?? 0) + offsetY;
+
+        this.state.setCellSize(nextCellWidth, nextCellHeight);
+        this.#syncZoomTypography();
+        this.viewportController?.refreshLayout();
+
+        if (alignmentView) {
+            const nextRenderedCellWidth = alignmentView.getRenderedCellWidthCss();
+            const nextRenderedCellHeight = alignmentView.getRenderedCellHeightCss();
+            alignmentView.scrollTo(
+                (contentX * nextRenderedCellWidth / renderedCellWidth) - offsetX,
+                (contentY * nextRenderedCellHeight / renderedCellHeight) - offsetY,
+            );
+            this.state.setViewportScroll(alignmentView.getScrollLeft(), alignmentView.getScrollTop());
+        }
+
+        const appliedZoom = this.getZoom();
+        this.#emit("zoomchange", {
+            zoom: appliedZoom,
+            cellWidth: nextCellWidth,
+            cellHeight: nextCellHeight,
+        });
+        return appliedZoom;
+    }
+
+    zoomIn(anchor = {}) {
+        return this.setZoom(nextAlignmentZoom(this.getZoom(), 1), anchor);
+    }
+
+    zoomOut(anchor = {}) {
+        return this.setZoom(nextAlignmentZoom(this.getZoom(), -1), anchor);
+    }
+
     getBackend() {
         return this.renderBackend;
     }
@@ -418,7 +489,7 @@ export class MSAViewer {
         if (this.headerView) {
             this.headerView.width = this.viewerConfig.views.header.width;
             this.headerView.fontFamily = this.viewerConfig.views.header.fontFamily;
-            this.headerView.fontSize = this.viewerConfig.views.header.fontSize;
+            this.headerView.fontSize = this.viewerConfig.views.header.fontSize * this.getZoom();
             this.headerView.applyStyles();
             const records = this.#activeStore()?.records;
             if (records) {
@@ -589,6 +660,10 @@ export class MSAViewer {
             this.#setSelectionMode(nextOptions.behavior.selectionMode);
         }
         if (changed.rendering) await this.#applyRendering(nextOptions, previousOptions);
+    }
+
+    #syncZoomTypography() {
+        this.headerView?.setFontSize(this.viewerConfig.views.header.fontSize * this.getZoom());
     }
 
     async setConfig(partialConfig = {}) {
@@ -873,7 +948,7 @@ export class MSAViewer {
             rowHeight: this.state.getCellSize().cellHeight,
             width: this.viewerConfig.views.header.width,
             fontFamily: this.viewerConfig.views.header.fontFamily,
-            fontSize: this.viewerConfig.views.header.fontSize,
+            fontSize: this.viewerConfig.views.header.fontSize * this.getZoom(),
             onRowClick: (rowIndex, event) => this.#handleHeaderClick(rowIndex, event),
         }) : null;
     }
@@ -925,6 +1000,7 @@ export class MSAViewer {
             getColumnVisibility: () => this.#activeRepresentation()?.columnVisibility ?? null,
             getOverscanRows: () => this.viewportOverscanRows,
             getOverscanCols: () => this.viewportOverscanCols,
+            getZoom: () => this.getZoom(),
             uploadVisibleWindow: () => this.uploadTask.schedule(),
             requestRender: () => this.#requestRender(),
             onHoverReset: () => this.selectionController?.clearHover(),
@@ -1214,6 +1290,15 @@ export class MSAViewer {
     #bindEvents() {
         this.#bindStateEvents();
         this.viewportController?.bind();
+
+        const zoomTarget = this.alignmentView?.getInteractionTarget?.();
+        const onWheel = (event) => {
+            if ((!event.ctrlKey && !event.metaKey) || event.deltaY === 0) return;
+            event.preventDefault();
+            event.deltaY < 0 ? this.zoomIn(event) : this.zoomOut(event);
+        };
+        zoomTarget?.addEventListener("wheel", onWheel, { passive: false });
+        this.cleanup.push(() => zoomTarget?.removeEventListener("wheel", onWheel));
 
         const onThemeChange = (event) => this.#handleThemeChange(event);
         this.themeMedia.addEventListener("change", onThemeChange);

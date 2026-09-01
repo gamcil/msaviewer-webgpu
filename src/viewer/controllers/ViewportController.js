@@ -11,6 +11,7 @@ export class ViewportController {
         getColumnVisibility,
         getOverscanRows,
         getOverscanCols,
+        getZoom,
         uploadVisibleWindow,
         requestRender,
         onHoverReset,
@@ -27,6 +28,7 @@ export class ViewportController {
         this.getColumnVisibility = getColumnVisibility;
         this.getOverscanRows = getOverscanRows;
         this.getOverscanCols = getOverscanCols;
+        this.getZoom = getZoom;
         this.uploadVisibleWindow = uploadVisibleWindow;
         this.requestRender = requestRender;
         this.onHoverReset = onHoverReset;
@@ -108,7 +110,8 @@ export class ViewportController {
             if (!alignmentStore) return;
             const viewportWidth = this.getViewportWidth();
             const viewportHeight = this.getViewportHeight();
-            const { cellWidth, cellHeight } = this.state.getCellSize();
+            const cellWidth = this.alignmentView.getRenderedCellWidthCss();
+            const cellHeight = this.alignmentView.getRenderedCellHeightCss();
             const visibleCount = this.getColumnVisibility?.()?.visibleCount ?? alignmentStore.totalCols;
             const contentWidth = visibleCount * cellWidth;
             const contentHeight = alignmentStore.totalRows * cellHeight;
@@ -255,6 +258,7 @@ export class ViewportController {
             scrollLeft,
             viewportWidth,
             cellWidth,
+            zoom: this.getZoom?.() ?? 1,
             totalCols,
             colStart,
             colEnd,
@@ -311,7 +315,8 @@ export class ViewportController {
             scrollTop: this.getScrollTop(),
             viewportWidth: this.getViewportWidth(),
             viewportHeight: this.getViewportHeight(),
-            ...this.state.getCellSize(),
+            cellWidth: this.alignmentView.getRenderedCellWidthCss(),
+            cellHeight: this.alignmentView.getRenderedCellHeightCss(),
             visibleColCount: this.getColumnVisibility?.()?.visibleCount ?? null,
         });
     }

@@ -142,7 +142,7 @@ export const BUILT_IN_TRACK_DEFINITIONS = {
                             light: { fillStyle: "#333" },
                             dark: { fillStyle: "#e6e6e6" },
                         },
-                        style: { fontSize: 16 },
+                        style: { fontSize: 16, anchor: "top" },
                     },
                 ],
             },
@@ -218,7 +218,7 @@ export const BUILT_IN_TRACK_DEFINITIONS = {
                 layers: [
                     {
                         type: "glyph",
-                        style: { showGlyphs: true, fontSize: 16 },
+                        style: { showGlyphs: true, fontSize: 16, anchor: "top" },
                         colorRamps: {
                             glyph: { min: 0, max: 11, colormap: ["#080947", "#87a7f3"] },
                         },

@@ -25,6 +25,18 @@ function getTrackLogoFont(theme) {
     return `bold 100px ${getTrackGlyphFontFamily(theme)}`;
 }
 
+function getGlyphFontPx(fontSize, renderContext) {
+    return Math.max(1, Math.round(Math.min(
+        Math.max(10, fontSize * renderContext.dpr) * (renderContext.zoom ?? 1),
+        renderContext.heightPx,
+    )));
+}
+
+function getGlyphBaseline(style, fontPx, renderContext) {
+    if (style.anchor !== "top") return renderContext.heightPx;
+    return Math.min(renderContext.heightPx, fontPx + Math.max(1, Math.round(2 * renderContext.dpr)));
+}
+
 function getTrackLaneGeometries(lanes, totalHeightPx) {
     lanes = Array.isArray(lanes) ? lanes : [];
     if (!lanes.length) {
@@ -153,7 +165,7 @@ function buildGlyphLayer(layer, cache, renderContext, theme, track, trackState, 
                     viewport,
                 });
                 return glyphSpec?.glyph
-                    ? { ...glyphSpec, y: glyphSpec.y ?? renderContext.heightPx }
+                    ? glyphSpec
                     : null;
             },
         }));
@@ -165,7 +177,8 @@ function buildGlyphLayer(layer, cache, renderContext, theme, track, trackState, 
         });
     }
     if (glyphs.length === 0) return null;
-    const fontPx = Math.max(10, Math.round((style.fontSize ?? 14) * renderContext.dpr));
+    const fontPx = getGlyphFontPx(style.fontSize ?? 14, renderContext);
+    const glyphBaseline = getGlyphBaseline(style, fontPx, renderContext);
     return {
         type: "glyph",
         props: {
@@ -173,6 +186,7 @@ function buildGlyphLayer(layer, cache, renderContext, theme, track, trackState, 
             cellWidthPx: renderContext.cellWidthPx,
             localScrollLeftPx: renderContext.localScrollLeftPx,
             canvasHeight: renderContext.heightPx,
+            defaultY: glyphBaseline,
             font: `${fontPx}px ${getTrackGlyphFontFamily(theme)}`,
             fillStyle: style.fillStyle ?? defaultGlyphFill(theme),
             textAlign: "center",
@@ -197,12 +211,13 @@ function buildConsensusGlyphLayer(layer, cache, renderContext, theme) {
         layer.style?.fillStyle ?? defaultGlyphFill(theme),
         theme
     );
+    const fontPx = getGlyphFontPx(layer.style?.fontSize ?? 14, renderContext);
+    const glyphBaseline = getGlyphBaseline(layer.style ?? {}, fontPx, renderContext);
     const glyphs = buildConsensusGlyphs(columns, {
         consensusFillStyle: fillStyle,
-        heightPx: renderContext.heightPx,
+        baselineY: glyphBaseline,
     });
     if (glyphs.length === 0) return null;
-    const fontPx = Math.max(10, Math.round((layer.style?.fontSize ?? 14) * renderContext.dpr));
     return {
         type: "glyph",
         props: {

@@ -101,7 +101,7 @@ export function buildConsensusLogoColumns(columns, { includeGaps, plotHeightPx, 
     });
 }
 
-export function buildConsensusGlyphs(columns, { consensusFillStyle, heightPx }) {
+export function buildConsensusGlyphs(columns, { consensusFillStyle, baselineY }) {
     const glyphs = [];
     for (let i = 0; i < columns.length; i += 1) {
         const consensusGlyph = columns[i].consensusGlyph;
@@ -110,7 +110,7 @@ export function buildConsensusGlyphs(columns, { consensusFillStyle, heightPx }) 
             column: i,
             glyph: consensusGlyph,
             color: columns[i].topLetter?.color ?? consensusFillStyle,
-            y: heightPx,
+            y: baselineY,
         });
     }
     return glyphs;

@@ -341,6 +341,7 @@ export function renderGlyphs(context, {
     cellWidthPx,
     localScrollLeftPx,
     canvasHeight,
+    defaultY = canvasHeight,
     font,
     fillStyle = "#333",
     textAlign = "center",
@@ -352,7 +353,7 @@ export function renderGlyphs(context, {
     context.textAlign = textAlign;
     context.textBaseline = textBaseline;
 
-    for (const { column, glyph, color = fillStyle, y = canvasHeight } of glyphs) {
+    for (const { column, glyph, color = fillStyle, y = defaultY } of glyphs) {
         const x = column * cellWidthPx + cellWidthPx / 2 - localScrollLeftPx;
         context.fillStyle = color;
         context.fillText(glyph, x, y);

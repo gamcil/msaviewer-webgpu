@@ -65,6 +65,7 @@ export class TrackView {
                 localScrollLeftPx: 0,
                 dpr,
                 heightPx,
+                zoom: viewport?.zoom ?? 1,
                 columnVisibility: viewport?.columnVisibility ?? null,
             }),
         });
@@ -246,6 +247,7 @@ export class TrackView {
             dpr,
             cellWidthPx,
             heightPx,
+            this.viewport?.zoom ?? 1,
             this.viewport?.totalCols ?? 0,
             this.viewport?.columnVisibility?.signature ?? "unmasked",
         ].join("|");

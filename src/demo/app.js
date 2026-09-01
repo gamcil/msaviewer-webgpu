@@ -164,6 +164,9 @@ async function main() {
     const clearButton = document.getElementById("clear-selection-button");
     const exportFastaButton = document.getElementById("export-fasta-button");
     const motifSearchButton = document.getElementById("motif-search-button");
+    const zoomOutButton = document.getElementById("zoom-out-button");
+    const zoomInButton = document.getElementById("zoom-in-button");
+    const zoomInput = document.getElementById("zoom-input");
     const uploadButton = document.getElementById("upload-button");
     const loadFilesButton = document.getElementById("load-files-button");
     const schemeSelect = document.getElementById("scheme-select");
@@ -198,6 +201,24 @@ async function main() {
         root,
         config: DEMO_CONFIG,
     });
+    const syncZoomControls = () => {
+        zoomInput.value = String(Math.round(viewer.getZoom() * 100));
+    };
+    viewer.addEventListener("zoomchange", syncZoomControls);
+    zoomOutButton.addEventListener("click", () => viewer.zoomOut());
+    zoomInButton.addEventListener("click", () => viewer.zoomIn());
+    zoomInput.addEventListener("change", () => {
+        const percent = Number(zoomInput.value);
+        if (Number.isFinite(percent) && percent > 0) {
+            viewer.setZoom(percent / 100);
+        }
+        syncZoomControls();
+    });
+    zoomInput.addEventListener("keydown", (event) => {
+        if (event.key !== "Enter") return;
+        zoomInput.blur();
+    });
+    syncZoomControls();
     const syncRowStyles = () => {
         viewer.setRowStyles([...styledRows].map((rowIndex) => ({
             rowIndex,

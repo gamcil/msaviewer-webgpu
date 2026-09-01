@@ -52,6 +52,11 @@ export class HeaderView {
             this.track.style.height = `${Math.max(1, this.track.childElementCount * this.rowHeight)}px`;
         }
     }
+    setFontSize(fontSize) {
+        if (this.fontSize === fontSize) return;
+        this.fontSize = fontSize;
+        this.root.style.setProperty("--msa-header-font-size", `${this.fontSize}px`);
+    }
     setViewportHeight(height) {
         const nextHeight = `${Math.max(1, height)}px`;
         if (this.root.style.height === nextHeight) return;
