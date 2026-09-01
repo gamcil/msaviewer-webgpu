@@ -440,11 +440,19 @@ export async function createTiledAlignmentBuilder(totalCols, options = {}) {
     const sealCurrentBand = async () => {
         if (rowsInBand === 0) return;
         const rowTile = Math.floor(currentBandRowStart / tileRows);
+        const usedBytes = rowsInBand * tileCols;
+        let bandByteOffset = 0;
+        if (tileStorage) {
+            const bandBytes = new Uint8Array(colTileCount * usedBytes);
+            for (let colTile = 0; colTile < colTileCount; colTile += 1) {
+                bandBytes.set(bandTiles[colTile].subarray(0, usedBytes), colTile * usedBytes);
+            }
+            ({ byteOffset: bandByteOffset } = await tileStorage.write(bandBytes));
+        }
         for (let colTile = 0; colTile < colTileCount; colTile += 1) {
             const tile = bandTiles[colTile];
             const colStart = colTile * tileCols;
             const colCount = Math.min(tileCols, totalCols - colStart);
-            const usedBytes = rowsInBand * tileCols;
             const tileMeta = {
                 key: `${rowTile}:${colTile}`,
                 rowTile,
@@ -456,7 +464,10 @@ export async function createTiledAlignmentBuilder(totalCols, options = {}) {
             };
             const tileBytes = tile.subarray(0, usedBytes);
             if (tileStorage) {
-                Object.assign(tileMeta, await tileStorage.write(tileBytes));
+                Object.assign(tileMeta, {
+                    byteOffset: bandByteOffset + (colTile * usedBytes),
+                    byteLength: usedBytes,
+                });
             } else {
                 tileMeta.blob = new Blob([tileBytes], { type: "application/octet-stream" });
             }
@@ -468,7 +479,7 @@ export async function createTiledAlignmentBuilder(totalCols, options = {}) {
     };
 
     return {
-        async appendRow(row) {
+        appendRow(row) {
             const rowBytes = typeof row === "string" ? encodeAsciiRow(row) : row;
             if (!(rowBytes instanceof Uint8Array)) {
                 throw new Error("Alignment rows must be strings or Uint8Array instances.");
@@ -491,7 +502,7 @@ export async function createTiledAlignmentBuilder(totalCols, options = {}) {
             rowsInBand += 1;
             totalRows += 1;
             if (rowsInBand === tileRows) {
-                await sealCurrentBand();
+                return sealCurrentBand();
             }
         },
         async finalize(records) {

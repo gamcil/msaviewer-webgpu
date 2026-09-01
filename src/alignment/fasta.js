@@ -1,4 +1,4 @@
-import { iterateLines } from "./stream.js";
+import { firstNonWhitespaceIndex, iterateLines, stripSequenceWhitespace } from "./stream.js";
 import { createTiledAlignmentBuilder } from "./tiledStorage.js";
 
 export async function parseFastaAlignment(input, options = {}) {
@@ -22,24 +22,27 @@ export async function parseFastaAlignment(input, options = {}) {
             throw new Error("All FASTA sequences must have the same aligned length.");
         }
 
-        await builder.appendRow(currentSequence);
+        const pendingWrite = builder.appendRow(currentSequence);
+        if (pendingWrite) {
+            await pendingWrite;
+        }
         records.push({ name: currentName });
     };
 
     try {
         for await (const rawLine of iterateLines(input, "FASTA")) {
-            const line = rawLine.trim();
-            if (!line) {
+            const first = firstNonWhitespaceIndex(rawLine);
+            if (first === rawLine.length) {
                 continue;
             }
 
-            if (line.startsWith("#")) {
+            if (rawLine.charCodeAt(first) === 35) {
                 continue;
             }
 
-            if (line.startsWith(">")) {
+            if (rawLine.charCodeAt(first) === 62) {
                 await finalizeCurrentRecord();
-                currentName = line.slice(1).trim() || `sequence_${records.length + 1}`;
+                currentName = rawLine.slice(first + 1).trim() || `sequence_${records.length + 1}`;
                 currentSequence = "";
                 continue;
             }
@@ -48,7 +51,7 @@ export async function parseFastaAlignment(input, options = {}) {
                 throw new Error("FASTA parsing failed: sequence data appeared before the first header.");
             }
 
-            currentSequence += line.replace(/\s+/g, "");
+            currentSequence += stripSequenceWhitespace(rawLine);
         }
 
         await finalizeCurrentRecord();

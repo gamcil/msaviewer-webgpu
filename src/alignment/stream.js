@@ -1,3 +1,24 @@
+export function isAsciiWhitespace(charCode) {
+    return charCode === 9 || (charCode >= 10 && charCode <= 13) || charCode === 32;
+}
+
+export function firstNonWhitespaceIndex(line) {
+    let index = 0;
+    while (index < line.length && isAsciiWhitespace(line.charCodeAt(index))) {
+        index += 1;
+    }
+    return index;
+}
+
+export function stripSequenceWhitespace(line) {
+    for (let index = 0; index < line.length; index += 1) {
+        if (isAsciiWhitespace(line.charCodeAt(index))) {
+            return line.replace(/\s+/g, "");
+        }
+    }
+    return line;
+}
+
 export async function* iterateLines(input, formatName = "alignment") {
     if (typeof input === "string") {
         const lines = input.replace(/\r/g, "").split("\n");

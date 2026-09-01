@@ -1,4 +1,4 @@
-import { iterateLines } from "./stream.js";
+import { firstNonWhitespaceIndex, isAsciiWhitespace, iterateLines } from "./stream.js";
 import { createTiledAlignmentBuilder } from "./tiledStorage.js";
 
 function createA3MLineSource(input) {
@@ -14,16 +14,48 @@ function createA3MLineSource(input) {
     throw new Error("Unsupported A3M input type.");
 }
 
-function measureA3MSequence(sequence) {
+async function* iterateA3MRecords(lineSource) {
+    let currentName = null;
+    let currentSequence = "";
+    let recordCount = 0;
+
+    for await (const rawLine of lineSource()) {
+        const first = firstNonWhitespaceIndex(rawLine);
+        if (first === rawLine.length || rawLine.charCodeAt(first) === 35) {
+            continue;
+        }
+        if (rawLine.charCodeAt(first) === 62) {
+            if (currentName !== null) {
+                yield { name: currentName, sequence: currentSequence };
+            }
+            recordCount += 1;
+            currentName = rawLine.slice(first + 1).trim() || `sequence_${recordCount}`;
+            currentSequence = "";
+            continue;
+        }
+        if (currentName === null) {
+            throw new Error("A3M parsing failed: sequence data appeared before the first header.");
+        }
+        currentSequence += rawLine;
+    }
+
+    if (currentName !== null) {
+        yield { name: currentName, sequence: currentSequence };
+    }
+}
+
+function measureA3MSequence(sequence, insertionWidths = null) {
     let leadingLength = 0;
     let trailingLength = 0;
     let coreLength = 0;
     let seenCore = false;
     let pendingInsertionLength = 0;
-    const insertionLengths = [];
 
     for (let i = 0; i < sequence.length; i += 1) {
         const charCode = sequence.charCodeAt(i);
+        if (isAsciiWhitespace(charCode)) {
+            continue;
+        }
         const isLowercase = charCode >= 97 && charCode <= 122;
         if (isLowercase) {
             pendingInsertionLength += 1;
@@ -33,8 +65,9 @@ function measureA3MSequence(sequence) {
         if (!seenCore) {
             leadingLength = pendingInsertionLength;
             seenCore = true;
-        } else {
-            insertionLengths.push(pendingInsertionLength);
+        } else if (insertionWidths && coreLength <= insertionWidths.length) {
+            const slot = coreLength - 1;
+            insertionWidths[slot] = Math.max(insertionWidths[slot], pendingInsertionLength);
         }
 
         pendingInsertionLength = 0;
@@ -50,65 +83,36 @@ function measureA3MSequence(sequence) {
     return {
         leadingLength,
         coreLength,
-        insertionLengths,
         trailingLength,
     };
 }
 
-function splitA3MSequence(sequence) {
-    const leadingInsertion = [];
-    const core = [];
-    const insertions = [];
-    let pendingInsertion = [];
-
-    for (let i = 0; i < sequence.length; i += 1) {
-        const charCode = sequence.charCodeAt(i);
-        const isLowercase = charCode >= 97 && charCode <= 122;
-        if (isLowercase) {
-            pendingInsertion.push(charCode);
-            continue;
-        }
-        if (core.length === 0) {
-            leadingInsertion.push(...pendingInsertion);
-        } else {
-            insertions.push(pendingInsertion);
-        }
-        pendingInsertion = [];
-        core.push(String.fromCharCode(charCode).toUpperCase().charCodeAt(0));
-    }
-
-    while (insertions.length < Math.max(0, core.length - 1)) {
-        insertions.push([]);
-    }
-
-    return {
-        leadingInsertion: Uint8Array.from(leadingInsertion),
-        core: Uint8Array.from(core),
-        insertions: insertions.map((insertion) => Uint8Array.from(insertion)),
-        trailingInsertion: Uint8Array.from(pendingInsertion),
-    };
-}
-
-function encodeA3MRow(record, totalCols, leadingWidth, insertionWidths, trailingWidth) {
+function encodeA3MRow(sequence, totalCols, leadingWidth, insertionWidths) {
     const row = new Uint8Array(totalCols);
     row.fill(45);
     let offset = 0;
+    let coreLength = 0;
+    let insertionStart = 0;
 
-    row.set(record.leadingInsertion, offset);
-    offset += leadingWidth;
-
-    for (let coreIndex = 0; coreIndex < record.core.length; coreIndex += 1) {
-        row[offset] = record.core[coreIndex];
-        offset += 1;
-
-        if (coreIndex < insertionWidths.length) {
-            const insertion = record.insertions[coreIndex] ?? new Uint8Array(0);
-            row.set(insertion, offset);
-            offset += insertionWidths[coreIndex];
+    for (let i = 0; i < sequence.length; i += 1) {
+        const charCode = sequence.charCodeAt(i);
+        if (isAsciiWhitespace(charCode)) {
+            continue;
         }
-    }
+        if (charCode >= 97 && charCode <= 122) {
+            row[offset] = charCode;
+            offset += 1;
+            continue;
+        }
 
-    row.set(record.trailingInsertion, offset);
+        offset = coreLength === 0
+            ? leadingWidth
+            : insertionStart + insertionWidths[coreLength - 1];
+        row[offset] = charCode;
+        offset += 1;
+        insertionStart = offset;
+        coreLength += 1;
+    }
 
     return row;
 }
@@ -139,53 +143,30 @@ function buildA3MColumnMetadata(totalCols, leadingWidth, coreLength, insertionWi
 export async function parseA3MAlignment(input, options = {}) {
     const lineSource = createA3MLineSource(input);
     const records = [];
-    let currentName = null;
-    let currentSequence = "";
     let coreLength = null;
     let leadingWidth = 0;
     let trailingWidth = 0;
     let insertionWidths = null;
 
-    const finalizeFirstPassRecord = () => {
-        if (currentName === null) {
-            return;
-        }
-
-        const metrics = measureA3MSequence(currentSequence);
+    for await (const { name, sequence } of iterateA3MRecords(lineSource)) {
+        const metrics = measureA3MSequence(sequence);
         if (coreLength === null) {
             coreLength = metrics.coreLength;
             if (coreLength === 0) {
                 throw new Error("The alignment contains no aligned columns.");
             }
             insertionWidths = new Uint32Array(Math.max(0, coreLength - 1));
+            measureA3MSequence(sequence, insertionWidths);
         } else if (metrics.coreLength !== coreLength) {
             throw new Error("All A3M sequences must have the same aligned match-state length.");
+        } else {
+            measureA3MSequence(sequence, insertionWidths);
         }
 
         leadingWidth = Math.max(leadingWidth, metrics.leadingLength);
         trailingWidth = Math.max(trailingWidth, metrics.trailingLength);
-        for (let slot = 0; slot < insertionWidths.length; slot += 1) {
-            insertionWidths[slot] = Math.max(insertionWidths[slot], metrics.insertionLengths[slot] ?? 0);
-        }
-
-        records.push({ name: currentName });
-    };
-
-    for await (const rawLine of lineSource()) {
-        const line = rawLine.trim();
-        if (!line || line.startsWith("#")) continue;
-        if (line.startsWith(">")) {
-            finalizeFirstPassRecord();
-            currentName = line.slice(1).trim() || `sequence_${records.length + 1}`;
-            currentSequence = "";
-            continue;
-        }
-        if (currentName === null) {
-            throw new Error("A3M parsing failed: sequence data appeared before the first header.");
-        }
-        currentSequence += line.replace(/\s+/g, "");
+        records.push({ name });
     }
-    finalizeFirstPassRecord();
 
     if (records.length === 0) {
         throw new Error("No A3M records were found.");
@@ -197,36 +178,16 @@ export async function parseA3MAlignment(input, options = {}) {
     }
 
     const builder = await createTiledAlignmentBuilder(totalCols, options);
-    let encodedRows = 0;
-    currentName = null;
-    currentSequence = "";
-
-    const finalizeSecondPassRecord = async () => {
-        if (currentName === null) {
-            return;
-        }
-
-        const parsed = splitA3MSequence(currentSequence);
-        await builder.appendRow(encodeA3MRow(parsed, totalCols, leadingWidth, insertionWidths, trailingWidth));
-        encodedRows += 1;
-    };
 
     try {
-        for await (const rawLine of lineSource()) {
-            const line = rawLine.trim();
-            if (!line || line.startsWith("#")) continue;
-            if (line.startsWith(">")) {
-                await finalizeSecondPassRecord();
-                currentName = line.slice(1).trim() || `sequence_${encodedRows + 1}`;
-                currentSequence = "";
-                continue;
+        for await (const { sequence } of iterateA3MRecords(lineSource)) {
+            const pendingWrite = builder.appendRow(
+                encodeA3MRow(sequence, totalCols, leadingWidth, insertionWidths)
+            );
+            if (pendingWrite) {
+                await pendingWrite;
             }
-            if (currentName === null) {
-                throw new Error("A3M parsing failed: sequence data appeared before the first header.");
-            }
-            currentSequence += line.replace(/\s+/g, "");
         }
-        await finalizeSecondPassRecord();
 
         const alignment = await builder.finalize(records);
         alignment.columnMetadata = buildA3MColumnMetadata(
