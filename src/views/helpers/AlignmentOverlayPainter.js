@@ -73,7 +73,7 @@ export class AlignmentOverlayPainter {
         this.motifContext.lineWidth = Math.max(1, Math.round(dpr));
 
         for (let row = rowStart; row < rowEnd; row += 1) {
-            const hits = this.motifHitsByRow[row];
+            const hits = this.motifHitsByRow.get(row);
             if (!hits?.length) continue;
             const y = (row - rowStart) * cellHeightPx - localScrollTopPx;
             for (const hit of hits) {

@@ -133,14 +133,14 @@ export async function searchVisibleMotifHits({
         return {
             query: "",
             visibilitySignature: columnVisibility?.signature ?? "unmasked",
-            hitsByRow: [],
+            hitsByRow: new Map(),
             matchCount: 0,
         };
     }
 
     const visibilitySignature = columnVisibility?.signature ?? "unmasked";
     const visibleToRaw = columnVisibility?.visibleToRaw ?? null;
-    const hitsByRow = Array.from({ length: alignmentStore.totalRows }, () => []);
+    const hitsByRow = new Map();
     const { matcher } = compiledQuery;
     let matchCount = 0;
 
@@ -175,10 +175,12 @@ export async function searchVisibleMotifHits({
                         : offset;
                     const byte = normalizeAscii(tileData[rowOffset + localCol]);
                     if (advanceByteMatcher(matcher, states, stateOffset, byte)) {
-                        hitsByRow[rowIndex].push({
+                        const hits = hitsByRow.get(rowIndex) ?? [];
+                        hits.push({
                             start: visibleCol - matcher.length + 1,
                             len: matcher.length,
                         });
+                        hitsByRow.set(rowIndex, hits);
                         matchCount += 1;
                     }
                 }
