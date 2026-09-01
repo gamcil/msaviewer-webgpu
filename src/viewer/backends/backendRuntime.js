@@ -201,7 +201,7 @@ function createGpuRuntime({
         data: new Int32Array([0]),
     });
     gpuResources.createSingletonBuffer("metricUniformBuffer", {
-        size: Uint32Array.BYTES_PER_ELEMENT * 8,
+        size: Uint32Array.BYTES_PER_ELEMENT * 7,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
 

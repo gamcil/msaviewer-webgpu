@@ -80,8 +80,9 @@ export class ColumnMetricService {
                     totalRows,
                     totalCols,
                     rowTile,
-                    colStart,
-                    colsInBand
+                    colsInBand,
+                    tileCols,
+                    tileRows,
                 );
                 const encoder = this.device.createCommandEncoder();
                 metricPipeline.encodeCount(
@@ -102,8 +103,9 @@ export class ColumnMetricService {
                     totalRows,
                     totalCols,
                     0,
-                    colStart,
-                    colsInBand
+                    colsInBand,
+                    tileCols,
+                    tileRows,
                 );
                 metricPipeline.encodeAggregate(
                     encoder,

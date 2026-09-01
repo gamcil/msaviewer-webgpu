@@ -1,16 +1,14 @@
 // 2-pass compute shader for column score metrics
 // aggregate counts over tiles then computes scores
 
-const TILE_WIDTH: u32 = 512u;
-const TILE_HEIGHT: u32 = 256u;
-
 struct Uniforms {
     total_vertical_tiles: u32,
     msa_height: u32,
     total_msa_columns: u32,
     current_row_tile: u32,
-    current_col_start: u32,
-    current_tile_cols: u32
+    current_tile_cols: u32,
+    tile_width: u32,
+    tile_height: u32
 }
 
 struct PartialCounts {
@@ -57,7 +55,7 @@ fn calculate_intermediate_offset(col: u32, tile_row_id: u32) -> u32 {
 }
 
 fn get_residue_from_blob(col: u32, row: u32) -> u32 {
-    let byte_index = (row * TILE_WIDTH) + col;
+    let byte_index = (row * uniforms.tile_width) + col;
     let u32_index = byte_index >> 2u;           // Equivalent to / 4
     let bit_offset = (byte_index & 3u) << 3u;   // Equivalent to (index % 4) * 8
     return extractBits(msa_tile[u32_index], bit_offset, 8u);
@@ -145,9 +143,9 @@ fn count_residues(@builtin(global_invocation_id) gid: vec3u) {
     
     var local_counts = array<u32, __BUCKET_STRIDE__>();
     
-    let tile_start_row = uniforms.current_row_tile * TILE_HEIGHT;
-    
-    for (var row = 0u; row < TILE_HEIGHT; row = row + 1u) {
+    let tile_start_row = uniforms.current_row_tile * uniforms.tile_height;
+
+    for (var row = 0u; row < uniforms.tile_height; row = row + 1u) {
         if (tile_start_row + row >= uniforms.msa_height) { break; }
         let raw_residue = get_residue_from_blob(col, row);
         if (raw_residue >= 97u && raw_residue <= 122u) { continue; }

@@ -50,8 +50,16 @@ export class ColumnMetricCompute {
         pass.end();
     }
 
-    updateUniforms(uniformBuffer, totalVerticalTiles, msaHeight, totalCols, currentRowTile, currentColStart, currentTileCols) {
-        const data = new Uint32Array([totalVerticalTiles, msaHeight, totalCols, currentRowTile, currentColStart, currentTileCols]);
+    updateUniforms(uniformBuffer, totalVerticalTiles, msaHeight, totalCols, currentRowTile, currentTileCols, tileCols, tileRows) {
+        const data = new Uint32Array([
+            totalVerticalTiles,
+            msaHeight,
+            totalCols,
+            currentRowTile,
+            currentTileCols,
+            tileCols,
+            tileRows,
+        ]);
         this.device.queue.writeBuffer(uniformBuffer, 0, data);
     }
 
