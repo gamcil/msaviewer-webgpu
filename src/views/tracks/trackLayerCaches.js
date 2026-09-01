@@ -1,6 +1,7 @@
 import { warmSequenceLogoGlyphCache } from "../renderers/trackRenderers.js";
 import { buildBarRenderColumns } from "../models/barRenderModel.js";
 import { buildConsensusRenderColumns, collectConsensusLogoGlyphPairs } from "../models/consensusRenderModel.js";
+import { buildGlyphsByRawColumn } from "../models/glyphRenderModel.js";
 import { defaultGlyphFill, isNumericData, resolveGlyphColor, resolveTrackData } from "./trackRuntime.js";
 
 export function buildTrackLayerCaches({
@@ -24,6 +25,12 @@ export function buildTrackLayerCaches({
             return {
                 ...cache,
                 renderColumns: buildConsensusRenderColumns(layerData.columns, { resolveLetterColor: glyphColor }),
+            };
+        }
+        if (layer.type === "glyph" && typeof layer.getGlyph !== "function") {
+            return {
+                ...cache,
+                glyphsByRawColumn: buildGlyphsByRawColumn(layerData),
             };
         }
         if (!isNumericData(layerData)) {

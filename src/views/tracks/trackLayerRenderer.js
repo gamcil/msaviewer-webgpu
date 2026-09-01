@@ -128,7 +128,7 @@ function buildLineLayer(layer, data, renderContext, normalizeValue) {
     };
 }
 
-function buildGlyphLayer(layer, cache, data, renderContext, theme, track, trackState, viewport) {
+function buildGlyphLayer(layer, cache, renderContext, theme, track, trackState, viewport) {
     const style = layer.style ?? {};
     if (renderContext.cellWidthPx < style.minCellWidth) {
         return null;
@@ -158,7 +158,7 @@ function buildGlyphLayer(layer, cache, data, renderContext, theme, track, trackS
             },
         }));
     } else {
-        glyphs = buildVisibleGlyphs(data, {
+        glyphs = buildVisibleGlyphs(cache?.glyphsByRawColumn, {
             visibleStart: renderContext.visibleStart,
             visibleEnd: renderContext.visibleEnd,
             columnVisibility: renderContext.columnVisibility,
@@ -290,7 +290,7 @@ export function buildRenderedTrackLayers({
             if (layerSource?.type === "consensus") {
                 renderedLayer = buildConsensusGlyphLayer(layer, cache, laneRenderContext, theme);
             } else {
-                renderedLayer = buildGlyphLayer(layer, cache, layerData, laneRenderContext, theme, track, trackState, viewport);
+                renderedLayer = buildGlyphLayer(layer, cache, laneRenderContext, theme, track, trackState, viewport);
             }
         } else if (layer.type === "logo") {
             renderedLayer = buildLogoLayer(layer, cache, laneRenderContext, theme);
