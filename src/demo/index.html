@@ -128,7 +128,7 @@
         }
         .zoom-input {
             box-sizing: border-box;
-            width: 60px;
+            width: 68px;
             height: 30px;
             padding: 2px 4px;
             border: 1px solid var(--control-border);
@@ -530,7 +530,7 @@
                         <label>Zoom</label>
                         <div class="zoom-controls">
                             <button id="zoom-out-button" type="button" aria-label="Decrease alignment font size" title="Decrease alignment font size">−</button>
-                            <input id="zoom-input" class="zoom-input" type="number" min="25" max="400" step="1" list="zoom-presets" value="100" aria-label="Alignment zoom percentage">
+                            <input id="zoom-input" class="zoom-input" type="number" min="25" max="400" step="1" value="100" aria-label="Alignment zoom percentage">
                             <span aria-hidden="true">%</span>
                             <button id="zoom-in-button" type="button" aria-label="Increase alignment font size" title="Increase alignment font size">+</button>
                         </div>
@@ -574,20 +574,6 @@
         </div>
         <div class="toolbar-statusbar"><span id="status">Load an alignment to begin.</span></div>
     </div>
-    <datalist id="zoom-presets">
-        <option value="25"></option>
-        <option value="50"></option>
-        <option value="75"></option>
-        <option value="90"></option>
-        <option value="100"></option>
-        <option value="125"></option>
-        <option value="150"></option>
-        <option value="175"></option>
-        <option value="200"></option>
-        <option value="250"></option>
-        <option value="300"></option>
-        <option value="400"></option>
-    </datalist>
     <div class="viewer-host" id="viewer"></div>
     <script type="module" src="./app.js"></script>
 </body>
