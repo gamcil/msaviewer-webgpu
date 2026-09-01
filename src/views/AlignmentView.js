@@ -377,12 +377,14 @@ export class AlignmentView {
             (this.bodyRow.clientHeight || this.root.clientHeight || 0) - trackStackHeight,
         );
         const shellWidth = Math.max(1, this.contentColumn.clientWidth || this.horizontalScroller.clientWidth || this.root.clientWidth || 0);
-        const viewportWidth = Math.max(1, shellWidth - this.getVScrollbarWidth());
+        const vScrollbarWidth = this.getVScrollbarWidth();
+        const viewportWidth = Math.max(1, shellWidth - vScrollbarWidth);
 
         this.alignmentShell.style.width = `${shellWidth}px`;
         this.alignmentShell.style.height = `${availableHeight}px`;
         this.verticalScroller.style.width = `${shellWidth}px`;
         this.verticalScroller.style.height = `${availableHeight}px`;
+        this.interactionProxy.style.right = `${vScrollbarWidth}px`;
         this.trackBodySlot.style.width = `${viewportWidth}px`;
         this.trackBodySlot.style.paddingBottom = `${hScrollbarHeight}px`;
         this.headerSlot.style.height = `${availableHeight}px`;
