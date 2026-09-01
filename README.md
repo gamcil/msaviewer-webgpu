@@ -81,8 +81,12 @@ await viewer.setActiveRepresentation(id);
 await viewer.registerColorScheme(key, options);
 await viewer.setTrackEnabled(track, enabled);
 await viewer.setMotifQuery(query);
+viewer.zoomIn();
+viewer.zoomOut();
+viewer.setZoom(1.5);
 
 viewer.getConfig();
+viewer.getZoom();
 viewer.getBackend();
 viewer.getRepresentations();
 viewer.getActiveRepresentation();
@@ -100,8 +104,11 @@ viewer.addEventListener("selectionchange", handler);
 viewer.addEventListener("visibilitychange", handler);
 viewer.addEventListener("cellhover", handler);
 viewer.addEventListener("sequenceclick", handler);
+viewer.addEventListener("zoomchange", handler);
 viewer.destroy();
 ```
+
+Hold Ctrl (or Cmd on macOS) while scrolling over the alignment to zoom around the pointer. `zoomIn()` and `zoomOut()` zoom around the viewport centre using 25%, 50%, 75%, 90%, 100%, 125%, 150%, and larger preset levels.
 
 ## Custom Color Schemes
 
