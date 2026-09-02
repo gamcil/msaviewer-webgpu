@@ -628,6 +628,49 @@ export async function sequenceResidueIndexAt(alignment, rowIndex, rawColumn, cac
     return residueIndex;
 }
 
+export async function sequenceRawColumnAtResidue(alignment, rowIndex, residueIndex, cache = null) {
+    if (
+        !alignment?.sequenceResidueTileOffsets
+        || !Number.isInteger(rowIndex)
+        || !Number.isInteger(residueIndex)
+        || rowIndex < 0
+        || rowIndex >= alignment.totalRows
+        || residueIndex < 0
+    ) {
+        return null;
+    }
+
+    const offsetStart = rowIndex * alignment.colTileCount;
+    let low = 0;
+    let high = alignment.colTileCount;
+    while (low < high) {
+        const middle = Math.floor((low + high) / 2);
+        if (alignment.sequenceResidueTileOffsets[offsetStart + middle] <= residueIndex) {
+            low = middle + 1;
+        } else {
+            high = middle;
+        }
+    }
+    const colTile = Math.max(0, low - 1);
+    const rowTile = Math.floor(rowIndex / alignment.tileRows);
+    const tileIndex = getTileIndex(alignment, rowTile, colTile);
+    const tile = alignment.tiles[tileIndex];
+    if (!tile) return null;
+
+    const tileData = await loadDecodedTile(alignment, tileIndex, cache);
+    const rowInTile = rowIndex - tile.rowStart;
+    const rowOffset = rowInTile * alignment.tileCols;
+    let currentResidueIndex = alignment.sequenceResidueTileOffsets[offsetStart + colTile];
+    for (let col = 0; col < tile.colCount; col += 1) {
+        if (isGapRaw(tileData[rowOffset + col])) continue;
+        if (currentResidueIndex === residueIndex) {
+            return tile.colStart + col;
+        }
+        currentResidueIndex += 1;
+    }
+    return null;
+}
+
 export async function materializeWindowFromTiles(alignment, rowStart, rowCount, colStart, colCount, cache = null) {
     const out = new Uint8Array(rowCount * colCount);
     const rowEnd = Math.min(rowStart + rowCount, alignment.totalRows);

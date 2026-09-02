@@ -452,6 +452,12 @@ export interface ScrollToOptions {
   behavior?: "auto" | "smooth";
 }
 
+export interface ReferenceSequence {
+  representationId: RepresentationId;
+  rowIndex: number;
+  record: AlignmentRecord | null;
+}
+
 export interface ColumnRect {
   rawColumn: number;
   visibleColumn: number;
@@ -503,6 +509,11 @@ export class MSAViewer {
   getViewport(): ViewportSnapshot | null;
   scrollTo(options: ScrollToOptions): boolean;
   getColumnRect(options: { rawColumn: number }): ColumnRect | null;
+  setReferenceSequence(options: { rowIndex: number }): void;
+  clearReferenceSequence(): void;
+  getReferenceSequence(): ReferenceSequence | null;
+  getReferenceResidueColumn(options: { residueNumber: number }): Promise<number | null>;
+  scrollToReferenceResidue(options: { residueNumber: number; behavior?: "auto" | "smooth" }): Promise<boolean>;
   setColumnMarkers(markers?: ColumnMarker[]): void;
   clearColumnMarkers(): void;
   getBackend(): ResolvedBackend;

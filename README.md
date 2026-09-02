@@ -146,6 +146,19 @@ viewer.setColumnMarkers([
 viewer.clearColumnMarkers();
 ```
 
+## Reference Coordinates
+
+Designate a row as the reference to translate its 1-based, ungapped residue numbers into raw alignment columns. The reference applies only to the active representation.
+
+```js
+viewer.setReferenceSequence({ rowIndex: 0 });
+
+const rawColumn = await viewer.getReferenceResidueColumn({ residueNumber: 356 });
+await viewer.scrollToReferenceResidue({ residueNumber: 356, behavior: "smooth" });
+```
+
+`getReferenceResidueColumn()` returns `null` when no reference is set or the requested residue does not exist. Changing representations leaves the previous reference inactive; set a reference for the newly active representation if needed.
+
 ## Custom Color Schemes
 
 Register column-driven schemes before selecting them in the viewer config. Custom schemes compile the input values into one packed color per column, so the original values are not retained. If data is already loaded, the `values` length must match the active alignment column count.

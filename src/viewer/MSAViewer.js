@@ -10,7 +10,12 @@ import {
     registerCustomColorScheme,
 } from "../schemes/registry.js";
 import { loadImageSource } from "../util.js";
-import { cleanupStaleTileStorage, TileCache, sequenceResidueIndexAt } from "../alignment/tiledStorage.js";
+import {
+    cleanupStaleTileStorage,
+    TileCache,
+    sequenceRawColumnAtResidue,
+    sequenceResidueIndexAt,
+} from "../alignment/tiledStorage.js";
 import { MinimapView } from "../views/MinimapView.js";
 import { TrackStackView } from "../views/TrackStackView.js";
 import { TrackView } from "../views/tracks/TrackView.js";
@@ -213,6 +218,7 @@ export class MSAViewer {
         this.cellHoverVersion = 0;
         this.loadRequestId = 0;
         this.columnMarkers = [];
+        this.referenceSequence = null;
         this.lastViewportSignature = null;
         this.scrollAnimationFrame = 0;
         this.cleanup = [];
@@ -499,6 +505,55 @@ export class MSAViewer {
             width,
             height: bounds.height,
         };
+    }
+
+    setReferenceSequence({ rowIndex } = {}) {
+        this.#assertLive();
+        const active = this.#activeRepresentation();
+        const alignmentStore = active?.store;
+        if (!alignmentStore) {
+            throw new Error("Cannot set a reference sequence before loading an alignment.");
+        }
+        if (!Number.isInteger(rowIndex) || rowIndex < 0 || rowIndex >= alignmentStore.totalRows) {
+            throw new RangeError(`Reference row must be within [0, ${alignmentStore.totalRows}).`);
+        }
+        this.referenceSequence = { representationId: active.id, rowIndex };
+    }
+
+    clearReferenceSequence() {
+        this.referenceSequence = null;
+    }
+
+    getReferenceSequence() {
+        const active = this.#activeRepresentation();
+        if (!active || this.referenceSequence?.representationId !== active.id) return null;
+        const rowIndex = this.referenceSequence.rowIndex;
+        return {
+            representationId: active.id,
+            rowIndex,
+            record: active.store?.records?.[rowIndex] ?? null,
+        };
+    }
+
+    async getReferenceResidueColumn({ residueNumber } = {}) {
+        this.#assertLive();
+        if (!Number.isInteger(residueNumber) || residueNumber < 1) {
+            throw new RangeError("Reference residue number must be a positive integer.");
+        }
+        const reference = this.getReferenceSequence();
+        if (!reference) return null;
+        return await sequenceRawColumnAtResidue(
+            this.#activeStore(),
+            reference.rowIndex,
+            residueNumber - 1,
+            this.decodedTileCache
+        );
+    }
+
+    async scrollToReferenceResidue({ residueNumber, behavior = "auto" } = {}) {
+        const rawColumn = await this.getReferenceResidueColumn({ residueNumber });
+        if (rawColumn == null) return false;
+        return this.scrollTo({ rawColumn, behavior });
     }
 
     setColumnMarkers(markers = []) {
@@ -1799,6 +1854,7 @@ export class MSAViewer {
         }
 
         const nextActiveId = activeId ?? representations[0]?.id ?? null;
+        this.clearReferenceSequence();
         this.#clearData({
             preserveSelection: !resetView,
             preserveScroll: !resetView,
