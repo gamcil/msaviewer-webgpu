@@ -30,6 +30,12 @@ import { BUILT_IN_TRACK_DEFINITIONS } from "./tracks/builtInTrackDefinitions.js"
 import { TrackCatalog, buildTrackBindingId } from "./tracks/TrackCatalog.js";
 import { exportSelectionAsFasta as buildSelectionFasta } from "./export/exportSelectionAsFasta.js";
 import {
+    createColumnMetricsSnapshot,
+    createConsensusSnapshot,
+    normalizeMetricFields,
+    normalizeRawColumnRange,
+} from "./computedData.js";
+import {
     createAlignmentSurface,
     createAlignmentRenderResources,
     createBackendMinimapController,
@@ -461,6 +467,37 @@ export class MSAViewer {
 
     getTracks() {
         return this.trackCatalog?.tracks ?? [];
+    }
+
+    async getColumnMetrics({ representationId = null, rawColumnRange = null, fields = null } = {}) {
+        this.#assertLive();
+        await this.#init();
+        const id = representationId ?? this.#activeRepresentation()?.id ?? null;
+        const representation = id ? await this.#ensureColumnMetrics(id) : null;
+        if (!representation) return null;
+        const alphabet = this.alphabetRegistry.get(representation.alphabetId);
+        const range = normalizeRawColumnRange(rawColumnRange, representation.store.totalCols);
+        return createColumnMetricsSnapshot({
+            representation,
+            alphabet,
+            rawColumnRange: range,
+            fields: normalizeMetricFields(fields),
+        });
+    }
+
+    async getConsensus({ representationId = null, rawColumnRange = null, includeFrequencies = false } = {}) {
+        this.#assertLive();
+        await this.#init();
+        const id = representationId ?? this.#activeRepresentation()?.id ?? null;
+        const representation = id ? await this.#ensureColumnMetrics(id) : null;
+        if (!representation) return null;
+        const alphabet = this.alphabetRegistry.get(representation.alphabetId);
+        return createConsensusSnapshot({
+            representation,
+            alphabet,
+            rawColumnRange: normalizeRawColumnRange(rawColumnRange, representation.store.totalCols),
+            includeFrequencies,
+        });
     }
 
     #trackDefinition(binding) {

@@ -94,6 +94,8 @@ viewer.getSchemes();
 viewer.getTracks();
 viewer.getSelection();
 viewer.getColumnVisibility();
+await viewer.getColumnMetrics({ rawColumnRange: { start: 0, end: 100 } });
+await viewer.getConsensus({ rawColumnRange: { start: 0, end: 100 } });
 viewer.setRowStyles(rowStyles);
 viewer.clearRowStyles();
 viewer.setSelection({ mode, ranges });
@@ -109,6 +111,10 @@ viewer.destroy();
 ```
 
 Hold Ctrl (or Cmd on macOS) while scrolling over the alignment to zoom around the pointer. `zoomIn()` and `zoomOut()` zoom around the viewport centre using 25%, 50%, 75%, 90%, 100%, 125%, 150%, and larger preset levels.
+
+## Computed Alignment Data
+
+`getColumnMetrics()` and `getConsensus()` expose independent snapshots of the viewer's computed alignment data for embedding applications. Both accept an optional `representationId` and an exclusive-end `rawColumnRange`; metrics can also be limited to named fields. The returned alphabet descriptor defines the symbol order used by consensus indices and residue frequencies.
 
 ## Custom Color Schemes
 

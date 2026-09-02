@@ -136,6 +136,87 @@ export interface ColumnVisibilitySnapshot {
   signature: string | number;
 }
 
+export interface RawColumnRange {
+  /** Inclusive raw-alignment column index. */
+  start: number;
+  /** Exclusive raw-alignment column index. */
+  end: number;
+}
+
+export interface ComputedAlphabet {
+  id: AlphabetId;
+  label: string;
+  shortLabel: string;
+  /** Non-gap symbols, ordered to match consensus indices and frequencies. */
+  symbols: string[];
+  gapSymbol: string;
+}
+
+export type ColumnMetricField =
+  | "quality"
+  | "occupancy"
+  | "entropy"
+  | "modalFractionNonGap"
+  | "informationContentRaw"
+  | "consensusIndex"
+  | "consensusTie"
+  | "conservationScore"
+  | "conservationMask";
+
+export interface ColumnMetricsOptions {
+  representationId?: RepresentationId | null;
+  rawColumnRange?: RawColumnRange | null;
+  fields?: ColumnMetricField[] | null;
+}
+
+export interface ColumnMetricsSnapshot {
+  representationId: RepresentationId;
+  totalRows: number;
+  totalCols: number;
+  rawColumnRange: RawColumnRange;
+  alphabet: ComputedAlphabet;
+  quality?: Float32Array;
+  occupancy?: Float32Array;
+  entropy?: Float32Array;
+  modalFractionNonGap?: Float32Array;
+  informationContentRaw?: Float32Array;
+  consensusIndex?: Uint16Array;
+  consensusTie?: Uint8Array;
+  conservationScore?: Uint8Array;
+  conservationMask?: Uint32Array;
+}
+
+export interface ConsensusOptions {
+  representationId?: RepresentationId | null;
+  rawColumnRange?: RawColumnRange | null;
+  includeFrequencies?: boolean;
+}
+
+export interface ConsensusResidue {
+  symbol: string;
+  count: number;
+  fraction: number;
+}
+
+export interface ConsensusColumn {
+  rawColumn: number;
+  occupancy: number;
+  modalFractionNonGap: number;
+  informationContentRaw: number;
+  nonGapCount: number;
+  consensusGlyph: string | null;
+  residues?: ConsensusResidue[];
+}
+
+export interface ConsensusSnapshot {
+  representationId: RepresentationId;
+  totalRows: number;
+  totalCols: number;
+  rawColumnRange: RawColumnRange;
+  alphabet: ComputedAlphabet;
+  columns: ConsensusColumn[];
+}
+
 export interface SchemeVariant {
   representationId: RepresentationId | null;
   alphabetId: AlphabetId | null;
@@ -377,6 +458,8 @@ export class MSAViewer {
   getTracks(): TrackOption[];
   getSelection(): SelectionSnapshot;
   getColumnVisibility(options?: { representationId?: RepresentationId | null }): ColumnVisibilitySnapshot | null;
+  getColumnMetrics(options?: ColumnMetricsOptions): Promise<ColumnMetricsSnapshot | null>;
+  getConsensus(options?: ConsensusOptions): Promise<ConsensusSnapshot | null>;
   registerColorScheme(key: string, options: RegisterCustomColorSchemeOptions): Promise<RegisteredColorScheme>;
 
   setConfig(config?: MSAViewerConfigInput): Promise<void>;
