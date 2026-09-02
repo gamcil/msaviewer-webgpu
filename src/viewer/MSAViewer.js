@@ -47,6 +47,7 @@ const MIN_ALIGNMENT_ZOOM = 0.25;
 const MAX_ALIGNMENT_ZOOM = 4;
 const ALIGNMENT_ZOOM_LEVELS = [0.25, 0.5, 0.75, 0.9, 1, 1.25, 1.5, 1.75, 2, 2.5, 3, 4];
 const SMOOTH_SCROLL_DURATION_MS = 180;
+const DEFAULT_COLUMN_MARKER_COLOR = "#ec3f5f";
 
 function nextAlignmentZoom(zoom, direction) {
     if (direction > 0) {
@@ -211,6 +212,7 @@ export class MSAViewer {
         this.eventTarget = new EventTarget();
         this.cellHoverVersion = 0;
         this.loadRequestId = 0;
+        this.columnMarkers = [];
         this.lastViewportSignature = null;
         this.scrollAnimationFrame = 0;
         this.cleanup = [];
@@ -345,6 +347,8 @@ export class MSAViewer {
             viewport.visibleColumnCount,
             viewport.scrollLeft,
             viewport.scrollTop,
+            viewport.left,
+            viewport.top,
             viewport.width,
             viewport.height,
             viewport.cellWidth,
@@ -417,6 +421,10 @@ export class MSAViewer {
             visibleColumnCount,
             scrollLeft,
             scrollTop,
+            left: bounds.left,
+            top: bounds.top,
+            right: bounds.left + bounds.width,
+            bottom: bounds.top + bounds.height,
             width: bounds.width,
             height: bounds.height,
             cellWidth,
@@ -491,6 +499,30 @@ export class MSAViewer {
             width,
             height: bounds.height,
         };
+    }
+
+    setColumnMarkers(markers = []) {
+        this.#assertLive();
+        if (!Array.isArray(markers)) {
+            throw new TypeError("Column markers must be an array.");
+        }
+        this.columnMarkers = markers.map((marker) => {
+            if (!Number.isInteger(marker?.rawColumn) || marker.rawColumn < 0) {
+                throw new RangeError("Column marker rawColumn must be a non-negative integer.");
+            }
+            if (marker.color != null && typeof marker.color !== "string") {
+                throw new TypeError("Column marker color must be a CSS color string.");
+            }
+            return {
+                rawColumn: marker.rawColumn,
+                color: marker.color ?? DEFAULT_COLUMN_MARKER_COLOR,
+            };
+        });
+        this.alignmentView?.setColumnMarkers(this.columnMarkers);
+    }
+
+    clearColumnMarkers() {
+        this.setColumnMarkers([]);
     }
 
     setZoom(zoom, { clientX, clientY } = {}) {
@@ -1151,6 +1183,7 @@ export class MSAViewer {
             headerVisible: this.viewerConfig.visibility.header,
             rulerVisible: this.viewerConfig.visibility.ruler,
         });
+        this.alignmentView.setColumnMarkers(this.columnMarkers);
         this.roots.header = this.alignmentView.headerSlot;
         this.roots.ruler = this.alignmentView.rulerSlot;
         this.roots.trackLabel = this.alignmentView.trackLabelSlot;

@@ -384,6 +384,36 @@ export class ViewerState {
         this.emit();
     }
 
+    toggleColumnSelection(column) {
+        if (!Number.isInteger(column)) return;
+        const ranges = this.state.selection.ranges;
+        const isSelected = ranges.some((range) => range.colStart <= column && column < range.colEnd);
+        const nextRanges = isSelected
+            ? ranges.flatMap((range) => {
+                if (column < range.colStart || column >= range.colEnd) return [range];
+                const split = [];
+                if (range.colStart < column) {
+                    split.push({ ...range, colEnd: column });
+                }
+                if (column + 1 < range.colEnd) {
+                    split.push({ ...range, colStart: column + 1 });
+                }
+                return split;
+            })
+            : [
+                ...ranges,
+                {
+                    colStart: column,
+                    colEnd: column + 1,
+                    rowStart: 0,
+                    rowEnd: this.state.alignment.totalRows,
+                },
+            ];
+        this.applySelectionRanges(nextRanges, "column");
+        this.emitSelection();
+        this.emit();
+    }
+
     clearSelection() {
         if (this.state.selection.ranges.length === 0) return;
         this.state.selection.ranges = [];

@@ -52,7 +52,15 @@ export class SelectionController {
         this.onWindowMouseUp = (event) => {
             if (!this.isDragging || event.button !== 0) return;
             const committedRange = this.updatePreviewFromPointer(event);
-            if (committedRange) this.state.appendSelectionRanges([committedRange]);
+            if (committedRange) {
+                const isSingleColumnClick = this.dragMode === "column"
+                    && committedRange.colEnd === committedRange.colStart + 1;
+                if (isSingleColumnClick) {
+                    this.state.toggleColumnSelection(committedRange.colStart);
+                } else {
+                    this.state.appendSelectionRanges([committedRange]);
+                }
+            }
             this.resetDrag();
         };
 

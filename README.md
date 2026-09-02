@@ -118,7 +118,7 @@ Hold Ctrl (or Cmd on macOS) while scrolling over the alignment to zoom around th
 
 ## Viewport Integration
 
-Embedding applications can navigate the alignment and position their own UI without accessing the viewer's shadow DOM. `getViewport()` reports rendered rows and visible-column coordinates; visible columns are distinct from raw columns when insertion columns are hidden.
+Embedding applications can navigate the alignment and position their own UI without accessing the viewer's shadow DOM. `getViewport()` reports client-coordinate bounds, rendered rows, and visible-column coordinates; visible columns are distinct from raw columns when insertion columns are hidden.
 
 ```js
 viewer.scrollTo({ rawColumn: 420, row: 17, behavior: "smooth" });
@@ -135,6 +135,16 @@ viewer.addEventListener("viewportchange", ({ detail: { viewport } }) => {
 ```
 
 `getColumnRect()` returns `null` for a hidden raw column. When navigating to one, `scrollTo()` targets the nearest visible column. `rawColumn` and `row` are independent optional targets; each supplied coordinate is positioned at the start of its axis, subject to the alignment boundary.
+
+Applications can also render non-interactive markers in the alignment overlay. Markers track scrolling and hide with filtered columns automatically.
+
+```js
+viewer.setColumnMarkers([
+  { rawColumn: 420, color: "#ec3f5f" },
+]);
+
+viewer.clearColumnMarkers();
+```
 
 ## Custom Color Schemes
 

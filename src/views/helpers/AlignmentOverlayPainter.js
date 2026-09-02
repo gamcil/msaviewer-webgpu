@@ -21,6 +21,7 @@ export class AlignmentOverlayPainter {
         this.selectionRanges = [];
         this.previewRange = null;
         this.columnVisibility = null;
+        this.columnMarkers = [];
         this.motifHitsByRow = null;
     }
 
@@ -44,6 +45,10 @@ export class AlignmentOverlayPainter {
 
     setColumnVisibility(columnVisibility) {
         this.columnVisibility = columnVisibility;
+    }
+
+    setColumnMarkers(markers = []) {
+        this.columnMarkers = markers;
     }
 
     drawMotifOverlay({
@@ -111,6 +116,14 @@ export class AlignmentOverlayPainter {
         const heightPx = (rowEnd - rowStart) * cellHeightPx;
         const geometry = this.buildOverlayGeometry({ colStart, colEnd, rowStart, rowEnd });
 
+        this.drawColumnMarkers({
+            colStart,
+            colEnd,
+            cellWidthPx,
+            localScrollLeftPx,
+            heightPx,
+            dpr,
+        });
         this.drawCellSelectionUnion({
             rowIntervals: geometry.committedRowIntervals,
             colStart,
@@ -182,6 +195,33 @@ export class AlignmentOverlayPainter {
             rowStart,
             rowEnd,
         });
+    }
+
+    drawColumnMarkers({
+        colStart,
+        colEnd,
+        cellWidthPx,
+        localScrollLeftPx,
+        heightPx,
+        dpr,
+    }) {
+        if (this.columnMarkers.length === 0) return;
+
+        for (const marker of this.columnMarkers) {
+            const visibleColumn = this.columnVisibility?.rawToVisible?.[marker.rawColumn] ?? marker.rawColumn;
+            if (visibleColumn < colStart || visibleColumn >= colEnd) continue;
+            const x = (visibleColumn - colStart) * cellWidthPx - localScrollLeftPx;
+            this.overlayContext.save();
+            this.overlayContext.fillStyle = marker.color;
+            this.overlayContext.globalAlpha = 0.18;
+            this.overlayContext.fillRect(x, 0, cellWidthPx, heightPx);
+            this.overlayContext.globalAlpha = 0.85;
+            this.overlayContext.strokeStyle = marker.color;
+            this.overlayContext.lineWidth = Math.max(1, Math.round(dpr));
+            this.overlayContext.setLineDash([Math.max(3, Math.round(3 * dpr)), Math.max(2, Math.round(2 * dpr))]);
+            this.overlayContext.strokeRect(x + 0.5, 0.5, Math.max(0, cellWidthPx - 1), Math.max(0, heightPx - 1));
+            this.overlayContext.restore();
+        }
     }
 
     drawCellSelectionUnion({

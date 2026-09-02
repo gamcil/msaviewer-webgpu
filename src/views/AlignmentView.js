@@ -322,6 +322,11 @@ export class AlignmentView {
         this.renderOverlays();
     }
 
+    setColumnMarkers(markers = []) {
+        this.overlayPainter.setColumnMarkers(markers);
+        this.renderOverlays();
+    }
+
     renderMotifOverlay() {
         const dpr = window.devicePixelRatio || 1;
         const cellWidthCss = this.getRenderedCellWidthCss();

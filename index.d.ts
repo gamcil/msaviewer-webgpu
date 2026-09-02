@@ -431,6 +431,10 @@ export interface ViewportSnapshot {
   visibleColumnCount: number;
   scrollLeft: number;
   scrollTop: number;
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
   width: number;
   height: number;
   cellWidth: number;
@@ -457,6 +461,11 @@ export interface ColumnRect {
   bottom: number;
   width: number;
   height: number;
+}
+
+export interface ColumnMarker {
+  rawColumn: number;
+  color?: string;
 }
 
 export interface ViewportChangeDetail {
@@ -494,6 +503,8 @@ export class MSAViewer {
   getViewport(): ViewportSnapshot | null;
   scrollTo(options: ScrollToOptions): boolean;
   getColumnRect(options: { rawColumn: number }): ColumnRect | null;
+  setColumnMarkers(markers?: ColumnMarker[]): void;
+  clearColumnMarkers(): void;
   getBackend(): ResolvedBackend;
   getRepresentations(): RepresentationSummary[];
   getActiveRepresentation(): RepresentationSummary | null;
