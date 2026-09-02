@@ -16,6 +16,7 @@ export class ViewportController {
         requestRender,
         onHoverReset,
         onSetScrolling,
+        onViewportChange,
     }) {
         this.state = state;
         this.alignmentView = alignmentView;
@@ -33,6 +34,7 @@ export class ViewportController {
         this.requestRender = requestRender;
         this.onHoverReset = onHoverReset;
         this.onSetScrolling = onSetScrolling;
+        this.onViewportChange = onViewportChange;
         this.resizeObserver = null;
         this.resizeFrameHandle = 0;
         this.scrollFrameHandle = 0;
@@ -164,6 +166,7 @@ export class ViewportController {
             this.syncMinimapViewportRect();
             this.syncRulerViewport();
             this.syncTracksViewport();
+            this.onViewportChange?.();
 
             if (this.scrollEndTimeoutHandle) {
                 window.clearTimeout(this.scrollEndTimeoutHandle);
@@ -197,6 +200,7 @@ export class ViewportController {
         this.syncMinimapViewportRect();
         this.syncRulerViewport();
         this.syncTracksViewport();
+        this.onViewportChange?.();
     }
 
     destroy() {

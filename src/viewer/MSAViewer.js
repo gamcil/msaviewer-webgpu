@@ -46,12 +46,37 @@ import {
 const MIN_ALIGNMENT_ZOOM = 0.25;
 const MAX_ALIGNMENT_ZOOM = 4;
 const ALIGNMENT_ZOOM_LEVELS = [0.25, 0.5, 0.75, 0.9, 1, 1.25, 1.5, 1.75, 2, 2.5, 3, 4];
+const SMOOTH_SCROLL_DURATION_MS = 180;
 
 function nextAlignmentZoom(zoom, direction) {
     if (direction > 0) {
         return ALIGNMENT_ZOOM_LEVELS.find((level) => level > zoom + Number.EPSILON) ?? MAX_ALIGNMENT_ZOOM;
     }
     return [...ALIGNMENT_ZOOM_LEVELS].reverse().find((level) => level < zoom - Number.EPSILON) ?? MIN_ALIGNMENT_ZOOM;
+}
+
+function visibleColumnForRawColumn(rawColumn, columnVisibility) {
+    if (!columnVisibility) return rawColumn;
+    const direct = columnVisibility.rawToVisible?.[rawColumn];
+    if (direct != null && direct >= 0) return direct;
+
+    const visibleToRaw = columnVisibility.visibleToRaw;
+    if (!visibleToRaw?.length) return null;
+    let low = 0;
+    let high = visibleToRaw.length;
+    while (low < high) {
+        const middle = Math.floor((low + high) / 2);
+        if (visibleToRaw[middle] < rawColumn) {
+            low = middle + 1;
+        } else {
+            high = middle;
+        }
+    }
+    const after = Math.min(low, visibleToRaw.length - 1);
+    const before = Math.max(0, after - 1);
+    return rawColumn - visibleToRaw[before] <= visibleToRaw[after] - rawColumn
+        ? before
+        : after;
 }
 
 function writeThemeUniformBuffer(device, buffer, darkMode, colorScheme) {
@@ -186,6 +211,8 @@ export class MSAViewer {
         this.eventTarget = new EventTarget();
         this.cellHoverVersion = 0;
         this.loadRequestId = 0;
+        this.lastViewportSignature = null;
+        this.scrollAnimationFrame = 0;
         this.cleanup = [];
         this.initialized = false;
         this.initPromise = null;
@@ -308,6 +335,60 @@ export class MSAViewer {
         this.eventTarget.dispatchEvent(new CustomEvent(type, { detail }));
     }
 
+    #emitViewportChange() {
+        const viewport = this.getViewport();
+        if (!viewport) return;
+        const signature = [
+            viewport.representationId,
+            viewport.totalRows,
+            viewport.totalCols,
+            viewport.visibleColumnCount,
+            viewport.scrollLeft,
+            viewport.scrollTop,
+            viewport.width,
+            viewport.height,
+            viewport.cellWidth,
+            viewport.cellHeight,
+        ].join(":");
+        if (signature === this.lastViewportSignature) return;
+        this.lastViewportSignature = signature;
+        this.#emit("viewportchange", { viewport });
+    }
+
+    #cancelScrollAnimation() {
+        if (!this.scrollAnimationFrame) return;
+        cancelAnimationFrame(this.scrollAnimationFrame);
+        this.scrollAnimationFrame = 0;
+    }
+
+    #scrollAlignmentTo(left, top, behavior) {
+        const alignmentView = this.alignmentView;
+        if (!alignmentView) return;
+        this.#cancelScrollAnimation();
+        if (behavior !== "smooth") {
+            alignmentView.scrollTo(left, top);
+            return;
+        }
+
+        const startLeft = alignmentView.getScrollLeft();
+        const startTop = alignmentView.getScrollTop();
+        const startTime = performance.now();
+        const step = (now) => {
+            const progress = Math.min(1, (now - startTime) / SMOOTH_SCROLL_DURATION_MS);
+            const eased = 1 - ((1 - progress) ** 3);
+            alignmentView.scrollTo(
+                startLeft + ((left - startLeft) * eased),
+                startTop + ((top - startTop) * eased),
+            );
+            if (progress < 1) {
+                this.scrollAnimationFrame = requestAnimationFrame(step);
+            } else {
+                this.scrollAnimationFrame = 0;
+            }
+        };
+        this.scrollAnimationFrame = requestAnimationFrame(step);
+    }
+
     getConfig() {
         return cloneSnapshot(this.options);
     }
@@ -315,6 +396,101 @@ export class MSAViewer {
     getZoom() {
         const { cellWidth } = this.state.getCellSize();
         return cellWidth / this.viewerConfig.layout.cell.width;
+    }
+
+    getViewport() {
+        const alignmentStore = this.#activeStore();
+        const alignmentView = this.alignmentView;
+        if (!alignmentStore || !alignmentView) return null;
+
+        const bounds = alignmentView.getViewportBounds();
+        const scrollLeft = alignmentView.getScrollLeft();
+        const scrollTop = alignmentView.getScrollTop();
+        const cellWidth = alignmentView.getRenderedCellWidthCss();
+        const cellHeight = alignmentView.getRenderedCellHeightCss();
+        const columnVisibility = this.#activeRepresentation()?.columnVisibility ?? null;
+        const visibleColumnCount = columnVisibility?.visibleCount ?? alignmentStore.totalCols;
+        return {
+            representationId: this.#activeRepresentation()?.id ?? null,
+            totalRows: alignmentStore.totalRows,
+            totalCols: alignmentStore.totalCols,
+            visibleColumnCount,
+            scrollLeft,
+            scrollTop,
+            width: bounds.width,
+            height: bounds.height,
+            cellWidth,
+            cellHeight,
+            zoom: this.getZoom(),
+            rowStart: Math.max(0, Math.floor(scrollTop / cellHeight)),
+            rowEnd: Math.min(alignmentStore.totalRows, Math.ceil((scrollTop + bounds.height) / cellHeight)),
+            visibleColumnStart: Math.max(0, Math.floor(scrollLeft / cellWidth)),
+            visibleColumnEnd: Math.min(
+                visibleColumnCount,
+                Math.ceil((scrollLeft + bounds.width) / cellWidth)
+            ),
+        };
+    }
+
+    scrollTo({ rawColumn = null, row = null, behavior = "auto" } = {}) {
+        this.#assertLive();
+        const alignmentStore = this.#activeStore();
+        const alignmentView = this.alignmentView;
+        if (!alignmentStore || !alignmentView) return false;
+        if (rawColumn == null && row == null) {
+            throw new TypeError("scrollTo requires rawColumn or row.");
+        }
+        if (behavior !== "auto" && behavior !== "smooth") {
+            throw new RangeError("Scroll behavior must be 'auto' or 'smooth'.");
+        }
+
+        let left = alignmentView.getScrollLeft();
+        let top = alignmentView.getScrollTop();
+        if (rawColumn != null) {
+            if (!Number.isInteger(rawColumn) || rawColumn < 0 || rawColumn >= alignmentStore.totalCols) {
+                throw new RangeError(`Raw column must be within [0, ${alignmentStore.totalCols}).`);
+            }
+            const visibleColumn = visibleColumnForRawColumn(
+                rawColumn,
+                this.#activeRepresentation()?.columnVisibility ?? null
+            );
+            if (visibleColumn == null) return false;
+            left = visibleColumn * alignmentView.getRenderedCellWidthCss();
+        }
+        if (row != null) {
+            if (!Number.isInteger(row) || row < 0 || row >= alignmentStore.totalRows) {
+                throw new RangeError(`Row must be within [0, ${alignmentStore.totalRows}).`);
+            }
+            top = row * alignmentView.getRenderedCellHeightCss();
+        }
+        this.#scrollAlignmentTo(left, top, behavior);
+        return true;
+    }
+
+    getColumnRect({ rawColumn } = {}) {
+        const alignmentStore = this.#activeStore();
+        const alignmentView = this.alignmentView;
+        if (!alignmentStore || !alignmentView) return null;
+        if (!Number.isInteger(rawColumn) || rawColumn < 0 || rawColumn >= alignmentStore.totalCols) {
+            return null;
+        }
+        const columnVisibility = this.#activeRepresentation()?.columnVisibility ?? null;
+        const visibleColumn = columnVisibility?.rawToVisible?.[rawColumn] ?? rawColumn;
+        if (visibleColumn < 0) return null;
+
+        const bounds = alignmentView.getViewportBounds();
+        const width = alignmentView.getRenderedCellWidthCss();
+        const left = bounds.left + (visibleColumn * width) - alignmentView.getScrollLeft();
+        return {
+            rawColumn,
+            visibleColumn,
+            left,
+            top: bounds.top,
+            right: left + width,
+            bottom: bounds.top + bounds.height,
+            width,
+            height: bounds.height,
+        };
     }
 
     setZoom(zoom, { clientX, clientY } = {}) {
@@ -578,6 +754,7 @@ export class MSAViewer {
     }
 
     #clearActiveInteractionState() {
+        this.#cancelScrollAnimation();
         this.decodedTileCache.clear();
         this.#clearWindowState();
         this.selectionController?.clearHover();
@@ -611,6 +788,7 @@ export class MSAViewer {
 
     #destroyRuntime() {
         this.#cancelRender();
+        this.#cancelScrollAnimation();
         this.uploadTask.cancel();
         this.minimapTask.cancel();
 
@@ -1044,6 +1222,7 @@ export class MSAViewer {
             onSetScrolling: (isScrolling) => {
                 this.isScrolling = isScrolling;
             },
+            onViewportChange: () => this.#emitViewportChange(),
         });
         this.selectionController = new SelectionController({
             state: this.state,
@@ -1330,12 +1509,18 @@ export class MSAViewer {
 
         const zoomTarget = this.alignmentView?.getInteractionTarget?.();
         const onWheel = (event) => {
+            this.#cancelScrollAnimation();
             if ((!event.ctrlKey && !event.metaKey) || event.deltaY === 0) return;
             event.preventDefault();
             event.deltaY < 0 ? this.zoomIn(event) : this.zoomOut(event);
         };
         zoomTarget?.addEventListener("wheel", onWheel, { passive: false });
         this.cleanup.push(() => zoomTarget?.removeEventListener("wheel", onWheel));
+
+        const alignmentRoot = this.alignmentView?.root;
+        const onPointerDown = () => this.#cancelScrollAnimation();
+        alignmentRoot?.addEventListener("pointerdown", onPointerDown, { capture: true });
+        this.cleanup.push(() => alignmentRoot?.removeEventListener("pointerdown", onPointerDown, { capture: true }));
 
         const onThemeChange = (event) => this.#handleThemeChange(event);
         this.themeMedia.addEventListener("change", onThemeChange);
@@ -1399,6 +1584,7 @@ export class MSAViewer {
         };
         const delta = deltaByKey[event.key];
         if (!delta) return;
+        this.#cancelScrollAnimation();
         const scrollBy = this.alignmentView?.scrollBy?.bind(this.alignmentView)
             ?? ((nextDelta) => this.alignmentView?.scroller?.scrollBy?.(nextDelta));
         scrollBy(delta);

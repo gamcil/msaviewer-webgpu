@@ -424,12 +424,52 @@ export interface ZoomChangeDetail {
   cellHeight: number;
 }
 
+export interface ViewportSnapshot {
+  representationId: RepresentationId | null;
+  totalRows: number;
+  totalCols: number;
+  visibleColumnCount: number;
+  scrollLeft: number;
+  scrollTop: number;
+  width: number;
+  height: number;
+  cellWidth: number;
+  cellHeight: number;
+  zoom: number;
+  rowStart: number;
+  rowEnd: number;
+  visibleColumnStart: number;
+  visibleColumnEnd: number;
+}
+
+export interface ScrollToOptions {
+  rawColumn?: number | null;
+  row?: number | null;
+  behavior?: "auto" | "smooth";
+}
+
+export interface ColumnRect {
+  rawColumn: number;
+  visibleColumn: number;
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+  width: number;
+  height: number;
+}
+
+export interface ViewportChangeDetail {
+  viewport: ViewportSnapshot;
+}
+
 export interface MSAViewerEventMap {
   sequenceclick: CustomEvent<SequenceClickDetail>;
   cellhover: CustomEvent<CellHoverDetail>;
   selectionchange: CustomEvent<SelectionChangeDetail>;
   visibilitychange: CustomEvent<VisibilityChangeDetail>;
   zoomchange: CustomEvent<ZoomChangeDetail>;
+  viewportchange: CustomEvent<ViewportChangeDetail>;
   error: CustomEvent<ViewerErrorDetail>;
 }
 
@@ -451,6 +491,9 @@ export class MSAViewer {
 
   getConfig(): MSAViewerConfig;
   getZoom(): number;
+  getViewport(): ViewportSnapshot | null;
+  scrollTo(options: ScrollToOptions): boolean;
+  getColumnRect(options: { rawColumn: number }): ColumnRect | null;
   getBackend(): ResolvedBackend;
   getRepresentations(): RepresentationSummary[];
   getActiveRepresentation(): RepresentationSummary | null;

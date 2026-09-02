@@ -116,6 +116,26 @@ Hold Ctrl (or Cmd on macOS) while scrolling over the alignment to zoom around th
 
 `getColumnMetrics()` and `getConsensus()` expose independent snapshots of the viewer's computed alignment data for embedding applications. Both accept an optional `representationId` and an exclusive-end `rawColumnRange`; metrics can also be limited to named fields. The returned alphabet descriptor defines the symbol order used by consensus indices and residue frequencies.
 
+## Viewport Integration
+
+Embedding applications can navigate the alignment and position their own UI without accessing the viewer's shadow DOM. `getViewport()` reports rendered rows and visible-column coordinates; visible columns are distinct from raw columns when insertion columns are hidden.
+
+```js
+viewer.scrollTo({ rawColumn: 420, row: 17, behavior: "smooth" });
+
+const rect = viewer.getColumnRect({ rawColumn: 420 });
+if (rect) {
+  // Client-coordinate rectangle for a visible raw column.
+  externalMarker.style.left = `${rect.left}px`;
+}
+
+viewer.addEventListener("viewportchange", ({ detail: { viewport } }) => {
+  // Reposition external UI after scrolling, zooming, or layout changes.
+});
+```
+
+`getColumnRect()` returns `null` for a hidden raw column. When navigating to one, `scrollTo()` targets the nearest visible column. `rawColumn` and `row` are independent optional targets; each supplied coordinate is positioned at the start of its axis, subject to the alignment boundary.
+
 ## Custom Color Schemes
 
 Register column-driven schemes before selecting them in the viewer config. Custom schemes compile the input values into one packed color per column, so the original values are not retained. If data is already loaded, the `values` length must match the active alignment column count.
