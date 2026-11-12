@@ -151,6 +151,11 @@ export function normalizeViewerOptions(rawOptions = {}, { schemes = BUILT_IN_COL
         ? normalizedRendering.scheme
         : DEFAULT_VIEWER_OPTIONS.rendering.scheme;
     normalizedRendering.schemeSourceRepresentationId = rawOptions.rendering?.schemeSourceRepresentationId ?? normalizedRendering.schemeSourceRepresentationId ?? null;
+    const gridlines = rawOptions.rendering?.gridlines;
+    normalizedRendering.gridlines = gridlines === "empty"
+        ? "empty"
+        : gridlines === true || gridlines === "true";
+    normalizedRendering.fullPanelColumnHighlights = rawOptions.rendering?.fullPanelColumnHighlights === true;
     const normalizedTrackDisplay = mergeObjects(DEFAULT_VIEWER_OPTIONS.trackDisplay, rawOptions.trackDisplay);
     normalizedTrackDisplay.defaults = normalizeTrackDefaults(rawOptions.trackDisplay?.defaults ?? normalizedTrackDisplay.defaults);
     normalizedTrackDisplay.variants = normalizeTrackVariants(rawOptions.trackDisplay?.variants ?? normalizedTrackDisplay.variants);

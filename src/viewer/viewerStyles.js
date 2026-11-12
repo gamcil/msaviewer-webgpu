@@ -17,6 +17,9 @@ export const AUTO_LAYOUT_CSS = `
     --msa-ui-font-family: "IBM Plex Sans", sans-serif;
     --msa-ui-font-size: 13px;
     --msa-grid-line: rgba(0, 0, 0, 0.05);
+    --msa-grid-pattern:
+        linear-gradient(90deg, var(--msa-grid-line) 1px, transparent 1px),
+        linear-gradient(var(--msa-grid-line) 1px, transparent 1px);
     --msa-scroller-bg: #fff;
     --msa-header-bg: #f0f0f0;
     --msa-header-border: rgba(30, 30, 30, 0.1);
@@ -233,10 +236,7 @@ export const AUTO_LAYOUT_CSS = `
 .viewer-body.is-unloaded .msa-alignment-content-column,
 .viewer-body.is-unloaded .msa-alignment-horizontal-scroller,
 .viewer-body.is-unloaded .msa-alignment-viewport {
-    background:
-        linear-gradient(90deg, var(--msa-grid-line) 1px, transparent 1px),
-        linear-gradient(var(--msa-grid-line) 1px, transparent 1px),
-        var(--msa-scroller-bg);
+    background: var(--msa-grid-pattern), var(--msa-scroller-bg);
     background-size: 16px 16px;
 }
 
@@ -254,6 +254,15 @@ export const AUTO_LAYOUT_CSS = `
     height: 100%;
     display: block;
     pointer-events: none;
+}
+
+.msa-alignment-grid-overlay {
+    position: absolute;
+    left: 0;
+    right: 0;
+    pointer-events: none;
+    background-image: var(--msa-grid-pattern);
+    background-repeat: repeat;
 }
 
 .msa-track-row {

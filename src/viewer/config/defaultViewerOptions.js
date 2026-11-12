@@ -53,5 +53,7 @@ export const DEFAULT_VIEWER_OPTIONS = {
         backend: "auto",
         scheme: "clustalx",
         schemeSourceRepresentationId: null,
+        gridlines: false,
+        fullPanelColumnHighlights: false,
     },
 };

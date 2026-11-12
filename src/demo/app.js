@@ -49,6 +49,8 @@ const DEMO_CONFIG = {
     rendering: {
         backend: "auto",
         scheme: "clustalx",
+        gridlines: "empty",
+        fullPanelColumnHighlights: true,
     },
 };
 

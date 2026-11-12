@@ -110,7 +110,9 @@ function configChanges(partial = {}) {
         selectionMode: partial.behavior?.selectionMode != null,
         rendering: partial.rendering?.scheme != null
             || partial.rendering?.schemeSourceRepresentationId !== undefined
-            || partial.rendering?.backend != null,
+            || partial.rendering?.backend != null
+            || partial.rendering?.gridlines != null
+            || partial.rendering?.fullPanelColumnHighlights != null,
     };
 }
 
@@ -918,6 +920,11 @@ export class MSAViewer {
     }
 
     async #applyRendering(nextOptions, previousOptions) {
+        this.alignmentView?.overlayPainter?.setDisplayOptions({
+            fullPanelColumnHighlights: nextOptions.rendering.fullPanelColumnHighlights,
+        });
+        this.alignmentView?.setGridlines?.(nextOptions.rendering.gridlines);
+        this.alignmentView?.renderOverlays?.();
         const nextBackend = resolveRenderingBackendKind(nextOptions.rendering.backend, {
             hasWebGPU: typeof navigator !== "undefined" && !!navigator.gpu,
         });
@@ -1238,6 +1245,10 @@ export class MSAViewer {
             headerVisible: this.viewerConfig.visibility.header,
             rulerVisible: this.viewerConfig.visibility.ruler,
         });
+        this.alignmentView.overlayPainter.setDisplayOptions({
+            fullPanelColumnHighlights: this.options.rendering.fullPanelColumnHighlights,
+        });
+        this.alignmentView.setGridlines(this.options.rendering.gridlines);
         this.alignmentView.setColumnMarkers(this.columnMarkers);
         this.roots.header = this.alignmentView.headerSlot;
         this.roots.ruler = this.alignmentView.rulerSlot;
@@ -1398,8 +1409,11 @@ export class MSAViewer {
         const snapshot = this.state.getSnapshot();
         const visibleCol = Math.floor(contentX / cellWidth);
         const visibleColCount = this.#activeRepresentation()?.columnVisibility?.visibleCount ?? snapshot.alignment.totalCols;
-        const row = Math.floor(contentY / cellHeight);
-        if (visibleCol < 0 || visibleCol >= visibleColCount || row < 0 || row >= snapshot.alignment.totalRows) {
+        let row = Math.floor(contentY / cellHeight);
+        if (row >= snapshot.alignment.totalRows && this.state.getSelectionMode() === "column") {
+            row = -1;
+        }
+        if (visibleCol < 0 || visibleCol >= visibleColCount || row < -1 || row >= snapshot.alignment.totalRows) {
             return null;
         }
         const columnVisibility = this.#activeRepresentation()?.columnVisibility;
@@ -1432,7 +1446,7 @@ export class MSAViewer {
         const version = ++this.cellHoverVersion;
         const active = this.#activeRepresentation();
         const store = active?.store ?? null;
-        const rowIndex = cell?.row ?? null;
+        const rowIndex = Number.isInteger(cell?.row) && cell.row >= 0 ? cell.row : null;
         const rawColumn = cell?.col ?? null;
         const visibleColumn = cell?.visibleCol ?? null;
         const symbol = rowIndex == null || visibleColumn == null

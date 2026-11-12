@@ -21,6 +21,7 @@ const ALIGNMENT_VIEW_TEMPLATE = `
                     <div data-view="verticalScroller" class="msa-alignment-vertical-scroller">
                         <div data-view="spacer" class="msa-alignment-spacer"></div>
                     </div>
+                    <div data-view="gridOverlay" class="msa-alignment-grid-overlay" aria-hidden="true"></div>
                     <canvas data-view="motifOverlay" class="msa-alignment-motif-canvas"></canvas>
                     <canvas data-view="overlay" class="msa-alignment-overlay-canvas"></canvas>
                     <div data-view="interactionProxy" class="msa-alignment-interaction-proxy">
@@ -56,6 +57,7 @@ export class AlignmentView {
         this.loaded = true;
         this.totalCols = 0;
         this.totalRows = 0;
+        this.gridlineMode = false;
         this.contentWidth = 0;
         this.contentHeight = 0;
 
@@ -65,7 +67,7 @@ export class AlignmentView {
             this[el.dataset.view] = el;
         }
         this.canvas = this.surfaceRenderer.canvas;
-        this.alignmentShell.insertBefore(this.canvas, this.motifOverlay);
+        this.alignmentShell.insertBefore(this.canvas, this.gridOverlay);
         this.motifContext = this.motifOverlay.getContext("2d");
         this.overlayContext = this.overlay.getContext("2d");
         this.scroller = this.verticalScroller;
@@ -327,6 +329,28 @@ export class AlignmentView {
         this.renderOverlays();
     }
 
+    setGridlines(mode) {
+        this.gridlineMode = mode === "empty" ? "empty" : mode === true ? true : false;
+    }
+
+    renderGridOverlay() {
+        if (!this.gridOverlay) return;
+        const enabled = this.gridlineMode !== false;
+        this.gridOverlay.hidden = !enabled;
+        if (!enabled) return;
+        const cellWidth = this.getRenderedCellWidthCss();
+        const cellHeight = this.getRenderedCellHeightCss();
+        this.gridOverlay.style.width = `${this.getViewportWidthCss()}px`;
+        this.gridOverlay.style.right = "auto";
+        const top = this.gridlineMode === "empty"
+            ? Math.max(0, this.totalRows * cellHeight - this.getScrollTop())
+            : 0;
+        this.gridOverlay.style.top = `${top}px`;
+        this.gridOverlay.style.height = `${Math.max(0, this.getViewportHeightCss() - top)}px`;
+        this.gridOverlay.style.backgroundSize = `${cellWidth}px ${cellHeight}px`;
+        this.gridOverlay.style.backgroundPosition = `${-this.getScrollLeft()}px ${this.gridlineMode === "empty" ? 0 : -this.getScrollTop()}px`;
+    }
+
     renderMotifOverlay() {
         const dpr = window.devicePixelRatio || 1;
         const cellWidthCss = this.getRenderedCellWidthCss();
@@ -366,6 +390,7 @@ export class AlignmentView {
     }
 
     renderOverlays() {
+        this.renderGridOverlay();
         this.renderMotifOverlay();
         this.renderSelectionOverlay();
     }
@@ -424,6 +449,7 @@ export class AlignmentView {
         this.contentWidth = this.totalCols * this.getRenderedCellWidthCss();
         this.contentHeight = totalRows * this.getRenderedCellHeightCss();
         this.applyContentSize();
+        this.renderGridOverlay();
     }
 
     scrollBy({ left = 0, top = 0 } = {}) {

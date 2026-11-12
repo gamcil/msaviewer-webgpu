@@ -45,7 +45,7 @@ ACD-FGHIK`;
   const viewer = new MSAViewer({
     root,
     config: {
-      rendering: { scheme: "pid" },
+      rendering: { scheme: "pid", gridlines: "empty", fullPanelColumnHighlights: true },
     },
   });
   const { active } = await viewer.loadData({
@@ -58,6 +58,8 @@ ACD-FGHIK`;
   console.log(`Loaded ${active.totalRows} sequences x ${active.totalCols} columns`);
 </script>
 ```
+
+`rendering.gridlines` accepts `false` (off), `true` (cell grid), or `"empty"` (grid only below the alignment rows).
 
 `loadData()` also accepts an array when loading multiple representations. The first item becomes active unless `activeId` is provided.
 

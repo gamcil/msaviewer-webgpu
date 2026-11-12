@@ -23,6 +23,11 @@ export class AlignmentOverlayPainter {
         this.columnVisibility = null;
         this.columnMarkers = [];
         this.motifHitsByRow = null;
+        this.fullPanelColumnHighlights = false;
+    }
+
+    setDisplayOptions({ fullPanelColumnHighlights = this.fullPanelColumnHighlights } = {}) {
+        this.fullPanelColumnHighlights = fullPanelColumnHighlights === true;
     }
 
     setSelectionState({
@@ -115,6 +120,7 @@ export class AlignmentOverlayPainter {
         const cellHeightPx = Math.max(1, Math.round(cellHeightCss * dpr));
         const heightPx = (rowEnd - rowStart) * cellHeightPx;
         const geometry = this.buildOverlayGeometry({ colStart, colEnd, rowStart, rowEnd });
+        const fullPanelColumns = this.fullPanelColumnHighlights && this.selectionMode === "column";
 
         this.drawColumnMarkers({
             colStart,
@@ -136,6 +142,7 @@ export class AlignmentOverlayPainter {
             strokeStyle: this.getSelectionStrokeStyle(),
             dashed: true,
             dpr,
+            fullPanel: fullPanelColumns,
         });
         this.drawCellSelectionUnion({
             rowIntervals: geometry.previewRowIntervals,
@@ -149,6 +156,7 @@ export class AlignmentOverlayPainter {
             strokeStyle: "rgba(0, 122, 178, 0.95)",
             dashed: false,
             dpr,
+            fullPanel: fullPanelColumns,
         });
 
         this.overlayContext.strokeStyle = this.getSelectionStrokeStyle();
@@ -169,7 +177,7 @@ export class AlignmentOverlayPainter {
                 }
             } else {
                 const x = (geometry.hoveredVisibleCol - colStart) * cellWidthPx - localScrollLeftPx;
-                this.overlayContext.strokeRect(x + 0.5, 0.5, Math.max(0, cellWidthPx - 1), Math.max(0, heightPx - 1));
+                this.overlayContext.strokeRect(x + 0.5, 0.5, Math.max(0, cellWidthPx - 1), Math.max(0, this.overlay.height - 1));
             }
         }
     }
@@ -236,18 +244,30 @@ export class AlignmentOverlayPainter {
         strokeStyle,
         dashed,
         dpr,
+        fullPanel = false,
     }) {
         if (rowIntervals.size === 0) return;
+
+        if (fullPanel) {
+            const mergedIntervals = [...rowIntervals.values()].flat().sort((a, b) => a.colStart - b.colStart || a.colEnd - b.colEnd)
+                .reduce((merged, interval) => {
+                    const last = merged[merged.length - 1];
+                    if (last && interval.colStart <= last.colEnd) last.colEnd = Math.max(last.colEnd, interval.colEnd);
+                    else merged.push({ ...interval });
+                    return merged;
+                }, []);
+            rowIntervals = new Map([[rowStart, mergedIntervals]]);
+        }
 
         const lineWidth = dashed ? Math.max(1.2, Math.round(1.2 * dpr)) : Math.max(1, Math.round(dpr));
         drawSelectionUnion({
             context: this.overlayContext,
             rowIntervals,
-            getRowY: (row) => (row - rowStart) * cellHeightPx - localScrollTopPx,
-            getRowHeight: () => cellHeightPx,
+            getRowY: (row) => fullPanel ? 0 : (row - rowStart) * cellHeightPx - localScrollTopPx,
+            getRowHeight: () => fullPanel ? this.overlay.height : cellHeightPx,
             getIntervalX: (interval) => (interval.colStart - colStart) * cellWidthPx - localScrollLeftPx,
             getIntervalWidth: (interval) => (interval.colEnd - interval.colStart) * cellWidthPx,
-            washFillStyle: this.getSelectionWashFillStyle(),
+            washFillStyle: fullPanel ? "rgba(255, 255, 255, 0)" : this.getSelectionWashFillStyle(),
             fillStyle,
             strokeStyle,
             lineWidth,
